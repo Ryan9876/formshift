@@ -13,7 +13,7 @@ export function PlanCanvas(props: { snapshot?: SpatialSnapshot; editable?: boole
           <ActivityIndicator color={tokens.color.blue} />
         </View>
       }
-      {...props}
+      componentProps={props}
     />
   );
 }
