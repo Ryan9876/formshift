@@ -21,9 +21,13 @@ type SavedCapture = {
 
 export function CaptureSpace({
   lidarAvailable,
+  projectId,
+  spaceId,
   onSaved
 }: {
   lidarAvailable: boolean;
+  projectId?: string;
+  spaceId?: string;
   onSaved?: (capture: SavedCapture) => void;
 }) {
   const auth = useAuth();
@@ -103,64 +107,98 @@ export function CaptureSpace({
     try {
       const userId = auth.session.user.id;
 
-      let { data: project, error: projectLookupError } = await supabase
-        .from('projects')
-        .select('id, name')
-        .eq('owner_user_id', userId)
-        .eq('status', 'active')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
+      let project: { id: string; name: string } | null = null;
 
-      if (projectLookupError) throw projectLookupError;
-
-      if (!project) {
-        const created = await supabase
+      if (projectId) {
+        const projectLookup = await supabase
           .from('projects')
-          .insert({
-            owner_user_id: userId,
-            name: 'My Home'
-          });
+          .select('id, name')
+          .eq('id', projectId)
+          .eq('status', 'active')
+          .maybeSingle();
 
-        if (created.error) throw created.error;
-
-        const createdProject = await supabase
+        if (projectLookup.error) throw projectLookup.error;
+        project = projectLookup.data;
+      } else {
+        const projectLookup = await supabase
           .from('projects')
           .select('id, name')
           .eq('owner_user_id', userId)
           .eq('status', 'active')
           .order('created_at', { ascending: true })
           .limit(1)
-          .single();
+          .maybeSingle();
 
-        if (createdProject.error) throw createdProject.error;
-        project = createdProject.data;
+        if (projectLookup.error) throw projectLookup.error;
+        project = projectLookup.data;
+
+        if (!project) {
+          const created = await supabase
+            .from('projects')
+            .insert({
+              owner_user_id: userId,
+              name: 'My Home'
+            });
+
+          if (created.error) throw created.error;
+
+          const createdProject = await supabase
+            .from('projects')
+            .select('id, name')
+            .eq('owner_user_id', userId)
+            .eq('status', 'active')
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single();
+
+          if (createdProject.error) throw createdProject.error;
+          project = createdProject.data;
+        }
       }
 
-      let { data: space, error: spaceLookupError } = await supabase
-        .from('spaces')
-        .select('id, name')
-        .eq('project_id', project.id)
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
+      if (!project) throw new Error('No editable FormShift project is available.');
 
-      if (spaceLookupError) throw spaceLookupError;
+      let space: { id: string; name: string } | null = null;
 
-      if (!space) {
-        const created = await supabase
+      if (spaceId) {
+        const spaceLookup = await supabase
           .from('spaces')
-          .insert({
-            project_id: project.id,
-            name: 'Room 1',
-            space_type: 'room'
-          })
           .select('id, name')
-          .single();
+          .eq('id', spaceId)
+          .eq('project_id', project.id)
+          .maybeSingle();
 
-        if (created.error) throw created.error;
-        space = created.data;
+        if (spaceLookup.error) throw spaceLookup.error;
+        space = spaceLookup.data;
+      } else {
+        const spaceLookup = await supabase
+          .from('spaces')
+          .select('id, name')
+          .eq('project_id', project.id)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (spaceLookup.error) throw spaceLookup.error;
+        space = spaceLookup.data;
+
+        if (!space) {
+          const created = await supabase
+            .from('spaces')
+            .insert({
+              project_id: project.id,
+              name: 'Room 1',
+              space_type: 'room'
+            })
+            .select('id, name')
+            .single();
+
+          if (created.error) throw created.error;
+          space = created.data;
+        }
       }
+
+      if (!space) throw new Error('No FormShift room is available for this capture.');
 
       const extension =
         asset.fileName?.split('.').pop()?.toLowerCase() ||

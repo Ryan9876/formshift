@@ -1,11 +1,14 @@
 import type { Mode } from '@formshift/domain';
 import { isRoomPlanSupported } from '@formshift/formshift-roomplan';
 import React, { useEffect, useState } from 'react';
-import { Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Image, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { AddObjectCard } from '../components/AddObjectCard';
 import { BrandMark } from '../components/BrandMark';
 import { CaptureSpace } from '../components/CaptureSpace';
 import { ModeSwitch } from '../components/ModeSwitch';
 import { PlanCanvas } from '../components/PlanCanvas';
+import { RoomSetupCard } from '../components/RoomSetupCard';
+import { useRoomWorkspace } from '../data/useRoomWorkspace';
 import { tokens } from '../theme/tokens';
 import { useAuth } from '../auth/AuthProvider';
 
@@ -15,7 +18,13 @@ export function FormShiftHome() {
   const { width } = useWindowDimensions();
   const compact = width < 780;
   const auth = useAuth();
+  const workspace = useRoomWorkspace();
+
   useEffect(() => { isRoomPlanSupported().then(setLidar).catch(() => setLidar(false)); }, []);
+
+  const titleContext = workspace.project && workspace.space
+    ? `${workspace.project.name.toUpperCase()} · ${workspace.space.name.toUpperCase()}`
+    : 'NEW SPACE';
 
   return (
     <SafeAreaView style={styles.page}>
@@ -23,35 +32,63 @@ export function FormShiftHome() {
       <View style={[styles.shell, compact && styles.shellCompact]}>
         <View style={[styles.nav, compact && styles.navCompact]}>
           <View style={styles.brandRow}><BrandMark /><View><Text style={styles.brand}>FormShift</Text><Text style={styles.tagline}>Shape the space around you.</Text></View></View>
-          {!compact && <View style={styles.navList}><NavItem active label="Studio" meta="Current room"/><NavItem label="Projects" meta="Saved spaces"/><NavItem label="Measurements" meta="Verified + estimated"/><NavItem label="Exports" meta="Plans & materials"/></View>}
+          {!compact && <View style={styles.navList}><NavItem active label="Studio" meta={workspace.space?.name ?? 'Capture a room'}/><NavItem label="Projects" meta={workspace.project?.name ?? 'No project yet'}/><NavItem label="Measurements" meta={measurementLabel(workspace.measurementSummary)}/><NavItem label="Exports" meta="Plans & materials"/></View>}
           {!compact && <View style={styles.statusCard}>
             <Text style={styles.statusTitle}>Capture capability</Text>
             <Text style={styles.statusValue}>{Platform.OS === 'ios' && lidar ? 'LiDAR / RoomPlan ready' : 'Photo + manual measurement'}</Text>
-            <Text style={styles.statusHint}>LiDAR enhances capture; it is never required.</Text>
+            <Text style={styles.statusHint}>Photos provide visual evidence. Measured geometry remains authoritative.</Text>
           </View>}
         </View>
 
         <ScrollView contentContainerStyle={styles.content} style={styles.workspace}>
           <View style={[styles.top, compact && styles.topCompact]}>
-            <View><Text style={styles.eyebrow}>HOME OFFICE · BASELINE</Text><Text style={styles.title}>Make the room work better.</Text><Text style={styles.subtitle}>{copyFor(mode)}</Text>{compact ? <Text style={styles.mobileCapability}>{Platform.OS === 'ios' && lidar ? 'LiDAR / RoomPlan ready' : 'Photo + manual measurement'}</Text> : null}</View>
+            <View>
+              <Text style={styles.eyebrow}>{titleContext}</Text>
+              <Text style={styles.title}>{workspace.space ? `Make ${workspace.space.name} work better.` : 'Capture a room to begin.'}</Text>
+              <Text style={styles.subtitle}>{copyFor(mode, !!workspace.workingSnapshot, workspace.workingSnapshot?.objects.length ?? 0)}</Text>
+              {compact ? <Text style={styles.mobileCapability}>{Platform.OS === 'ios' && lidar ? 'LiDAR / RoomPlan ready' : 'Photo + manual measurement'}</Text> : null}
+            </View>
             <View style={styles.topActions}>
-              <CaptureSpace lidarAvailable={Platform.OS === 'ios' && lidar} />
+              <CaptureSpace
+                lidarAvailable={Platform.OS === 'ios' && lidar}
+                projectId={workspace.project?.id}
+                spaceId={workspace.space?.id}
+                onSaved={() => { void workspace.refresh(); }}
+              />
               <ModeSwitch value={mode} onChange={setMode} />
             </View>
           </View>
 
+          {workspace.error ? <View style={styles.errorBanner}><Text style={styles.errorText}>{workspace.error}</Text><Pressable onPress={() => void workspace.refresh()}><Text style={styles.errorAction}>Retry</Text></Pressable></View> : null}
+
           <View style={[styles.mainGrid, compact && styles.mainGridCompact]}>
-            <View style={styles.canvasCard}><PlanCanvas editable={mode === 'arrange'} /></View>
+            <View style={styles.canvasCard}>
+              {workspace.loading ? <LoadingCard /> : null}
+              {!workspace.loading && !workspace.space ? <EmptyRoomCard /> : null}
+              {!workspace.loading && workspace.space && !workspace.workingSnapshot ? (
+                <RoomSetupCard busy={workspace.busy} onCreate={workspace.initializeRoom} />
+              ) : null}
+              {!workspace.loading && workspace.workingSnapshot ? (
+                <PlanCanvas
+                  snapshot={workspace.workingSnapshot}
+                  editable={mode === 'arrange'}
+                  onSnapshotChange={workspace.setWorkingSnapshot}
+                />
+              ) : null}
+            </View>
+
             <View style={styles.sideRail}>
-              {mode === 'organize' && <OrganizePanel />}
-              {mode === 'arrange' && <ArrangePanel />}
-              {mode === 'build' && <BuildPanel />}
-              <View style={styles.confidenceCard}><Text style={styles.cardEyebrow}>MEASUREMENT STATE</Text><Text style={styles.metric}>Measured</Text><Text style={styles.cardBody}>Room boundary captured with mixed evidence. Build-critical dimensions still require confirmation.</Text></View>
+              {workspace.photoUrl ? <PhotoCard url={workspace.photoUrl} /> : null}
+              {mode === 'organize' && <OrganizePanel hasPlan={!!workspace.workingSnapshot} objectCount={workspace.workingSnapshot?.objects.length ?? 0} />}
+              {mode === 'arrange' && <ArrangePanel hasPlan={!!workspace.workingSnapshot} dirty={workspace.dirty} busy={workspace.busy} onSave={workspace.saveArrangement} onDiscard={workspace.discardArrangement} />}
+              {mode === 'arrange' && workspace.workingSnapshot ? <AddObjectCard busy={workspace.busy} onAdd={workspace.addObject} /> : null}
+              {mode === 'build' && <BuildPanel hasPlan={!!workspace.workingSnapshot} measurementSummary={workspace.measurementSummary} />}
+              <MeasurementCard summary={workspace.measurementSummary} />
             </View>
           </View>
 
           <View style={styles.footerRow}>
-            <Text style={styles.footerText}>Milestone 0 · shared spatial state</Text>
+            <Text style={styles.footerText}>Phase 1 · real room workspace</Text>
             <Text style={styles.footerText}>{auth.configured ? `Auth: ${auth.session ? auth.access : 'ready'}` : 'Auth: awaiting Supabase project'}</Text>
           </View>
         </ScrollView>
@@ -59,11 +96,61 @@ export function FormShiftHome() {
     </SafeAreaView>
   );
 }
-function NavItem({ label, meta, active = false }: { label: string; meta: string; active?: boolean }) { return <View style={[styles.navItem, active && styles.navItemActive]}><Text style={styles.navLabel}>{label}</Text><Text style={styles.navMeta}>{meta}</Text></View>; }
-function OrganizePanel(){return <View style={styles.glassCard}><Text style={styles.cardEyebrow}>TOP OPPORTUNITY</Text><Text style={styles.cardTitle}>Open the entry path</Text><Text style={styles.cardBody}>Move storage beside the desk and group office supplies together. The proposal preserves the measured cabinet footprint.</Text><View style={styles.benefit}><Text style={styles.benefitText}>+ clearer circulation</Text></View><Pressable style={styles.primary}><Text style={styles.primaryText}>Preview result</Text></Pressable></View>}
-function ArrangePanel(){return <View style={styles.glassCard}><Text style={styles.cardEyebrow}>ARRANGE</Text><Text style={styles.cardTitle}>Drag without dimension drift</Text><Text style={styles.cardBody}>Select an object on the plan and drag it. Translation changes; its physical width, depth, and height remain canonical.</Text><View style={styles.benefit}><Text style={styles.benefitText}>Skia precision editor spike</Text></View></View>}
-function BuildPanel(){return <View style={styles.glassCard}><Text style={styles.cardEyebrow}>BUILD BRIEF</Text><Text style={styles.cardTitle}>Describe what the room needs</Text><Text style={styles.cardBody}>“Build a 72-inch wall shelf over the desk with adjustable storage below.” AI converts the brief to structured requirements; deterministic geometry decides what fits.</Text><Pressable style={styles.primary}><Text style={styles.primaryText}>Start a build</Text></Pressable></View>}
-function copyFor(mode: Mode) { if(mode==='organize') return 'FormShift is already looking for better placement, access, grouping, and use of the available space.'; if(mode==='arrange') return 'Move and add objects directly while the spatial model protects their measured dimensions.'; return 'Describe an item to build. FormShift will design, place, dimension, price, and estimate the effort.'; }
+
+function NavItem({ label, meta, active = false }: { label: string; meta: string; active?: boolean }) {
+  return <View style={[styles.navItem, active && styles.navItemActive]}><Text style={styles.navLabel}>{label}</Text><Text style={styles.navMeta}>{meta}</Text></View>;
+}
+
+function LoadingCard() {
+  return <View style={styles.stateCard}><ActivityIndicator color={tokens.color.blue}/><Text style={styles.stateTitle}>Loading your room…</Text><Text style={styles.stateBody}>FormShift is restoring the latest captured room and committed spatial version.</Text></View>;
+}
+
+function EmptyRoomCard() {
+  return <View style={styles.stateCard}><Text style={styles.cardEyebrow}>START HERE</Text><Text style={styles.stateTitle}>Capture your first room.</Text><Text style={styles.stateBody}>Use Capture Space above. After the photo is saved, enter measured dimensions to create the room's authoritative geometry.</Text></View>;
+}
+
+function PhotoCard({ url }: { url: string }) {
+  return <View style={styles.photoCard}><Text style={styles.cardEyebrow}>ROOM PHOTO</Text><Image source={{ uri: url }} resizeMode="cover" style={styles.photo}/><Text style={styles.photoHint}>Private source image · visual evidence, not automatic scale</Text></View>;
+}
+
+function OrganizePanel({ hasPlan, objectCount }: { hasPlan: boolean; objectCount: number }) {
+  const title = !hasPlan ? 'Measure the room first' : objectCount === 0 ? 'Add the objects you want to organize' : 'Real room ready for analysis';
+  const body = !hasPlan
+    ? 'Organize needs a spatial boundary before it can evaluate circulation, grouping, access, or placement.'
+    : objectCount === 0
+      ? 'Add measured furniture and storage in Arrange. FormShift will use those exact footprints for organization proposals.'
+      : `FormShift now has ${objectCount} real ${objectCount === 1 ? 'object' : 'objects'} and a persistent room boundary. AI organization proposals are the next implementation slice.`;
+  return <View style={styles.glassCard}><Text style={styles.cardEyebrow}>ORGANIZE</Text><Text style={styles.cardTitle}>{title}</Text><Text style={styles.cardBody}>{body}</Text>{hasPlan && objectCount > 0 ? <View style={styles.benefit}><Text style={styles.benefitText}>spatial substrate ready</Text></View> : null}</View>;
+}
+
+function ArrangePanel({ hasPlan, dirty, busy, onSave, onDiscard }: { hasPlan: boolean; dirty: boolean; busy: boolean; onSave: () => Promise<void>; onDiscard: () => void }) {
+  if (!hasPlan) return <View style={styles.glassCard}><Text style={styles.cardEyebrow}>ARRANGE</Text><Text style={styles.cardTitle}>Room dimensions required</Text><Text style={styles.cardBody}>Create the room boundary first. Arrange will then preserve dimensions while you move real objects.</Text></View>;
+  return <View style={styles.glassCard}><Text style={styles.cardEyebrow}>ARRANGE</Text><Text style={styles.cardTitle}>Move objects without dimension drift</Text><Text style={styles.cardBody}>Drag an object directly. The working layout changes locally until you save it as a new immutable spatial version.</Text><View style={styles.benefit}><Text style={styles.benefitText}>{dirty ? 'unsaved layout changes' : 'latest layout saved'}</Text></View>{dirty ? <View style={styles.actionRow}><Pressable disabled={busy} style={[styles.primary, styles.actionGrow, busy && styles.disabled]} onPress={() => void onSave()}><Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save arrangement'}</Text></Pressable><Pressable disabled={busy} style={styles.secondaryButton} onPress={onDiscard}><Text style={styles.secondaryText}>Discard</Text></Pressable></View> : null}</View>;
+}
+
+function BuildPanel({ hasPlan, measurementSummary }: { hasPlan: boolean; measurementSummary: string }) {
+  const verified = measurementSummary === 'measured';
+  return <View style={styles.glassCard}><Text style={styles.cardEyebrow}>BUILD</Text><Text style={styles.cardTitle}>{!hasPlan ? 'Measure the room first' : verified ? 'Measured room ready for build planning' : 'Build planning can start, verification cannot'}</Text><Text style={styles.cardBody}>{!hasPlan ? 'Build placement requires a real room boundary.' : verified ? 'The room boundary is user-confirmed. Build-critical object and attachment measurements will still be checked before a dimension-verified plan.' : 'Approximate geometry is useful for visual planning, but FormShift will not promote it to a dimension-verified build plan.'}</Text></View>;
+}
+
+function MeasurementCard({ summary }: { summary: 'needs_dimensions' | 'estimated' | 'measured' | 'mixed' }) {
+  return <View style={styles.confidenceCard}><Text style={styles.cardEyebrow}>ROOM GEOMETRY</Text><Text style={[styles.metric, summary !== 'measured' && styles.metricNeutral]}>{measurementLabel(summary)}</Text><Text style={styles.cardBody}>{summary === 'measured' ? 'The room boundary comes from user-confirmed measurements. Photos remain supporting evidence.' : summary === 'estimated' ? 'The current room boundary is explicitly estimated. Measure it before relying on exact fit.' : summary === 'mixed' ? 'The room uses mixed measurement states. Exact-fit outputs remain gated.' : 'Capture a photo, then enter room dimensions to create the spatial model.'}</Text></View>;
+}
+
+function measurementLabel(summary: 'needs_dimensions' | 'estimated' | 'measured' | 'mixed') {
+  if (summary === 'measured') return 'Measured';
+  if (summary === 'estimated') return 'Estimated';
+  if (summary === 'mixed') return 'Mixed evidence';
+  return 'Needs dimensions';
+}
+
+function copyFor(mode: Mode, hasPlan: boolean, objectCount: number) {
+  if (!hasPlan) return 'Capture the room, then enter dimensions. FormShift will not infer authoritative geometry from a photo alone.';
+  if (mode === 'organize') return objectCount > 0 ? 'The room and object footprints are now real data. Organization can build on this state without inventing dimensions.' : 'Add the furniture and storage you want FormShift to reason about.';
+  if (mode === 'arrange') return 'Move real objects directly, then save the layout as a new immutable spatial version.';
+  return 'Build planning now binds to the captured room and its measurement state rather than the original demo fixture.';
+}
+
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: tokens.color.canvasA },
   hazeA: { position: 'absolute', width: 520, height: 520, borderRadius: 520, backgroundColor: 'rgba(204,211,177,.22)', top: -200, right: -120 },
@@ -77,6 +164,10 @@ const styles = StyleSheet.create({
   workspace: { flex: 1, marginLeft: -6, borderTopRightRadius: 34, borderBottomRightRadius: 34, borderTopLeftRadius: 28, borderBottomLeftRadius: 28, backgroundColor: 'rgba(249,247,242,.72)', shadowColor: '#8B7D69', shadowOpacity: .18, shadowRadius: 30, shadowOffset: { width: -4, height: 8 } }, content: { padding: 28, gap: 24, minHeight: '100%' },
   top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24 }, topActions: { gap: 10, alignItems: 'flex-end' }, topCompact: { flexDirection: 'column' }, eyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.4, color: tokens.color.peach }, title: { fontSize: 30, fontWeight: '700', letterSpacing: -1, color: tokens.color.text, marginTop: 8 }, subtitle: { maxWidth: 620, fontSize: 12, lineHeight: 18, color: tokens.color.muted, marginTop: 7 }, mobileCapability: { marginTop: 9, fontSize: 9, fontWeight: '700', color: tokens.color.peach },
   mainGrid: { flexDirection: 'row', gap: 18, alignItems: 'flex-start' }, mainGridCompact: { flexDirection: 'column' }, canvasCard: { flex: 1, minWidth: 0 }, sideRail: { width: 290, maxWidth: '100%', gap: 14 },
-  glassCard: { padding: 20, borderRadius: 24, backgroundColor: tokens.color.surface, borderWidth: 1, borderColor: 'rgba(255,255,255,.78)', shadowColor: tokens.color.shadow, shadowOpacity: .10, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } }, confidenceCard: { padding: 18, borderRadius: 22, backgroundColor: 'rgba(224,225,210,.55)', borderWidth: 1, borderColor: tokens.color.line }, cardEyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.1, color: tokens.color.peach }, cardTitle: { fontSize: 18, fontWeight: '700', color: tokens.color.text, marginTop: 8 }, cardBody: { fontSize: 11, lineHeight: 17, color: tokens.color.muted, marginTop: 8 }, metric: { fontSize: 20, color: tokens.color.success, fontWeight: '800', marginTop: 7 }, benefit: { alignSelf: 'flex-start', backgroundColor: 'rgba(207,229,236,.72)', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 12, marginTop: 13 }, benefitText: { fontSize: 9, fontWeight: '700', color: tokens.color.blue }, primary: { marginTop: 16, backgroundColor: tokens.color.blue, paddingVertical: 11, paddingHorizontal: 14, borderRadius: 14, alignItems: 'center' }, primaryText: { color: 'white', fontSize: 11, fontWeight: '800' },
+  stateCard: { minHeight: 430, padding: 28, borderRadius: 26, backgroundColor: 'rgba(255,255,255,.74)', borderWidth: 1, borderColor: tokens.color.line, justifyContent: 'center', alignItems: 'flex-start' }, stateTitle: { marginTop: 10, fontSize: 24, fontWeight: '700', color: tokens.color.text }, stateBody: { marginTop: 8, maxWidth: 520, fontSize: 11, lineHeight: 17, color: tokens.color.muted },
+  photoCard: { padding: 12, borderRadius: 22, backgroundColor: tokens.color.surface, borderWidth: 1, borderColor: 'rgba(255,255,255,.78)' }, photo: { width: '100%', height: 168, marginTop: 9, borderRadius: 16, backgroundColor: '#E9E6DD' }, photoHint: { marginTop: 7, fontSize: 8, lineHeight: 12, color: tokens.color.muted },
+  glassCard: { padding: 20, borderRadius: 24, backgroundColor: tokens.color.surface, borderWidth: 1, borderColor: 'rgba(255,255,255,.78)', shadowColor: tokens.color.shadow, shadowOpacity: .10, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } }, confidenceCard: { padding: 18, borderRadius: 22, backgroundColor: 'rgba(224,225,210,.55)', borderWidth: 1, borderColor: tokens.color.line }, cardEyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.1, color: tokens.color.peach }, cardTitle: { fontSize: 18, fontWeight: '700', color: tokens.color.text, marginTop: 8 }, cardBody: { fontSize: 11, lineHeight: 17, color: tokens.color.muted, marginTop: 8 }, metric: { fontSize: 20, color: tokens.color.success, fontWeight: '800', marginTop: 7 }, metricNeutral: { color: tokens.color.text }, benefit: { alignSelf: 'flex-start', backgroundColor: 'rgba(207,229,236,.72)', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 12, marginTop: 13 }, benefitText: { fontSize: 9, fontWeight: '700', color: tokens.color.blue }, primary: { marginTop: 16, backgroundColor: tokens.color.blue, paddingVertical: 11, paddingHorizontal: 14, borderRadius: 14, alignItems: 'center' }, primaryText: { color: 'white', fontSize: 11, fontWeight: '800' },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, actionGrow: { flex: 1 }, secondaryButton: { marginTop: 16, borderWidth: 1, borderColor: tokens.color.line, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 14 }, secondaryText: { fontSize: 10, fontWeight: '700', color: tokens.color.muted }, disabled: { opacity: .55 },
+  errorBanner: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, padding: 12, borderRadius: 14, backgroundColor: 'rgba(168,69,69,.08)', borderWidth: 1, borderColor: 'rgba(168,69,69,.18)' }, errorText: { flex: 1, fontSize: 10, lineHeight: 15, color: '#8C3E35' }, errorAction: { fontSize: 10, fontWeight: '800', color: tokens.color.blue },
   footerRow: { marginTop: 'auto', paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: tokens.color.line }, footerText: { fontSize: 9, color: tokens.color.muted }
 });

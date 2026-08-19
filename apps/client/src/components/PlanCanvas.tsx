@@ -1,1 +1,1 @@
-export { PlanCanvas } from './PlanCanvasSkia';
+export { default as PlanCanvas } from './PlanCanvasSkia';
