@@ -25,7 +25,8 @@
     },
     "plugins": [
       "expo-router",
-      "@formshift/formshift-roomplan"
+      "@formshift/formshift-roomplan",
+      "expo-image-picker"
     ],
     "experiments": {
       "typedRoutes": true

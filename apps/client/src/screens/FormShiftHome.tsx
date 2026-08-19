@@ -3,6 +3,7 @@ import { isRoomPlanSupported } from '@formshift/formshift-roomplan';
 import React, { useEffect, useState } from 'react';
 import { Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { BrandMark } from '../components/BrandMark';
+import { CaptureSpace } from '../components/CaptureSpace';
 import { ModeSwitch } from '../components/ModeSwitch';
 import { PlanCanvas } from '../components/PlanCanvas';
 import { tokens } from '../theme/tokens';
@@ -33,7 +34,10 @@ export function FormShiftHome() {
         <ScrollView contentContainerStyle={styles.content} style={styles.workspace}>
           <View style={[styles.top, compact && styles.topCompact]}>
             <View><Text style={styles.eyebrow}>HOME OFFICE · BASELINE</Text><Text style={styles.title}>Make the room work better.</Text><Text style={styles.subtitle}>{copyFor(mode)}</Text>{compact ? <Text style={styles.mobileCapability}>{Platform.OS === 'ios' && lidar ? 'LiDAR / RoomPlan ready' : 'Photo + manual measurement'}</Text> : null}</View>
-            <ModeSwitch value={mode} onChange={setMode} />
+            <View style={styles.topActions}>
+              <CaptureSpace lidarAvailable={Platform.OS === 'ios' && lidar} />
+              <ModeSwitch value={mode} onChange={setMode} />
+            </View>
           </View>
 
           <View style={[styles.mainGrid, compact && styles.mainGridCompact]}>
@@ -71,7 +75,7 @@ const styles = StyleSheet.create({
   navList: { gap: 8, marginTop: 36 }, navItem: { padding: 12, borderRadius: 16 }, navItemActive: { backgroundColor: 'rgba(255,255,255,.55)' }, navLabel: { fontWeight: '700', color: tokens.color.text, fontSize: 12 }, navMeta: { fontSize: 9, color: tokens.color.muted, marginTop: 3 },
   statusCard: { marginTop: 'auto', borderTopWidth: 1, borderTopColor: tokens.color.line, paddingTop: 16, maxWidth: 210 }, statusTitle: { fontSize: 9, color: tokens.color.peach, fontWeight: '800' }, statusValue: { fontSize: 11, fontWeight: '700', color: tokens.color.text, marginTop: 5 }, statusHint: { fontSize: 9, lineHeight: 13, color: tokens.color.muted, marginTop: 4 },
   workspace: { flex: 1, marginLeft: -6, borderTopRightRadius: 34, borderBottomRightRadius: 34, borderTopLeftRadius: 28, borderBottomLeftRadius: 28, backgroundColor: 'rgba(249,247,242,.72)', shadowColor: '#8B7D69', shadowOpacity: .18, shadowRadius: 30, shadowOffset: { width: -4, height: 8 } }, content: { padding: 28, gap: 24, minHeight: '100%' },
-  top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24 }, topCompact: { flexDirection: 'column' }, eyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.4, color: tokens.color.peach }, title: { fontSize: 30, fontWeight: '700', letterSpacing: -1, color: tokens.color.text, marginTop: 8 }, subtitle: { maxWidth: 620, fontSize: 12, lineHeight: 18, color: tokens.color.muted, marginTop: 7 }, mobileCapability: { marginTop: 9, fontSize: 9, fontWeight: '700', color: tokens.color.peach },
+  top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24 }, topActions: { gap: 10, alignItems: 'flex-end' }, topCompact: { flexDirection: 'column' }, eyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.4, color: tokens.color.peach }, title: { fontSize: 30, fontWeight: '700', letterSpacing: -1, color: tokens.color.text, marginTop: 8 }, subtitle: { maxWidth: 620, fontSize: 12, lineHeight: 18, color: tokens.color.muted, marginTop: 7 }, mobileCapability: { marginTop: 9, fontSize: 9, fontWeight: '700', color: tokens.color.peach },
   mainGrid: { flexDirection: 'row', gap: 18, alignItems: 'flex-start' }, mainGridCompact: { flexDirection: 'column' }, canvasCard: { flex: 1, minWidth: 0 }, sideRail: { width: 290, maxWidth: '100%', gap: 14 },
   glassCard: { padding: 20, borderRadius: 24, backgroundColor: tokens.color.surface, borderWidth: 1, borderColor: 'rgba(255,255,255,.78)', shadowColor: tokens.color.shadow, shadowOpacity: .10, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } }, confidenceCard: { padding: 18, borderRadius: 22, backgroundColor: 'rgba(224,225,210,.55)', borderWidth: 1, borderColor: tokens.color.line }, cardEyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.1, color: tokens.color.peach }, cardTitle: { fontSize: 18, fontWeight: '700', color: tokens.color.text, marginTop: 8 }, cardBody: { fontSize: 11, lineHeight: 17, color: tokens.color.muted, marginTop: 8 }, metric: { fontSize: 20, color: tokens.color.success, fontWeight: '800', marginTop: 7 }, benefit: { alignSelf: 'flex-start', backgroundColor: 'rgba(207,229,236,.72)', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 12, marginTop: 13 }, benefitText: { fontSize: 9, fontWeight: '700', color: tokens.color.blue }, primary: { marginTop: 16, backgroundColor: tokens.color.blue, paddingVertical: 11, paddingHorizontal: 14, borderRadius: 14, alignItems: 'center' }, primaryText: { color: 'white', fontSize: 11, fontWeight: '800' },
   footerRow: { marginTop: 'auto', paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: tokens.color.line }, footerText: { fontSize: 9, color: tokens.color.muted }
