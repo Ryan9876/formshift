@@ -8,7 +8,7 @@ const DESIGN_W = 720;
 const DESIGN_H = 460;
 const PAD_RATIO = 44 / DESIGN_W;
 
-export function PlanCanvas({ snapshot = demoSnapshot, editable = true }: { snapshot?: SpatialSnapshot; editable?: boolean }) {
+export default function PlanCanvas({ snapshot = demoSnapshot, editable = true }: { snapshot?: SpatialSnapshot; editable?: boolean }) {
   const maxX = Math.max(...snapshot.boundary.floorPolygon.map((p) => p.x), 1);
   const maxZ = Math.max(...snapshot.boundary.floorPolygon.map((p) => p.z), 1);
   const [canvasWidth, setCanvasWidth] = useState(DESIGN_W);
