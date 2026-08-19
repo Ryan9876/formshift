@@ -46,14 +46,17 @@ export function RoomSetupCard({
         Measured means you used a tape, laser, or trusted scan. Approximate stays marked as estimated and will not qualify as dimension-verified.
       </Text>
 
-      <DimensionRow label="Room width" feet={widthFt} inches={widthIn} onFeet={setWidthFt} onInches={setWidthIn} feetPlaceholder="14" inchesPlaceholder="0" />
-      <DimensionRow label="Room depth" feet={depthFt} inches={depthIn} onFeet={setDepthFt} onInches={setDepthIn} feetPlaceholder="11" inchesPlaceholder="0" />
-      <DimensionRow label="Ceiling height" feet={heightFt} inches={heightIn} onFeet={setHeightFt} onInches={setHeightIn} feetPlaceholder="8" inchesPlaceholder="0" />
+      <Text style={styles.example}>Example: a 14 ft × 11 ft room with an 8 ft ceiling.</Text>
+      <DimensionRow label="Room width" feet={widthFt} inches={widthIn} onFeet={setWidthFt} onInches={setWidthIn} feetPlaceholder="Feet" inchesPlaceholder="Inches" />
+      <DimensionRow label="Room depth" feet={depthFt} inches={depthIn} onFeet={setDepthFt} onInches={setDepthIn} feetPlaceholder="Feet" inchesPlaceholder="Inches" />
+      <DimensionRow label="Ceiling height" feet={heightFt} inches={heightIn} onFeet={setHeightFt} onInches={setHeightIn} feetPlaceholder="Feet" inchesPlaceholder="Inches" />
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Pressable disabled={busy} onPress={() => void submit()} style={[styles.primary, busy && styles.disabled]}>
-        <Text style={styles.primaryText}>{busy ? 'Saving room…' : 'Create measured room'}</Text>
+        <Text style={styles.primaryText}>
+          {busy ? 'Saving room…' : evidence === 'measured' ? 'Create measured room' : 'Create approximate room'}
+        </Text>
       </Pressable>
     </View>
   );
@@ -113,7 +116,7 @@ function parseFeetInches(feetText: string, inchesText: string, label: string) {
     throw new Error(`${label} must use valid feet and inches (inches from 0 to under 12).`);
   }
   const totalInches = feet * 12 + inches;
-  if (totalInches <= 0) throw new Error(`${label} must be greater than zero.`);
+  if (totalInches <= 0) throw new Error(`Enter the ${label.toLowerCase()} before creating the room.`);
   return inchesToMm(totalInches);
 }
 
@@ -123,6 +126,7 @@ const styles = StyleSheet.create({
   title: { marginTop: 8, fontSize: 26, fontWeight: '700', color: tokens.color.text, letterSpacing: -.8 },
   body: { marginTop: 8, maxWidth: 620, fontSize: 12, lineHeight: 18, color: tokens.color.muted },
   hint: { marginTop: 8, fontSize: 9, lineHeight: 14, color: tokens.color.muted },
+  example: { marginTop: 14, fontSize: 9, lineHeight: 14, color: tokens.color.peach },
   switchRow: { flexDirection: 'row', alignSelf: 'flex-start', gap: 6, marginTop: 18, padding: 4, borderRadius: 14, backgroundColor: 'rgba(233,230,221,.72)' },
   switchButton: { paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10 },
   switchActive: { backgroundColor: 'rgba(255,255,255,.92)' },
