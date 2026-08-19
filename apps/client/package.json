@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "export:web": "expo export --platform web",
     "typecheck": "tsc --noEmit",
-    "postinstall": "setup-skia-web"
+    "postinstall": "npm run build --prefix ../../packages/domain && setup-skia-web"
   },
   "dependencies": {
     "@formshift/domain": "0.4.2",
