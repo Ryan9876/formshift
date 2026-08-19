@@ -120,12 +120,21 @@ export function CaptureSpace({
           .insert({
             owner_user_id: userId,
             name: 'My Home'
-          })
-          .select('id, name')
-          .single();
+          });
 
         if (created.error) throw created.error;
-        project = created.data;
+
+        const createdProject = await supabase
+          .from('projects')
+          .select('id, name')
+          .eq('owner_user_id', userId)
+          .eq('status', 'active')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .single();
+
+        if (createdProject.error) throw createdProject.error;
+        project = createdProject.data;
       }
 
       let { data: space, error: spaceLookupError } = await supabase
@@ -240,7 +249,13 @@ export function CaptureSpace({
         spaceId: space.id
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'The room photo could not be saved.');
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : 'The room photo could not be saved.';
+      setError(message);
     } finally {
       setSaving(false);
     }
