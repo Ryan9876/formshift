@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "FormShift",
+    "slug": "formshift",
+    "version": "0.4.2",
+    "orientation": "default",
+    "scheme": "formshift",
+    "userInterfaceStyle": "light",
+    "platforms": [
+      "ios",
+      "web"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.formshift.private",
+      "infoPlist": {
+        "NSCameraUsageDescription": "FormShift uses the camera to capture rooms and objects for spatial planning.",
+        "NSPhotoLibraryUsageDescription": "FormShift uses selected photos to create private room plans.",
+        "NSPhotoLibraryAddUsageDescription": "FormShift can save exported plans when you choose to do so."
+      }
+    },
+    "web": {
+      "output": "static",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "@formshift/formshift-roomplan"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

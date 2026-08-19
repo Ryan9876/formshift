@@ -1,0 +1,75 @@
+FormShift v0.4.2 — verification evidence
+Date: 2026-08-19
+
+LOCAL / SOURCE
+Command: npm run verify
+Result: PASS
+
+Repository structure verified.
+Security source verification passed (25/25 public tables RLS-enabled in migration source).
+Canonical domain tests:
+PASS 72 inches converts to exactly 1828.8 canonical mm
+PASS metric/imperial round-trip does not drift canonical value
+PASS demo snapshot satisfies baseline validator
+PASS Arrange move changes position but not physical dimensions
+PASS fixed objects cannot be moved
+PASS AI/layout validation rejects fixed-object movement
+PASS AI/layout validation rejects moves beyond room envelope
+All domain tests passed.
+
+LIVE SUPABASE
+Project: FormShift
+Project ref: oomtpnqprxykcjzrlfgc
+Region: us-east-2
+Creation cost reported/confirmed: $0/month
+Creation health: ACTIVE_HEALTHY
+
+Applied migrations:
+PASS formshift_initial_core
+PASS formshift_initial_auth_helpers
+PASS formshift_initial_rls
+PASS formshift_initial_storage
+PASS harden_owner_bootstrap
+PASS formshift_performance_hardening
+
+Live table/RLS discovery:
+PASS 25 public application tables found
+PASS 25/25 report RLS enabled
+
+Rollback-only RLS isolation harness:
+PASS non-member cannot read owner project
+PASS viewer can read after membership
+PASS viewer cannot create/edit space
+PASS viewer cannot create AI run
+PASS owner_user_id cannot be reassigned through authorized project update
+PASS pending user cannot read shared project
+
+Rollback-only owner bootstrap:
+PASS configured owner pending -> active owner
+PASS non-configured identity remains pending/non-owner
+
+Supabase advisors:
+PASS Security Advisor: 0 lints
+PASS Performance warning-class findings remediated
+INFO remaining findings are only unused-index notices on the newly created empty database
+
+Database contract:
+PASS generated TypeScript contract includes expected public tables, enums, relationships, and bootstrap_formshift_owner RPC
+
+Runtime secret boundary:
+PASS FormShift uses project URL + publishable key and verified user JWT/RLS
+PASS no Supabase service-role/secret key required by runtime architecture
+
+CURRENT LIMITATIONS
+- npm registry resolution in this sandbox still times out; dependency-resolved builds/typechecks/export are not validated.
+- Google OAuth is not yet configured. Apple authentication is intentionally deferred from the active release scope.
+- no FormShift Vercel client/API preview has been deployed.
+- RoomPlan has not been validated on a signed physical iPhone build.
+- end-to-end deployment verification is not complete.
+
+V0.4.2 SOURCE UPDATE
+PASS Google-only access-gate source contains no Apple-auth entry point
+PASS native browser OAuth callback handles code or access/refresh tokens
+PASS web OAuth redirect derives from initiating browser origin
+PASS intended Vercel projects remain isolated and not yet created
+PASS npm registry recheck still fails with EAI_AGAIN in this sandbox; dependency-resolved build remains unverified

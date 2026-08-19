@@ -1,0 +1,440 @@
+{
+  "product": "FormShift",
+  "version": "0.4.2",
+  "milestone": "Milestone 0 implementation in progress \u2014 Google-only auth source prepared; Supabase backend validated",
+  "generated_date": "2026-08-19",
+  "deployment_status": "Supabase backend deployed/verified; Vercel web/API and iOS not deployed",
+  "authentication_scope": "Google only for current private release; Apple authentication deferred",
+  "intended_vercel_projects": [
+    "formshift-web",
+    "formshift-api"
+  ],
+  "file_count_excluding_manifest": 85,
+  "files": [
+    {
+      "path": ".env.example",
+      "bytes": 397,
+      "sha256": "d05544a6e85acf7c6f2c9cd050aac600f7d4b3656886c335fe8e4e9ceaac93c6"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 147,
+      "sha256": "a5e8b9453040f23dd77123bd0d90d23e7dae6c2893de09ccac554256d3d1c6d2"
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "bytes": 26159,
+      "sha256": "5f66ad89bc21da0e7651a576246c847a67f616cc396b611b6f89e712034039f6"
+    },
+    {
+      "path": "CURRENT-STATE.md",
+      "bytes": 7812,
+      "sha256": "c1ff60c1ca919f6f437077c93637b7e8ac9c4c8343a0c09021d0a7745a91ffd0"
+    },
+    {
+      "path": "DESIGN-SYSTEM.md",
+      "bytes": 14480,
+      "sha256": "a1d40ea9af213bbbb21e548b1ccfaa1d2c0d5e5b77d8fc015ddbea50c4419a55"
+    },
+    {
+      "path": "PROJECT-CONSTITUTION.md",
+      "bytes": 12130,
+      "sha256": "e5fc2d03c3f05ec340bff93e8896a2f1cd9025252d6a6883d810349ca68413b8"
+    },
+    {
+      "path": "README.md",
+      "bytes": 4533,
+      "sha256": "9e6dc273d5866c84fb619891846115c190ece215ec48ba235e8528bfb52cd123"
+    },
+    {
+      "path": "apps/api/api/admin/access.ts",
+      "bytes": 2590,
+      "sha256": "1b0179c970ca72b9cfe75b9b574621ad2e9cc474d9e445611ad1949cb9fb558f"
+    },
+    {
+      "path": "apps/api/api/ai/build-brief.ts",
+      "bytes": 2565,
+      "sha256": "fdf25bfb30b5928d8b1c4ff90f36ce455c56fc8b93df618abc5deff17723f881"
+    },
+    {
+      "path": "apps/api/api/ai/organize.ts",
+      "bytes": 4448,
+      "sha256": "04e911aee710ec2ca3d5855ce8ccef102eb000291c54bf7ca3fcec7d697e779b"
+    },
+    {
+      "path": "apps/api/api/health.ts",
+      "bytes": 242,
+      "sha256": "06d083399e9c3732e50b2512985050e165b5d1df97534c4f239e16bb27f254ff"
+    },
+    {
+      "path": "apps/api/package.json",
+      "bytes": 431,
+      "sha256": "8b937fde64f554a8990f922d2e751a3575a3a4347e6b2c8704971fd3a12e2978"
+    },
+    {
+      "path": "apps/api/src/aiSchemas.ts",
+      "bytes": 1475,
+      "sha256": "54814f0912d15b06bbcf4765ceb57880611e67d5e693b030b308a835474f9c1a"
+    },
+    {
+      "path": "apps/api/src/auth.ts",
+      "bytes": 2089,
+      "sha256": "b26c92c50410fbefea455a29926e515c7d947d21aed4d81779b75fadb72b288c"
+    },
+    {
+      "path": "apps/api/src/env.ts",
+      "bytes": 189,
+      "sha256": "1ebb2dd7b4b972699af491328abef4068eb7202fa3f513a6f25a775a10168115"
+    },
+    {
+      "path": "apps/api/src/http.ts",
+      "bytes": 1810,
+      "sha256": "682c966d8b0f1ebfee30d10e7de30eef5a7feab0ae16587a69ffc9f9677d88f3"
+    },
+    {
+      "path": "apps/api/tsconfig.json",
+      "bytes": 294,
+      "sha256": "10fe9fd989b4d9fc1599645c6182fed08645e19c16178b1a7bcd76e5b346b9da"
+    },
+    {
+      "path": "apps/api/vercel.json",
+      "bytes": 141,
+      "sha256": "8d71aa12aa37827970d3e4bb1b0ba9e368dc4f6c0b5bd2096435ac8152441c75"
+    },
+    {
+      "path": "apps/client/app/_layout.tsx",
+      "bytes": 343,
+      "sha256": "9964d4939dcd8f102cd4042c112e5dd5c6caea74df73443b53e9ed3265ad3954"
+    },
+    {
+      "path": "apps/client/app/index.tsx",
+      "bytes": 115,
+      "sha256": "7d986a62b4828254c4d3ebf54db8e1e5de8cd04e0d51d0a5ea534b0b653b5017"
+    },
+    {
+      "path": "apps/client/app.json",
+      "bytes": 903,
+      "sha256": "8f16c3b459c585268dbc4fd9c7f8271d2ae6ae209e06557171b4899fd48e13d6"
+    },
+    {
+      "path": "apps/client/expo-env.d.ts",
+      "bytes": 37,
+      "sha256": "57d45be957186273b21383b09f6a6aa3ca599b28d1fb742fb3edfac464504b90"
+    },
+    {
+      "path": "apps/client/package.json",
+      "bytes": 1029,
+      "sha256": "8172a85a01c6d7f6dc840dd7fff2281eed96fc68360f52cdb0cfc09eb4cbbbed"
+    },
+    {
+      "path": "apps/client/src/auth/AuthProvider.tsx",
+      "bytes": 5442,
+      "sha256": "d683514b769a50a292b3e715c24c8deb47a319046d5239b21fdd8a2ba8631a25"
+    },
+    {
+      "path": "apps/client/src/components/BrandMark.tsx",
+      "bytes": 1049,
+      "sha256": "3f4cca9cfa426fbcad34d86e7b036a808a9d1aff93bf7f0364a68fb535c11947"
+    },
+    {
+      "path": "apps/client/src/components/ModeSwitch.tsx",
+      "bytes": 1708,
+      "sha256": "ce35a623c5c7ca3009cc93cc000dbcecc199751b175bbb47b2722d883d12362c"
+    },
+    {
+      "path": "apps/client/src/components/PlanCanvas.tsx",
+      "bytes": 47,
+      "sha256": "f634e1ebf675730892d4bd215255366857584a921a4babe2ef487e9fa7fd9aa0"
+    },
+    {
+      "path": "apps/client/src/components/PlanCanvas.web.tsx",
+      "bytes": 647,
+      "sha256": "d0a0f5617855f012297e79232162b1bd6b1f8b06a9086df2988d9dc8f4968f9d"
+    },
+    {
+      "path": "apps/client/src/components/PlanCanvasSkia.tsx",
+      "bytes": 5976,
+      "sha256": "900a3f428f856f2d33964d6f899d0661ba912d6a4cfdcbaf465cffc8ad14b8a5"
+    },
+    {
+      "path": "apps/client/src/screens/AccessGate.tsx",
+      "bytes": 6519,
+      "sha256": "7cf592ee20628812ec78c582d0e4c4ed86779dc9abccfb1df63e4f39a45d6fcc"
+    },
+    {
+      "path": "apps/client/src/screens/FormShiftHome.tsx",
+      "bytes": 10162,
+      "sha256": "5b8eea30a08a768df7bf4434153de5dbe4045fe5df08d6c2a0d729415fb3b929"
+    },
+    {
+      "path": "apps/client/src/theme/tokens.ts",
+      "bytes": 571,
+      "sha256": "134390c362ce810c784f75d9b1eebf1debb6adc83accc7b5e8da5e3f3757a06f"
+    },
+    {
+      "path": "apps/client/tsconfig.json",
+      "bytes": 200,
+      "sha256": "928fc45c919a0c20295f8f43236255dd66cc42951f8aa13cf29804444466fb76"
+    },
+    {
+      "path": "apps/client/vercel.json",
+      "bytes": 168,
+      "sha256": "1802429be85220dcfdeba84ed2607cf82096047c7a0e1f7585c203625e13c03f"
+    },
+    {
+      "path": "docs/EXTERNAL-ACTIONS.md",
+      "bytes": 2275,
+      "sha256": "1ef5d1bca1e1fad69462536b400f9fe812f5a92c766293224f8dcdf1f345b62b"
+    },
+    {
+      "path": "docs/GOOGLE-AUTH-SETUP.md",
+      "bytes": 2337,
+      "sha256": "58da35997b1d9cb2bccfee765640abddd8f10be80f2ab58c02f1ba355599c391"
+    },
+    {
+      "path": "docs/MILESTONE-0-IMPLEMENTATION-REPORT.md",
+      "bytes": 4299,
+      "sha256": "639c2413dd66c65a394f1fe8d98136139a0725631f636f5aa989081c4a42a17f"
+    },
+    {
+      "path": "docs/VERCEL-BOOTSTRAP.md",
+      "bytes": 1804,
+      "sha256": "4b1419c04ee0c9c02da95359f2a180131d112ebdb47c2804169fb696fc7d8e6e"
+    },
+    {
+      "path": "docs/VERIFICATION-EVIDENCE-v0.4.2.txt",
+      "bytes": 2937,
+      "sha256": "49f710183f37fa455eed85f50bb6f9cde238c6e13caf821b2c21dc828a5c0902"
+    },
+    {
+      "path": "docs/baseline-v0.3/ACCEPTANCE-TEST-MATRIX-v0.3.md",
+      "bytes": 4450,
+      "sha256": "5c9e16bf906234b6330f58d7cab59055618bcc444e262ce98501470ba6edc26c"
+    },
+    {
+      "path": "docs/baseline-v0.3/AI-CONTRACTS-EVALUATION-v0.3.md",
+      "bytes": 6444,
+      "sha256": "70c7548380268252aae535c1d18892a2de4a739f17dbfefd7c653007a97e76a5"
+    },
+    {
+      "path": "docs/baseline-v0.3/BUILD-ENGINE-SHELVING-v0.3.md",
+      "bytes": 5022,
+      "sha256": "84d622cd6c841752773bcba8d653987f0c111c6ac05a87c7937f5c19223c95dc"
+    },
+    {
+      "path": "docs/baseline-v0.3/DATABASE-RLS-v0.3.md",
+      "bytes": 8662,
+      "sha256": "2fb2ceb0b3936b5e96d2fee597baa7f0d71aaaf3fe1a63322a3b78088cae8b2b"
+    },
+    {
+      "path": "docs/baseline-v0.3/DOMAIN-MODEL-v0.3.md",
+      "bytes": 6825,
+      "sha256": "baeaebccb36e97689b8340a0cd5c29f6ecd3a20fbae20cbf91237eb5fab7f424"
+    },
+    {
+      "path": "docs/baseline-v0.3/FORMSHIFT-IMPLEMENTATION-FOUNDATION-v0.3.md",
+      "bytes": 9330,
+      "sha256": "739e0e5c6698d258101f0f57a8b871d8e15a262a253cf41695fc1df5302c8def"
+    },
+    {
+      "path": "docs/baseline-v0.3/FORMSHIFT-SYSTEM-PRODUCT-DESIGN-SPEC-v0.3.md",
+      "bytes": 20073,
+      "sha256": "c5db800ff31961b7dc46e0993c0f7ff8f06d49726dd35dd9777a6e7fa0950070"
+    },
+    {
+      "path": "docs/baseline-v0.3/IOS-ROOMPLAN-CONTRACT-v0.3.md",
+      "bytes": 3638,
+      "sha256": "5dec6a3fff7504902542d98b4d4c5cee9c2239e827858b563f14f8a57c2ef719"
+    },
+    {
+      "path": "docs/baseline-v0.3/README.md",
+      "bytes": 991,
+      "sha256": "be3cd43ff32515d91c4f60fe9b8d68abb73506e311b0d87346281d382d48c79b"
+    },
+    {
+      "path": "docs/baseline-v0.3/RENDERING-SPATIAL-INTERACTION-v0.3.md",
+      "bytes": 4357,
+      "sha256": "2d7bbadf64fad84016ff1475f3104779cf19c4c577a84b3ef7b519302f467524"
+    },
+    {
+      "path": "docs/baseline-v0.3/SCREEN-STATE-FLOWS-v0.3.md",
+      "bytes": 5211,
+      "sha256": "a6900203f08db7dbe0f39a1bb86a0d1c92e1a56c7143141ff82b1a27ce898555"
+    },
+    {
+      "path": "docs/baseline-v0.3/THREAT-MODEL-v0.3.md",
+      "bytes": 4443,
+      "sha256": "405f37597f4fc7cf357bb92773dfc713c5d5ec07239b46f677221961ce93de2a"
+    },
+    {
+      "path": "docs/baseline-v0.3/VERTICAL-SLICE-BACKLOG-v0.3.md",
+      "bytes": 4246,
+      "sha256": "667cce0ffa88f249da328bc9cc5e98946dc98a21c05cd474897b3ecfa2a1c432"
+    },
+    {
+      "path": "docs/previews/formshift-shell.html",
+      "bytes": 7589,
+      "sha256": "8bc44b76ab6ae7fdb47dcbe07eec1406bc5717223698087c87c3e36417930d91"
+    },
+    {
+      "path": "modules/formshift-roomplan/app.plugin.js",
+      "bytes": 320,
+      "sha256": "c82d09eec6392f380cdc0c8abe396490a62805adee26218cd80a0c0a16c973f3"
+    },
+    {
+      "path": "modules/formshift-roomplan/expo-module.config.json",
+      "bytes": 84,
+      "sha256": "1be85539191787bb27336b456cfe9ec1d84ec61a3d5a7eb752e985b7536af232"
+    },
+    {
+      "path": "modules/formshift-roomplan/ios/FormShiftRoomPlanModule.swift",
+      "bytes": 904,
+      "sha256": "bf6dadbf182104fbaf6acc432b24099380dfcdcc26606136a90ba4ae004ed378"
+    },
+    {
+      "path": "modules/formshift-roomplan/package.json",
+      "bytes": 228,
+      "sha256": "8f062d13e4ee6c0c28d5121456c5d0b6ed11b7739381d7b6f4af5006d90d9332"
+    },
+    {
+      "path": "modules/formshift-roomplan/src/index.ts",
+      "bytes": 1006,
+      "sha256": "33c1400073f4d0bb0c6e54faa25049c05e3c07a50542f8fa999694bd55903378"
+    },
+    {
+      "path": "package.json",
+      "bytes": 644,
+      "sha256": "8f5ab1d9d0714933b6fd842b938c6224fe5b8546bf9f9b71c8a709d0a9518a71"
+    },
+    {
+      "path": "packages/domain/dist/fixtures.d.ts",
+      "bytes": 213,
+      "sha256": "5447a999b4916861845f45829feec5f1d83edd568a39d81310cdb8f48668e3b0"
+    },
+    {
+      "path": "packages/domain/dist/fixtures.js",
+      "bytes": 1400,
+      "sha256": "29663913c68014a1957e56d3572ec5920dfbc96c14d931816cee9209f822996e"
+    },
+    {
+      "path": "packages/domain/dist/index.d.ts",
+      "bytes": 117,
+      "sha256": "35a55a3bfe9308256eeab2a0a3d158079d5a77e5e9165de95a2113eba6bd3137"
+    },
+    {
+      "path": "packages/domain/dist/index.js",
+      "bytes": 117,
+      "sha256": "35a55a3bfe9308256eeab2a0a3d158079d5a77e5e9165de95a2113eba6bd3137"
+    },
+    {
+      "path": "packages/domain/dist/spatial.d.ts",
+      "bytes": 835,
+      "sha256": "273ded9c167da34e4ba745de614bfb05c3f6912a67d226e4f1effb3a6113c014"
+    },
+    {
+      "path": "packages/domain/dist/spatial.js",
+      "bytes": 5345,
+      "sha256": "fd3b0ac6fd9ab7cfe6947226007224817410fc581957d915716f2ebbc7b74c6d"
+    },
+    {
+      "path": "packages/domain/dist/test-runner.d.ts",
+      "bytes": 11,
+      "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    {
+      "path": "packages/domain/dist/test-runner.js",
+      "bytes": 2925,
+      "sha256": "cb06dd976509fd60433dfdaebb356bcda0f6eb885c00e928d3b602bd01a71625"
+    },
+    {
+      "path": "packages/domain/dist/types.d.ts",
+      "bytes": 2871,
+      "sha256": "c61db4f5274b546b08cc09d904700a6900308368c2f3c14871fed54808e03398"
+    },
+    {
+      "path": "packages/domain/dist/types.js",
+      "bytes": 11,
+      "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    {
+      "path": "packages/domain/dist/units.d.ts",
+      "bytes": 464,
+      "sha256": "a28790843af4c869342de8ac7b94b1a989d393297ad80a949ceb7f1ae647d417"
+    },
+    {
+      "path": "packages/domain/dist/units.js",
+      "bytes": 962,
+      "sha256": "8a85ae8bd984dd1360709c1d008dde9c86ca8683a8e6196d6257f6f9eac8fb0e"
+    },
+    {
+      "path": "packages/domain/package.json",
+      "bytes": 430,
+      "sha256": "3c54d7e70d8ea4de5af052c7b49b2240084862ad947eb3e36fb33b341bc71ca5"
+    },
+    {
+      "path": "packages/domain/src/fixtures.ts",
+      "bytes": 1434,
+      "sha256": "8818d9aae0a571c577f83d2f29d467e1e80fd05ca88988741805308a1a834cb0"
+    },
+    {
+      "path": "packages/domain/src/index.ts",
+      "bytes": 117,
+      "sha256": "35a55a3bfe9308256eeab2a0a3d158079d5a77e5e9165de95a2113eba6bd3137"
+    },
+    {
+      "path": "packages/domain/src/spatial.ts",
+      "bytes": 5217,
+      "sha256": "72fee691fe1bd0fda4873e430cc07e9b5f1b7d0dabfc77f43a7a42a036c32afe"
+    },
+    {
+      "path": "packages/domain/src/test-runner.ts",
+      "bytes": 2869,
+      "sha256": "95dfdac3354496b6f52edfedcc6aad6b90dfd9a12bf675f739a1342863802aea"
+    },
+    {
+      "path": "packages/domain/src/types.ts",
+      "bytes": 2678,
+      "sha256": "b132c715de5638a806f8288fde0f16df707651655ecb06e6ad443887e387696c"
+    },
+    {
+      "path": "packages/domain/src/units.ts",
+      "bytes": 1134,
+      "sha256": "d9575d6611d1e11eaefd1df04c46acab55886ce0212ad0932b80b3a596b9d591"
+    },
+    {
+      "path": "packages/domain/tsconfig.json",
+      "bytes": 286,
+      "sha256": "799337deed62e53e92f7879224b2a2836312694b36c7a6ce3f13bb38af016d6a"
+    },
+    {
+      "path": "scripts/verify-repo.mjs",
+      "bytes": 1439,
+      "sha256": "8126a99cef12d77403d5d65fa52e0c833083fe2b7100a5695ee6fae146705835"
+    },
+    {
+      "path": "scripts/verify-security.mjs",
+      "bytes": 2689,
+      "sha256": "374f3593343316333ff5ce5b83f730ee087f32ab7d5ab003c3676506ab3d83a0"
+    },
+    {
+      "path": "supabase/schema/001_initial_formshift.sql",
+      "bytes": 39032,
+      "sha256": "ae0e737c7c4a3d298e78fcdba3897347eeab22f2f30356d2d1105f095a51547f"
+    },
+    {
+      "path": "supabase/schema/002_performance_hardening.sql",
+      "bytes": 2891,
+      "sha256": "e1043c6aae82ab38c5c4075e192db2b5fe7ea9e04c3e714eac9a13bb73b8dfb6"
+    },
+    {
+      "path": "supabase/tests/rls_harness.sql",
+      "bytes": 4494,
+      "sha256": "9914e6a0aff4e9e3632ba42b5daf00adfaa2a4f45b32323586bd8a0eeb8b3d7a"
+    },
+    {
+      "path": "tsconfig.base.json",
+      "bytes": 232,
+      "sha256": "0fae2190505643dbe127151237e0c7cc5d2ddc4a5dc900fea4626f5ccb88ddc1"
+    }
+  ]
+}

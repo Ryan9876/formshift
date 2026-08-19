@@ -1,0 +1,23 @@
+{
+  "name": "@formshift/api",
+  "version": "0.4.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@formshift/domain": "0.4.2",
+    "@supabase/supabase-js": "2.112.3",
+    "ai": "7.0.52",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "@types/node": "24.13.3"
+  },
+  "engines": {
+    "node": "24.x"
+  }
+}
