@@ -1,9 +1,9 @@
 import { generateText, Output } from 'ai';
 import { validateLayoutActions, validateSnapshot, type LayoutAction, type SpatialSnapshot } from '@formshift/domain';
-import { organizeOutputSchema, type OrganizeOutput } from '../../src/aiSchemas';
-import { requireEditableSpace } from '../../src/auth';
-import { json, parseJson, preflight } from '../../src/http';
-import { requireServerEnv } from '../../src/env';
+import { organizeOutputSchema, type OrganizeOutput } from '../../src/aiSchemas.js';
+import { requireEditableSpace } from '../../src/auth.js';
+import { json, parseJson, preflight } from '../../src/http.js';
+import { requireServerEnv } from '../../src/env.js';
 
 type Body = { projectId: string; spaceId: string; snapshot: SpatialSnapshot; roomContext?: string };
 export function OPTIONS(request: Request) { return preflight(request); }

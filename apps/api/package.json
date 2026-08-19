@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vercel dev",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "postinstall": "npm run build --prefix ../../packages/domain"
   },
   "dependencies": {
     "@formshift/domain": "0.4.2",

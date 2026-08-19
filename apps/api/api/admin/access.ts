@@ -1,5 +1,5 @@
-import { requireOwnerUser } from '../../src/auth';
-import { json, parseJson, preflight } from '../../src/http';
+import { requireOwnerUser } from '../../src/auth.js';
+import { json, parseJson, preflight } from '../../src/http.js';
 
 type PatchBody = { userId: string; status: 'pending' | 'active' | 'suspended' | 'revoked' };
 export function OPTIONS(request: Request) { return preflight(request); }

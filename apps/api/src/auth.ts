@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { requireServerEnv } from './env';
+import { requireServerEnv } from './env.js';
 
 function userClient(token: string) {
   return createClient(requireServerEnv('SUPABASE_URL'), requireServerEnv('SUPABASE_PUBLISHABLE_KEY'), {

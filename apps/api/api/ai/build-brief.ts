@@ -1,8 +1,8 @@
 import { generateText, Output } from 'ai';
-import { buildBriefSchema } from '../../src/aiSchemas';
-import { requireEditableSpace } from '../../src/auth';
-import { json, parseJson, preflight } from '../../src/http';
-import { requireServerEnv } from '../../src/env';
+import { buildBriefSchema } from '../../src/aiSchemas.js';
+import { requireEditableSpace } from '../../src/auth.js';
+import { json, parseJson, preflight } from '../../src/http.js';
+import { requireServerEnv } from '../../src/env.js';
 
 type Body = { projectId: string; spaceId: string; brief: string };
 export function OPTIONS(request: Request) { return preflight(request); }
