@@ -36,6 +36,7 @@ export function PhotoArrangeEditor({
 }) {
   const auth = useAuth();
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sourceBeforeLiftRef = useRef<HTMLCanvasElement | null>(null);
   const segmenterRef = useRef<any>(null);
   const [sceneUrl, setSceneUrl] = useState<string | null>(photoUrl ?? null);
   const [imageSize, setImageSize] = useState({ width: 4, height: 3 });
@@ -52,6 +53,7 @@ export function PhotoArrangeEditor({
   useEffect(() => {
     setSceneUrl(photoUrl ?? null);
     setSelection(null);
+    sourceBeforeLiftRef.current = null;
     setStatus('Tap an object in the photo to select it.');
     setError(null);
   }, [photoUrl, snapshot.spaceId]);
@@ -92,7 +94,8 @@ export function PhotoArrangeEditor({
   }), [selection, position, stageSize]);
 
   const handleSelect = async (event: any) => {
-    if (selection || selecting || !sourceCanvasRef.current) return;
+    const source = sourceCanvasRef.current;
+    if (selection || selecting || !source) return;
     const x = clamp((event.nativeEvent.locationX ?? 0) / Math.max(stageSize.width, 1), 0, 1);
     const y = clamp((event.nativeEvent.locationY ?? 0) / Math.max(stageSize.height, 1), 0, 1);
     setSelecting(true);
@@ -100,34 +103,49 @@ export function PhotoArrangeEditor({
     setStatus('Finding object edges…');
     try {
       const segmenter = await getSegmenter(segmenterRef);
-      const mask = runSegmenter(segmenter, sourceCanvasRef.current, x, y);
-      const next = createSelection(sourceCanvasRef.current, mask);
-      mask.close?.();
+      const mask = runSegmenter(segmenter, source, x, y);
+      const next = createSelection(source, mask);
+      mask?.close?.();
       if (!next) throw new Error('FormShift could not isolate a distinct object there. Try tapping near the center of the object.');
+
+      sourceBeforeLiftRef.current = source;
+      const localBackground = await createLocalRepair(source, next.maskUrl);
       setSelection(next);
       setPosition({ x: next.centerX, y: next.centerY });
       setScale(1);
       setRotation(0);
-      const localBackground = createLocalRepair(sourceCanvasRef.current, next.maskUrl);
       setSceneUrl(localBackground);
-      setStatus('Object lifted. Drag it anywhere in the photo.');
-      void repairBackground({
-        projectId,
-        spaceId,
-        token: auth.session?.access_token,
-        sourceCanvas: sourceCanvasRef.current,
-        maskUrl: next.maskUrl,
-      }).then((repaired) => {
-        if (repaired) setSceneUrl(repaired);
-      }).catch(() => {
-        // Keep the immediate local repair if model-based cleanup is unavailable.
-      }).finally(() => setRepairing(false));
-      setRepairing(true);
+      setStatus('Object lifted. Drag it anywhere. Use AI background repair when you want a cleaner old location.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Object selection failed.');
       setStatus('Tap another point and try again.');
     } finally {
       setSelecting(false);
+    }
+  };
+
+  const refineBackground = async () => {
+    const source = sourceBeforeLiftRef.current;
+    if (!selection || !source || repairing) return;
+    setRepairing(true);
+    setError(null);
+    setStatus('Reconstructing the background behind the lifted object…');
+    try {
+      const repaired = await repairBackground({
+        projectId,
+        spaceId,
+        token: auth.session?.access_token,
+        sourceCanvas: source,
+        maskUrl: selection.maskUrl,
+      });
+      if (!repaired) throw new Error('AI background repair is unavailable. The local preview is still usable.');
+      setSceneUrl(repaired);
+      setStatus('Background repaired. Continue dragging the photographed object, then keep the placement.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Background repair failed.');
+      setStatus('The object is still movable using the local background preview.');
+    } finally {
+      setRepairing(false);
     }
   };
 
@@ -137,6 +155,7 @@ export function PhotoArrangeEditor({
       const composite = await compositeScene({ sceneUrl, selection, position, scale, rotation, imageSize });
       setSceneUrl(composite);
       setSelection(null);
+      sourceBeforeLiftRef.current = null;
       setStatus('Placement kept. Tap another object to move it, or reset the scene.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not keep this placement.');
@@ -146,6 +165,7 @@ export function PhotoArrangeEditor({
   const resetScene = () => {
     setSceneUrl(photoUrl ?? null);
     setSelection(null);
+    sourceBeforeLiftRef.current = null;
     setScale(1);
     setRotation(0);
     setStatus('Original photo restored. Tap an object to select it.');
@@ -170,6 +190,7 @@ export function PhotoArrangeEditor({
             <Pressable style={styles.toolButton} onPress={() => setScale((value) => clamp(value + 0.1, 0.35, 2.2))}><Text style={styles.toolText}>+ Size</Text></Pressable>
             <Pressable style={styles.toolButton} onPress={() => setRotation((value) => value - 5)}><Text style={styles.toolText}>↺</Text></Pressable>
             <Pressable style={styles.toolButton} onPress={() => setRotation((value) => value + 5)}><Text style={styles.toolText}>↻</Text></Pressable>
+            <Pressable disabled={repairing} style={[styles.aiButton, repairing && styles.disabled]} onPress={() => void refineBackground()}><Text style={styles.aiText}>{repairing ? 'Repairing…' : 'Refine background with AI'}</Text></Pressable>
             <Pressable style={styles.primaryButton} onPress={() => void keepPlacement()}><Text style={styles.primaryText}>Keep placement</Text></Pressable>
           </> : null}
           <Pressable style={styles.toolButton} onPress={resetScene}><Text style={styles.toolText}>Reset</Text></Pressable>
@@ -211,13 +232,13 @@ export function PhotoArrangeEditor({
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.footer}>
         <Text style={styles.footerStrong}>Actual photographed pixels are moved.</Text>
-        <Text style={styles.footerText}>Selection runs on-device. Background repair may use the configured image model. Existing-object scale is visual until the object is calibrated or measured.</Text>
+        <Text style={styles.footerText}>Object selection runs locally in your browser. “Refine background with AI” explicitly sends the source scene and selection mask to the configured image provider. Existing-object scale is visual until calibrated or measured.</Text>
       </View>
     </View>
   );
 }
 
-async function getSegmenter(ref: React.MutableRefObject<any>) {
+async function getSegmenter(ref: { current: any }) {
   if (ref.current) return ref.current;
   const dynamicImport = new Function('url', 'return import(url)') as (url: string) => Promise<SegmenterModule>;
   const module = await dynamicImport(MEDIAPIPE_BUNDLE);
@@ -227,15 +248,14 @@ async function getSegmenter(ref: React.MutableRefObject<any>) {
     outputConfidenceMasks: true,
     outputCategoryMask: false,
   });
-  (ref.current as any).__formshiftBrushMode = module.BrushMode;
+  ref.current.__formshiftBrushMode = module.BrushMode;
   return ref.current;
 }
 
 function runSegmenter(segmenter: any, image: HTMLCanvasElement, x: number, y: number) {
   if (typeof segmenter.setImage === 'function' && segmenter.__formshiftBrushMode?.POSITIVE !== undefined) {
     segmenter.setImage(image);
-    const result = segmenter.segment([{ brushMode: segmenter.__formshiftBrushMode.POSITIVE, point: [{ x, y }], isCompleted: true }]);
-    return result?.getAsFloat32Array ? result : result?.confidenceMasks?.[0];
+    return segmenter.segment([{ brushMode: segmenter.__formshiftBrushMode.POSITIVE, point: [{ x, y }], isCompleted: true }]);
   }
   const result = segmenter.segment(image, { keypoint: { x, y } });
   return result?.confidenceMasks?.[0] ?? result;
@@ -255,6 +275,7 @@ function createSelection(canvas: HTMLCanvasElement, mask: any): Selection | null
     }
   }
   if (maxX <= minX || maxY <= minY) return null;
+
   const sx = canvas.width / mw;
   const sy = canvas.height / mh;
   const pad = 5;
@@ -266,8 +287,10 @@ function createSelection(canvas: HTMLCanvasElement, mask: any): Selection | null
   const height = y1 - y0;
   const source = canvas.getContext('2d', { willReadFrequently: true })!.getImageData(x0, y0, width, height);
   const cutoutCanvas = document.createElement('canvas');
-  cutoutCanvas.width = width; cutoutCanvas.height = height;
+  cutoutCanvas.width = width;
+  cutoutCanvas.height = height;
   const cutout = cutoutCanvas.getContext('2d')!.createImageData(width, height);
+
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const mx = clamp(Math.floor((x + x0) / sx), 0, mw - 1);
@@ -282,8 +305,10 @@ function createSelection(canvas: HTMLCanvasElement, mask: any): Selection | null
     }
   }
   cutoutCanvas.getContext('2d')!.putImageData(cutout, 0, 0);
+
   const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = canvas.width; maskCanvas.height = canvas.height;
+  maskCanvas.width = canvas.width;
+  maskCanvas.height = canvas.height;
   const maskImage = maskCanvas.getContext('2d')!.createImageData(canvas.width, canvas.height);
   for (let y = 0; y < canvas.height; y += 1) {
     for (let x = 0; x < canvas.width; x += 1) {
@@ -291,11 +316,15 @@ function createSelection(canvas: HTMLCanvasElement, mask: any): Selection | null
       const my = clamp(Math.floor(y / sy), 0, mh - 1);
       const selected = values[my * mw + mx]! > 0.42;
       const i = (y * canvas.width + x) * 4;
-      const v = selected ? 255 : 0;
-      maskImage.data[i] = v; maskImage.data[i + 1] = v; maskImage.data[i + 2] = v; maskImage.data[i + 3] = 255;
+      const value = selected ? 255 : 0;
+      maskImage.data[i] = value;
+      maskImage.data[i + 1] = value;
+      maskImage.data[i + 2] = value;
+      maskImage.data[i + 3] = 255;
     }
   }
   maskCanvas.getContext('2d')!.putImageData(maskImage, 0, 0);
+
   return {
     cutoutUrl: cutoutCanvas.toDataURL('image/png'),
     maskUrl: maskCanvas.toDataURL('image/png'),
@@ -305,49 +334,48 @@ function createSelection(canvas: HTMLCanvasElement, mask: any): Selection | null
   };
 }
 
-function createLocalRepair(sourceCanvas: HTMLCanvasElement, maskUrl: string) {
+async function createLocalRepair(sourceCanvas: HTMLCanvasElement, maskUrl: string) {
   const canvas = document.createElement('canvas');
-  canvas.width = sourceCanvas.width; canvas.height = sourceCanvas.height;
+  canvas.width = sourceCanvas.width;
+  canvas.height = sourceCanvas.height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(sourceCanvas, 0, 0);
-  const mask = dataUrlToImageSync(maskUrl);
+
+  const mask = await loadImage(maskUrl);
   const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = sourceCanvas.width; maskCanvas.height = sourceCanvas.height;
-  const mctx = maskCanvas.getContext('2d', { willReadFrequently: true })!;
-  mctx.drawImage(mask, 0, 0, maskCanvas.width, maskCanvas.height);
-  const maskData = mctx.getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
+  maskCanvas.width = sourceCanvas.width;
+  maskCanvas.height = sourceCanvas.height;
+  const maskContext = maskCanvas.getContext('2d', { willReadFrequently: true })!;
+  maskContext.drawImage(mask, 0, 0, maskCanvas.width, maskCanvas.height);
+  const maskData = maskContext.getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const original = new Uint8ClampedArray(image.data);
+
   for (let y = 0; y < canvas.height; y += 1) {
     let x = 0;
     while (x < canvas.width) {
-      const mi = (y * canvas.width + x) * 4;
-      if (maskData[mi]! < 128) { x += 1; continue; }
+      const maskIndex = (y * canvas.width + x) * 4;
+      if (maskData[maskIndex]! < 128) { x += 1; continue; }
       const start = x;
       while (x < canvas.width && maskData[(y * canvas.width + x) * 4]! >= 128) x += 1;
       const end = x - 1;
-      const left = Math.max(0, start - 2);
-      const right = Math.min(canvas.width - 1, end + 2);
+      const left = Math.max(0, start - 3);
+      const right = Math.min(canvas.width - 1, end + 3);
       for (let px = start; px <= end; px += 1) {
         const t = (px - start + 1) / (end - start + 2);
         const i = (y * canvas.width + px) * 4;
-        const li = (y * canvas.width + left) * 4;
-        const ri = (y * canvas.width + right) * 4;
-        image.data[i] = Math.round(original[li]! * (1 - t) + original[ri]! * t);
-        image.data[i + 1] = Math.round(original[li + 1]! * (1 - t) + original[ri + 1]! * t);
-        image.data[i + 2] = Math.round(original[li + 2]! * (1 - t) + original[ri + 2]! * t);
+        const leftIndex = (y * canvas.width + left) * 4;
+        const rightIndex = (y * canvas.width + right) * 4;
+        image.data[i] = Math.round(original[leftIndex]! * (1 - t) + original[rightIndex]! * t);
+        image.data[i + 1] = Math.round(original[leftIndex + 1]! * (1 - t) + original[rightIndex + 1]! * t);
+        image.data[i + 2] = Math.round(original[leftIndex + 2]! * (1 - t) + original[rightIndex + 2]! * t);
         image.data[i + 3] = 255;
       }
     }
   }
+
   ctx.putImageData(image, 0, 0);
   return canvas.toDataURL('image/jpeg', 0.9);
-}
-
-function dataUrlToImageSync(dataUrl: string) {
-  const image = new window.Image();
-  image.src = dataUrl;
-  return image;
 }
 
 async function repairBackground({ projectId, spaceId, token, sourceCanvas, maskUrl }: { projectId?: string; spaceId?: string; token?: string; sourceCanvas: HTMLCanvasElement; maskUrl: string }) {
@@ -368,24 +396,26 @@ async function repairBackground({ projectId, spaceId, token, sourceCanvas, maskU
 function resizedDataUrl(source: HTMLCanvasElement, maxDimension: number) {
   const scale = Math.min(1, maxDimension / Math.max(source.width, source.height));
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(source.width * scale); canvas.height = Math.round(source.height * scale);
+  canvas.width = Math.round(source.width * scale);
+  canvas.height = Math.round(source.height * scale);
   canvas.getContext('2d')!.drawImage(source, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/jpeg', 0.88);
 }
 
 async function compositeScene({ sceneUrl, selection, position, scale, rotation, imageSize }: { sceneUrl: string; selection: Selection; position: { x: number; y: number }; scale: number; rotation: number; imageSize: { width: number; height: number } }) {
   const canvas = document.createElement('canvas');
-  canvas.width = imageSize.width; canvas.height = imageSize.height;
+  canvas.width = imageSize.width;
+  canvas.height = imageSize.height;
   const ctx = canvas.getContext('2d')!;
   const background = await loadImage(sceneUrl);
   ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
   const cutout = await loadImage(selection.cutoutUrl);
   const width = selection.bbox.width * scale;
   const height = selection.bbox.height * scale;
-  const cx = position.x * canvas.width;
-  const cy = position.y * canvas.height;
+  const centerX = position.x * canvas.width;
+  const centerY = position.y * canvas.height;
   ctx.save();
-  ctx.translate(cx, cy);
+  ctx.translate(centerX, centerY);
   ctx.rotate(rotation * Math.PI / 180);
   ctx.drawImage(cutout, -width / 2, -height / 2, width, height);
   ctx.restore();
@@ -399,7 +429,8 @@ async function loadSceneIntoCanvas(url: string) {
   const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
   const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
   const canvas = document.createElement('canvas');
-  canvas.width = width; canvas.height = height;
+  canvas.width = width;
+  canvas.height = height;
   canvas.getContext('2d', { willReadFrequently: true })!.drawImage(image, 0, 0, width, height);
   return { canvas, width, height };
 }
@@ -414,7 +445,9 @@ function loadImage(url: string) {
   });
 }
 
-function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
 
 const styles = StyleSheet.create({
   shell: { borderRadius: 24, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,.72)', borderWidth: 1, borderColor: tokens.color.line },
@@ -426,8 +459,11 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' },
   toolButton: { minHeight: 34, paddingHorizontal: 10, borderRadius: 10, justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: tokens.color.line },
   toolText: { fontSize: 9, fontWeight: '800', color: tokens.color.text },
+  aiButton: { minHeight: 34, paddingHorizontal: 11, borderRadius: 10, justifyContent: 'center', backgroundColor: 'rgba(207,229,236,.72)', borderWidth: 1, borderColor: 'rgba(13,116,150,.18)' },
+  aiText: { fontSize: 9, fontWeight: '800', color: tokens.color.blue },
   primaryButton: { minHeight: 34, paddingHorizontal: 12, borderRadius: 10, justifyContent: 'center', backgroundColor: tokens.color.blue },
   primaryText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  disabled: { opacity: 0.45 },
   stage: { width: '100%', position: 'relative', overflow: 'hidden', backgroundColor: '#D8D5CD' },
   cutout: { position: 'absolute', zIndex: 5 },
   selectionOutline: { ...StyleSheet.absoluteFillObject, borderWidth: 2, borderColor: '#28C7E8', borderRadius: 5 },
