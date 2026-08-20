@@ -1,5 +1,5 @@
 import { demoSnapshot } from './fixtures.js';
-import { applyActions, physicalDimensionsEqual, validateLayoutActions, validateSnapshot } from './spatial.js';
+import { applyActions, physicalDimensionsEqual, validateLayoutActions, validateOrganizeActions, validateSnapshot } from './spatial.js';
 import { inchesToMm, mmToInches } from './units.js';
 
 let failures = 0;
@@ -43,5 +43,30 @@ test('AI/layout validation rejects moves beyond room envelope', () => {
   const errors = validateLayoutActions(demoSnapshot, [{ type: 'move', objectId: object.id, to: { x: 999999, y: 0, z: 999999 } }]);
   equal(errors.some((value) => value.includes('room bounding envelope')), true, 'expected room-envelope rejection');
 });
+
+test('Organize validation rejects a newly created footprint collision', () => {
+  const cabinet = demoSnapshot.objects.find((item) => item.id === 'cabinet-1')!;
+  const errors = validateOrganizeActions(demoSnapshot, [{
+    type: 'move', objectId: cabinet.id, to: { x: 1500, y: cabinet.transform.translation.y, z: 650 }
+  }]);
+  equal(errors.some((value) => value.includes('creates object collision')), true, 'expected collision rejection');
+});
+
+test('Organize validation preserves vertical placement', () => {
+  const object = demoSnapshot.objects[0]!;
+  const errors = validateOrganizeActions(demoSnapshot, [{
+    type: 'move', objectId: object.id, to: { x: 2200, y: object.transform.translation.y + 100, z: 1200 }
+  }]);
+  equal(errors.some((value) => value.includes('vertical position')), true, 'expected vertical-position rejection');
+});
+
+test('Organize validation rejects rotate actions until accepted by the Organize contract', () => {
+  const object = demoSnapshot.objects[0]!;
+  const errors = validateOrganizeActions(demoSnapshot, [{
+    type: 'rotate', objectId: object.id, rotation: { x: 0, y: 0, z: 0, w: 1 }
+  }]);
+  equal(errors.some((value) => value.includes('move actions only')), true, 'expected rotate rejection');
+});
+
 if (failures > 0) throw new Error(`${failures} domain test(s) failed`);
 console.log('All domain tests passed.');

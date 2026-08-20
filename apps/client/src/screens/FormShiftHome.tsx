@@ -1,4 +1,4 @@
-import type { Mode } from '@formshift/domain';
+import type { Mode, SpatialSnapshot } from '@formshift/domain';
 import { isRoomPlanSupported } from '@formshift/formshift-roomplan';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
@@ -6,6 +6,7 @@ import { AddObjectCard } from '../components/AddObjectCard';
 import { BrandMark } from '../components/BrandMark';
 import { CaptureSpace } from '../components/CaptureSpace';
 import { ModeSwitch } from '../components/ModeSwitch';
+import { OrganizeIntelligenceCard } from '../components/OrganizeIntelligenceCard';
 import { PlanCanvas } from '../components/PlanCanvas';
 import { RoomSetupCard } from '../components/RoomSetupCard';
 import { useRoomWorkspace } from '../data/useRoomWorkspace';
@@ -15,12 +16,14 @@ import { useAuth } from '../auth/AuthProvider';
 export function FormShiftHome() {
   const [mode, setMode] = useState<Mode>('organize');
   const [lidar, setLidar] = useState(false);
+  const [organizePreview, setOrganizePreview] = useState<SpatialSnapshot | null>(null);
   const { width } = useWindowDimensions();
   const compact = width < 780;
   const auth = useAuth();
   const workspace = useRoomWorkspace();
 
   useEffect(() => { isRoomPlanSupported().then(setLidar).catch(() => setLidar(false)); }, []);
+  useEffect(() => { setOrganizePreview(null); }, [mode, workspace.activeVersionId]);
 
   const titleContext = workspace.project && workspace.space
     ? `${workspace.project.name.toUpperCase()} · ${workspace.space.name.toUpperCase()}`
@@ -70,7 +73,7 @@ export function FormShiftHome() {
               ) : null}
               {!workspace.loading && workspace.workingSnapshot ? (
                 <PlanCanvas
-                  snapshot={workspace.workingSnapshot}
+                  snapshot={mode === 'organize' && organizePreview ? organizePreview : workspace.workingSnapshot}
                   editable={mode === 'arrange'}
                   onSnapshotChange={workspace.setWorkingSnapshot}
                 />
@@ -79,7 +82,17 @@ export function FormShiftHome() {
 
             <View style={styles.sideRail}>
               {workspace.photoUrl ? <PhotoCard url={workspace.photoUrl} /> : null}
-              {mode === 'organize' && <OrganizePanel hasPlan={!!workspace.workingSnapshot} objectCount={workspace.workingSnapshot?.objects.length ?? 0} />}
+              {mode === 'organize' && (
+                <OrganizeIntelligenceCard
+                  projectId={workspace.project?.id}
+                  spaceId={workspace.space?.id}
+                  activeVersionId={workspace.activeVersionId}
+                  snapshot={workspace.workingSnapshot}
+                  busy={workspace.busy}
+                  onAccept={workspace.acceptOrganizeProposal}
+                  onPreviewChange={setOrganizePreview}
+                />
+              )}
               {mode === 'arrange' && <ArrangePanel hasPlan={!!workspace.workingSnapshot} dirty={workspace.dirty} busy={workspace.busy} onSave={workspace.saveArrangement} onDiscard={workspace.discardArrangement} />}
               {mode === 'arrange' && workspace.workingSnapshot ? <AddObjectCard busy={workspace.busy} onAdd={workspace.addObject} /> : null}
               {mode === 'build' && <BuildPanel hasPlan={!!workspace.workingSnapshot} measurementSummary={workspace.measurementSummary} />}
@@ -88,7 +101,7 @@ export function FormShiftHome() {
           </View>
 
           <View style={styles.footerRow}>
-            <Text style={styles.footerText}>Phase 1 · real room workspace</Text>
+            <Text style={styles.footerText}>Phase 2 · Organize Intelligence</Text>
             <Text style={styles.footerText}>{auth.configured ? `Auth: ${auth.session ? auth.access : 'ready'}` : 'Auth: awaiting Supabase project'}</Text>
           </View>
         </ScrollView>
@@ -111,16 +124,6 @@ function EmptyRoomCard() {
 
 function PhotoCard({ url }: { url: string }) {
   return <View style={styles.photoCard}><Text style={styles.cardEyebrow}>ROOM PHOTO</Text><Image source={{ uri: url }} resizeMode="cover" style={styles.photo}/><Text style={styles.photoHint}>Private source image · visual evidence, not automatic scale</Text></View>;
-}
-
-function OrganizePanel({ hasPlan, objectCount }: { hasPlan: boolean; objectCount: number }) {
-  const title = !hasPlan ? 'Measure the room first' : objectCount === 0 ? 'Add the objects you want to organize' : 'Real room ready for analysis';
-  const body = !hasPlan
-    ? 'Organize needs a spatial boundary before it can evaluate circulation, grouping, access, or placement.'
-    : objectCount === 0
-      ? 'Add measured furniture and storage in Arrange. FormShift will use those exact footprints for organization proposals.'
-      : `FormShift now has ${objectCount} real ${objectCount === 1 ? 'object' : 'objects'} and a persistent room boundary. AI organization proposals are the next implementation slice.`;
-  return <View style={styles.glassCard}><Text style={styles.cardEyebrow}>ORGANIZE</Text><Text style={styles.cardTitle}>{title}</Text><Text style={styles.cardBody}>{body}</Text>{hasPlan && objectCount > 0 ? <View style={styles.benefit}><Text style={styles.benefitText}>spatial substrate ready</Text></View> : null}</View>;
 }
 
 function ArrangePanel({ hasPlan, dirty, busy, onSave, onDiscard }: { hasPlan: boolean; dirty: boolean; busy: boolean; onSave: () => Promise<void>; onDiscard: () => void }) {
@@ -146,7 +149,7 @@ function measurementLabel(summary: 'needs_dimensions' | 'estimated' | 'measured'
 
 function copyFor(mode: Mode, hasPlan: boolean, objectCount: number) {
   if (!hasPlan) return 'Capture the room, then enter dimensions. FormShift will not infer authoritative geometry from a photo alone.';
-  if (mode === 'organize') return objectCount > 0 ? 'The room and object footprints are now real data. Organization can build on this state without inventing dimensions.' : 'Add the furniture and storage you want FormShift to reason about.';
+  if (mode === 'organize') return objectCount > 0 ? 'Ask FormShift for practical layout options. Every proposal is checked against the committed room geometry before you can accept it.' : 'Add the furniture and storage you want FormShift to reason about.';
   if (mode === 'arrange') return 'Move real objects directly, then save the layout as a new immutable spatial version.';
   return 'Build planning now binds to the captured room and its measurement state rather than the original demo fixture.';
 }

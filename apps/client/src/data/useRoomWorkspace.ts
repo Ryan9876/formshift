@@ -1,5 +1,8 @@
 import {
+  applyActions,
   canonicalCoordinateSystem,
+  validateOrganizeActions,
+  type LayoutAction,
   type MeasurementState,
   type SpatialObject,
   type SpatialSnapshot,
@@ -388,7 +391,43 @@ export function useRoomWorkspace() {
     }
   }, [activeVersionId, commitSpatialVersion, dirty, space, workingSnapshot]);
 
+  const acceptOrganizeProposal = useCallback(async (basisVersionId: string, actions: LayoutAction[]) => {
+    if (!supabase || !space || !workingSnapshot || !activeVersionId) throw new Error('A committed room version is required.');
+    if (dirty) throw new Error('Save or discard Arrange changes before accepting an Organize proposal.');
+    if (basisVersionId !== activeVersionId) throw new Error('This proposal is stale because the room has changed. Generate new Organize options.');
 
+    const activeCheck = await supabase
+      .from('spaces')
+      .select('active_spatial_version_id')
+      .eq('id', space.id)
+      .single();
+    if (activeCheck.error) throw activeCheck.error;
+    if (activeCheck.data.active_spatial_version_id !== basisVersionId) {
+      await load();
+      throw new Error('This proposal is stale because the room changed elsewhere. Generate new Organize options.');
+    }
+
+    const validationErrors = validateOrganizeActions(workingSnapshot, actions);
+    if (validationErrors.length > 0) throw new Error(validationErrors[0]);
+
+    const next = applyActions(workingSnapshot, actions);
+    setBusy(true);
+    setError(null);
+
+    try {
+      const versionId = await commitSpatialVersion(next, 'organize', basisVersionId);
+      setActiveVersionId(versionId);
+      setPersistedSnapshot(next);
+      setWorkingSnapshotState(next);
+      setDirty(false);
+    } catch (err) {
+      const message = errorMessage(err);
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setBusy(false);
+    }
+  }, [activeVersionId, commitSpatialVersion, dirty, load, space, workingSnapshot]);
 
   return {
     loading,
@@ -407,6 +446,7 @@ export function useRoomWorkspace() {
     setWorkingSnapshot,
     discardArrangement,
     saveArrangement,
+    acceptOrganizeProposal,
   };
 }
 
