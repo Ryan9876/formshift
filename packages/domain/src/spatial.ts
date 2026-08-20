@@ -43,7 +43,7 @@ export function applyActions(snapshot: SpatialSnapshot, actions: LayoutAction[])
       throw new Error(`object is fixed: ${action.objectId}`);
     }
     if (action.type === 'move') objects[index] = { ...current, transform: { ...current.transform, translation: { ...action.to } } };
-    if (action.type === 'rotate') objects[index] = { ...current, transform: { ...current.transform, rotation: { ...action.rotation } };
+    if (action.type === 'rotate') objects[index] = { ...current, transform: { ...current.transform, rotation: { ...action.rotation } } };
     if (action.type === 'remove') objects = objects.filter((x) => x.id !== action.objectId);
   }
   return { ...snapshot, objects };
