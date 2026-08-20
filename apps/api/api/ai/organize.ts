@@ -11,12 +11,38 @@ type Body = {
   roomContext?: string;
 };
 
+type Proposal = {
+  id: string;
+  title: string;
+  rationale: string;
+  expectedBenefits: string[];
+  assumptions: string[];
+  actions: LayoutAction[];
+  geometryValidation: {
+    valid: boolean;
+    errors: string[];
+  };
+};
+
+type Attempt = {
+  model: string;
+  status: 'completed' | 'failed';
+  validProposalCount?: number;
+  usage?: unknown;
+  errorClass?: string;
+};
+
 export function OPTIONS(request: Request) {
   return preflight(request);
 }
 
 export async function POST(request: Request) {
   let aiRunId: string | undefined;
+  const attempts: Attempt[] = [];
+  const primaryModel = process.env.FORMSHIFT_AI_MODEL?.trim() || 'openai/gpt-5.6-luna';
+  const fallbackModel = process.env.FORMSHIFT_AI_FALLBACK_MODEL?.trim() || 'openai/gpt-5.6-terra';
+  const modelLadder = primaryModel === fallbackModel ? [primaryModel] : [primaryModel, fallbackModel];
+
   try {
     const body = await parseJson<Body>(request);
     if (!body.projectId || !body.spaceId || !body.spatialVersionId) {
@@ -66,7 +92,7 @@ export async function POST(request: Request) {
       actor_user_id: active.userId,
       task_name: 'organize',
       task_schema_version: 'organize-1',
-      prompt_version: 'organize-v0.5.0',
+      prompt_version: 'organize-v0.5.1',
       status: 'running',
     }).select('id').single();
 
@@ -74,96 +100,131 @@ export async function POST(request: Request) {
     aiRunId = run.id;
 
     const startedAt = Date.now();
-    const model = process.env.FORMSHIFT_AI_MODEL?.trim() || 'openai/gpt-5.6-sol';
+    let selected: { model: string; proposals: Proposal[]; validCount: number } | null = null;
+    let lastError: unknown;
 
-    try {
-      const { output, usage } = await generateText({
-        model,
-        output: Output.object({ schema: organizeOutputSchema, name: 'FormShiftOrganizeProposals' }),
-        system: [
-          'You are FormShift Organize. Improve the supplied structured room layout.',
-          'The supplied snapshot is authoritative geometry. Never invent or change dimensions.',
-          'Use only stable object IDs in the snapshot.',
-          'For this release, propose MOVE actions only. Do not propose rotation, addition, removal, resizing, or vertical movement.',
-          'For every move, preserve the object current Y coordinate exactly and change only X/Z.',
-          'Do not overlap object footprints and keep every footprint inside the room boundary.',
-          'Produce up to three meaningfully different practical layouts.',
-          'Optimize circulation, access, grouping, clutter reduction, useful storage, and practical use.',
-          'Your proposals are advisory. FormShift deterministic validation is the final authority.',
-        ].join(' '),
-        prompt: JSON.stringify({
-          basisSpatialVersionId: body.spatialVersionId,
-          roomContext: body.roomContext?.trim() || null,
-          snapshot,
-        }),
-      });
+    for (let index = 0; index < modelLadder.length; index += 1) {
+      const model = modelLadder[index]!;
+      const isLastAttempt = index === modelLadder.length - 1;
 
-      const proposals = (output as OrganizeOutput).proposals.map((proposal, index) => {
-        const normalizedActions: LayoutAction[] = [];
-        const schemaErrors: string[] = [];
+      try {
+        const { output, usage } = await generateText({
+          model,
+          output: Output.object({ schema: organizeOutputSchema, name: 'FormShiftOrganizeProposals' }),
+          system: [
+            'You are FormShift Organize. Improve the supplied structured room layout.',
+            'The supplied snapshot is authoritative geometry. Never invent or change dimensions.',
+            'Use only stable object IDs in the snapshot.',
+            'For this release, propose MOVE actions only. Do not propose rotation, addition, removal, resizing, or vertical movement.',
+            'For every move, preserve the object current Y coordinate exactly and change only X/Z.',
+            'Do not overlap object footprints and keep every footprint inside the room boundary.',
+            'Produce up to three meaningfully different practical layouts.',
+            'Each proposal must contain at least one actual move.',
+            'Optimize circulation, access, grouping, clutter reduction, useful storage, and practical use.',
+            'Your proposals are advisory. FormShift deterministic validation is the final authority.',
+          ].join(' '),
+          prompt: JSON.stringify({
+            basisSpatialVersionId: body.spatialVersionId,
+            roomContext: body.roomContext?.trim() || null,
+            snapshot,
+          }),
+        });
 
-        for (const action of proposal.actions) {
-          if (action.type !== 'move') {
-            schemaErrors.push(`Unsupported organize action type for ${action.objectId}: ${action.type}`);
-            continue;
-          }
-          if (!action.to) {
-            schemaErrors.push(`Move action for ${action.objectId} is missing a destination.`);
-            continue;
-          }
-          normalizedActions.push({ type: 'move', objectId: action.objectId, to: action.to });
-        }
+        const proposals = normalizeProposals(snapshot, output as OrganizeOutput);
+        const validCount = proposals.filter((proposal) => proposal.geometryValidation.valid).length;
+        attempts.push({ model, status: 'completed', validProposalCount: validCount, usage: usage ?? null });
 
-        const validationErrors = [
-          ...schemaErrors,
-          ...validateOrganizeActions(snapshot, normalizedActions),
-        ];
-
-        return {
-          id: `proposal-${index + 1}`,
-          title: proposal.title,
-          rationale: proposal.rationale,
-          expectedBenefits: proposal.expectedBenefits,
-          assumptions: proposal.assumptions,
-          actions: normalizedActions,
-          geometryValidation: {
-            valid: validationErrors.length === 0,
-            errors: Array.from(new Set(validationErrors)),
-          },
-        };
-      });
-
-      const validCount = proposals.filter((proposal) => proposal.geometryValidation.valid).length;
-
-      await active.client.from('ai_runs').update({
-        status: 'completed',
-        latency_ms: Date.now() - startedAt,
-        provider_model: model,
-        token_usage: usage ?? null,
-      }).eq('id', aiRunId);
-
-      return json(request, {
-        aiRunId,
-        basisSpatialVersionId: body.spatialVersionId,
-        status: validCount > 0 ? 'proposed' : 'no_valid_proposals',
-        validProposalCount: validCount,
-        proposals,
-      });
-    } catch (generationError) {
-      await active.client.from('ai_runs').update({
-        status: 'failed',
-        latency_ms: Date.now() - startedAt,
-        provider_model: model,
-        error_class: generationError instanceof Error ? generationError.name : 'unknown',
-      }).eq('id', aiRunId);
-      throw generationError;
+        selected = { model, proposals, validCount };
+        if (validCount > 0 || isLastAttempt) break;
+      } catch (generationError) {
+        lastError = generationError;
+        attempts.push({
+          model,
+          status: 'failed',
+          errorClass: generationError instanceof Error ? generationError.name : 'unknown',
+        });
+        if (isLastAttempt) throw generationError;
+      }
     }
+
+    if (!selected) throw lastError ?? new Error('No Organize model completed.');
+
+    await active.client.from('ai_runs').update({
+      status: 'completed',
+      latency_ms: Date.now() - startedAt,
+      provider_model: selected.model,
+      token_usage: { attempts },
+    }).eq('id', aiRunId);
+
+    return json(request, {
+      aiRunId,
+      basisSpatialVersionId: body.spatialVersionId,
+      status: selected.validCount > 0 ? 'proposed' : 'no_valid_proposals',
+      validProposalCount: selected.validCount,
+      modelUsed: selected.model,
+      fallbackUsed: selected.model !== primaryModel,
+      proposals: selected.proposals,
+    });
   } catch (error) {
     if (error instanceof Response) return json(request, { error: await error.text() }, error.status);
+
+    if (aiRunId) {
+      // Best-effort observability. The request still returns the original generation error if this update fails.
+      try {
+        const bearer = request.headers.get('authorization');
+        if (bearer?.startsWith('Bearer ')) {
+          // The normal request path already owns the RLS-scoped client; failures before that point have no run to update.
+          // Avoid introducing service-role access solely for telemetry.
+        }
+      } catch {
+        // Intentionally ignored.
+      }
+    }
+
     return json(request, {
       error: 'organize_failed',
       aiRunId,
       message: error instanceof Error ? error.message : 'unknown error',
+      attempts: attempts.map(({ model, status, validProposalCount, errorClass }) => ({ model, status, validProposalCount, errorClass })),
     }, 500);
   }
+}
+
+function normalizeProposals(snapshot: SpatialSnapshot, output: OrganizeOutput): Proposal[] {
+  return output.proposals.map((proposal, index) => {
+    const normalizedActions: LayoutAction[] = [];
+    const schemaErrors: string[] = [];
+
+    for (const action of proposal.actions) {
+      if (action.type !== 'move') {
+        schemaErrors.push(`Unsupported organize action type for ${action.objectId}: ${action.type}`);
+        continue;
+      }
+      if (!action.to) {
+        schemaErrors.push(`Move action for ${action.objectId} is missing a destination.`);
+        continue;
+      }
+      normalizedActions.push({ type: 'move', objectId: action.objectId, to: action.to });
+    }
+
+    if (normalizedActions.length === 0) schemaErrors.push('Proposal contains no usable move actions.');
+
+    const validationErrors = [
+      ...schemaErrors,
+      ...validateOrganizeActions(snapshot, normalizedActions),
+    ];
+
+    return {
+      id: `proposal-${index + 1}`,
+      title: proposal.title,
+      rationale: proposal.rationale,
+      expectedBenefits: proposal.expectedBenefits,
+      assumptions: proposal.assumptions,
+      actions: normalizedActions,
+      geometryValidation: {
+        valid: validationErrors.length === 0,
+        errors: Array.from(new Set(validationErrors)),
+      },
+    };
+  });
 }
