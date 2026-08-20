@@ -21,6 +21,12 @@ type SegmenterModule = {
 const MEDIAPIPE_BUNDLE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs';
 const MEDIAPIPE_WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm';
 const MAGIC_TOUCH_MODEL = 'https://storage.googleapis.com/mediapipe-models/interactive_segmenter_v2/magic_touch/int8/1/interactive_segmentation.task';
+const WEB_GESTURE_SHIELD = {
+  touchAction: 'none',
+  userSelect: 'none',
+  WebkitUserSelect: 'none',
+  WebkitTouchCallout: 'none',
+} as any;
 
 export function PhotoArrangeEditor({
   photoUrl,
@@ -93,11 +99,9 @@ export function PhotoArrangeEditor({
     },
   }), [selection, position, stageSize]);
 
-  const handleSelect = async (event: any) => {
+  const handleSelectAt = async (x: number, y: number) => {
     const source = sourceCanvasRef.current;
     if (selection || selecting || !source) return;
-    const x = clamp((event.nativeEvent.locationX ?? 0) / Math.max(stageSize.width, 1), 0, 1);
-    const y = clamp((event.nativeEvent.locationY ?? 0) / Math.max(stageSize.height, 1), 0, 1);
     setSelecting(true);
     setError(null);
     setStatus('Finding object edges…');
@@ -122,6 +126,17 @@ export function PhotoArrangeEditor({
     } finally {
       setSelecting(false);
     }
+  };
+
+  const handleSelectionPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (selection || selecting) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const x = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+    const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+    void handleSelectAt(x, y);
   };
 
   const refineBackground = async () => {
@@ -198,16 +213,27 @@ export function PhotoArrangeEditor({
       </View>
 
       <View
-        style={[styles.stage, { aspectRatio: imageSize.width / imageSize.height }]}
+        style={[styles.stage, { aspectRatio: imageSize.width / imageSize.height }, WEB_GESTURE_SHIELD]}
         onLayout={(event) => setStageSize(event.nativeEvent.layout)}
       >
-        {sceneUrl ? <Image source={{ uri: sceneUrl }} resizeMode="contain" style={StyleSheet.absoluteFillObject} /> : null}
-        {!selection ? <Pressable onPress={handleSelect} style={StyleSheet.absoluteFillObject} /> : null}
+        {sceneUrl ? <Image pointerEvents="none" source={{ uri: sceneUrl }} resizeMode="contain" style={StyleSheet.absoluteFillObject} /> : null}
+        {!selection ? (
+          <div
+            aria-label="Tap an object in the room photo to select it"
+            role="button"
+            onPointerDown={handleSelectionPointerDown}
+            onContextMenu={(event) => event.preventDefault()}
+            onDragStart={(event) => event.preventDefault()}
+            style={{ position: 'absolute', inset: 0, zIndex: 4, cursor: 'crosshair', ...WEB_GESTURE_SHIELD }}
+          />
+        ) : null}
         {selection && displayCutout ? (
           <View
             {...panResponder.panHandlers}
+            {...({ onContextMenu: (event: any) => event.preventDefault() } as any)}
             style={[
               styles.cutout,
+              WEB_GESTURE_SHIELD,
               {
                 width: displayCutout.width,
                 height: displayCutout.height,
@@ -217,7 +243,7 @@ export function PhotoArrangeEditor({
               },
             ]}
           >
-            <Image source={{ uri: selection.cutoutUrl }} resizeMode="contain" style={StyleSheet.absoluteFillObject} />
+            <Image pointerEvents="none" source={{ uri: selection.cutoutUrl }} resizeMode="contain" style={StyleSheet.absoluteFillObject} />
             <View pointerEvents="none" style={styles.selectionOutline} />
           </View>
         ) : null}
