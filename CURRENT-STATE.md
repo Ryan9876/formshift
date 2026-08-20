@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.6.2  
+**Revision:** 0.6.3  
 **Date:** 2026-08-20  
-**Milestone:** Photo Arrange v1 MediaPipe invocation hotfix deployed; authenticated real-object interaction validation pending
+**Milestone:** Photo Arrange v1 real-object selection/lift/move validated on iPhone Safari
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
@@ -13,7 +13,15 @@ Runtime baseline: `6a57cde192c3c0e7468eb792e0a193b11dc4b2c9`
 Production evidence:
 - web deployment `dpl_5pwSnuUnfvZMcNSW6rNBnXXdqXMC` — READY on the exact runtime baseline
 - exact preview deployment `dpl_7d3sqPaXGv66taZWsgNZDKsQL5ow` — READY and exported `/arrange`
-- API runtime is unchanged by this client-only segmentation hotfix; the prior authenticated background-repair API remains active
+- API runtime is unchanged by the client-only segmentation hotfix; the prior authenticated background-repair API remains active
+- authenticated iPhone Safari validation confirmed a real photographed guitar can be tapped, segmented, lifted, and moved in the room photo
+
+Validated interaction:
+- normal tap reaches FormShift rather than Safari native image-selection UI
+- MediaPipe interactive segmentation completes without the prior `t.map is not a function` error
+- selected photographed pixels become a transparent movable cutout
+- the cutout can be repositioned over the same room photo
+- the original source photo remains recoverable through Reset
 
 Implemented:
 - **Arrange** routes to `/arrange`
@@ -25,37 +33,23 @@ Implemented:
 - **Refine background with AI** is explicit/opt-in and requires authenticated editable project/space access
 - **Keep placement** composites a derived session preview
 - **Reset** restores the immutable source photo
-- native iOS currently falls back to Plan while web/iPhone Safari is validated
+- native iOS currently falls back to Plan while the web/iPhone Safari path is developed
 
-### iPhone Safari touch handling
+## Current quality gaps visible in validation
 
-The room-photo selection surface now:
-- captures selection on pointer-down
-- calculates coordinates from the actual rendered photo bounds
-- suppresses Safari image/text callouts, selection, and drag behavior
-- prevents the room image from receiving pointer events directly
-- applies the same gesture shielding to the movable cutout
+The interaction model is proven, but visual quality is still prototype-level:
+- segmentation edges are rough and can include/exclude nearby pixels
+- the local fill used at the object's former location is visibly synthetic
+- moved objects do not yet adapt perspective, floor/wall contact, shadows, or lighting
+- moved objects do not yet pass correctly behind foreground geometry or other room objects
+- direct touch ergonomics still rely on separate resize/rotate controls rather than natural pinch/rotate gestures
+- edits remain session-only and are not persisted as derived scene versions
 
-### MediaPipe invocation hotfix
+## Privacy/accuracy boundaries
 
-Observed after the Safari gesture correction: the tap reached FormShift and began segmentation, but MediaPipe failed with `t.map is not a function`.
-
-Root cause: the compatibility guard required a runtime `BrushMode.POSITIVE` export before using MediaPipe's stateful `setImage() + segment(strokes)` contract. On the mobile bundle that enum was not exposed, so FormShift incorrectly fell back to the legacy one-shot segment call against a stateful segmenter.
-
-Deployed correction:
-- stateful mode is selected whenever `setImage` exists
-- the source photo is set with `setImage(image)`
-- the tap is sent as a positive point stroke to `segment(strokes)`
-- brush mode uses the exported positive enum when present and the documented numeric positive value (`1`) otherwise
-- legacy image + ROI invocation remains only for runtimes without `setImage`
-
-This correction is compile/export/deployment-verified but **not yet interaction-validated on the user's iPhone**.
-
-Privacy/accuracy boundaries:
 - selection is local
 - AI repair sends scene + mask only after explicit action
 - default image model is `openai/gpt-image-2`; this path is not zero-data-retention
-- edits are preview-only, not persisted
 - physical dimensions, depth, occlusion, relighting, and camera calibration are not inferred from pixel movement
 
 ## Existing validated baseline
@@ -67,21 +61,24 @@ Infrastructure:
 - web `https://formshift-web.vercel.app`
 - API `https://formshift-api.vercel.app`
 
-## Next validation
-
-On iPhone Safari: hard refresh, choose **Arrange**, use a normal quick tap near the center of a distinct object such as the guitar, confirm the UI changes to **Finding object edges…** and then to an isolated movable cutout without the prior `t.map` error. Drag the cutout and test Reset.
-
 ## Next implementation
 
-After real-object selection is interaction-validated: improve segmentation quality and drag ergonomics, then Photo Arrange v2 with persisted derived scenes/masks/transforms, binding to spatial IDs, camera/floor/wall calibration, depth/occlusion/perspective, stronger inpainting, reuse for Organize, and native iOS segmentation/RealityKit.
+**Photo Arrange v1.5 — visual-quality pass** before deeper scene intelligence:
+1. improve mask quality with iterative positive/negative refinement and edge feathering
+2. replace the crude local hole fill with reliable background inpainting
+3. add direct pinch-to-scale and two-finger rotation with better drag affordance
+4. preserve the selected-object mask/cutout while the background repair runs asynchronously
+5. persist derived scene edits so kept placements survive refresh
+
+After v1.5: Photo Arrange v2 adds camera/floor/wall calibration, depth, occlusion, perspective-aware scale, contact shadows/relighting, spatial-ID binding, reuse for Organize, and native iOS segmentation/RealityKit.
 
 ## Not yet claimed
 
-Photo Arrange real-object selection/rearrangement in the authenticated production browser, object-specific segmentation quality, persisted scene edits, calibrated projection/occlusion/relighting, native iOS photo manipulation, or dedicated persisted blueprint PDF.
+Production-quality segmentation/inpainting, persisted photo edits, calibrated projection/occlusion/relighting, native iOS photo manipulation, or dedicated persisted blueprint PDF.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated for the deployed MediaPipe invocation hotfix
+- `CURRENT-STATE.md`: updated because authenticated real-object selection/lift/move is now interaction-validated on iPhone Safari
 - `PROJECT-CONSTITUTION.md`: unchanged
 - `ARCHITECTURE.md`: unchanged
 - `DESIGN-SYSTEM.md`: unchanged
