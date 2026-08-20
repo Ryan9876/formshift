@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { AddObjectCard } from '../components/AddObjectCard';
 import { BrandMark } from '../components/BrandMark';
+import { BuildIntelligenceCard } from '../components/BuildIntelligenceCard';
 import { CaptureSpace } from '../components/CaptureSpace';
 import { ModeSwitch } from '../components/ModeSwitch';
 import { OrganizeIntelligenceCard } from '../components/OrganizeIntelligenceCard';
@@ -17,17 +18,37 @@ export function FormShiftHome() {
   const [mode, setMode] = useState<Mode>('organize');
   const [lidar, setLidar] = useState(false);
   const [organizePreview, setOrganizePreview] = useState<SpatialSnapshot | null>(null);
+  const [buildPreview, setBuildPreview] = useState<SpatialSnapshot | null>(null);
   const { width } = useWindowDimensions();
   const compact = width < 780;
   const auth = useAuth();
   const workspace = useRoomWorkspace();
 
   useEffect(() => { isRoomPlanSupported().then(setLidar).catch(() => setLidar(false)); }, []);
-  useEffect(() => { setOrganizePreview(null); }, [mode, workspace.activeVersionId]);
+  useEffect(() => {
+    setOrganizePreview(null);
+    setBuildPreview(null);
+  }, [mode, workspace.activeVersionId]);
 
   const titleContext = workspace.project && workspace.space
     ? `${workspace.project.name.toUpperCase()} · ${workspace.space.name.toUpperCase()}`
     : 'NEW SPACE';
+  const buildPreviewObjectId = buildPreview?.objects.find(
+    (object) => !workspace.workingSnapshot?.objects.some((base) => base.id === object.id),
+  )?.id;
+  const canvasSnapshot = mode === 'organize' && organizePreview
+    ? organizePreview
+    : mode === 'build' && buildPreview
+      ? buildPreview
+      : workspace.workingSnapshot;
+  const canvasEditable = mode === 'arrange'
+    || (mode === 'organize' && !!organizePreview)
+    || (mode === 'build' && !!buildPreviewObjectId);
+  const canvasChange = mode === 'organize' && organizePreview
+    ? setOrganizePreview
+    : mode === 'build' && buildPreview
+      ? setBuildPreview
+      : workspace.setWorkingSnapshot;
 
   return (
     <SafeAreaView style={styles.page}>
@@ -71,11 +92,12 @@ export function FormShiftHome() {
               {!workspace.loading && workspace.space && !workspace.workingSnapshot ? (
                 <RoomSetupCard busy={workspace.busy} onCreate={workspace.initializeRoom} />
               ) : null}
-              {!workspace.loading && workspace.workingSnapshot ? (
+              {!workspace.loading && canvasSnapshot ? (
                 <PlanCanvas
-                  snapshot={mode === 'organize' && organizePreview ? organizePreview : workspace.workingSnapshot}
-                  editable={mode === 'arrange' || (mode === 'organize' && !!organizePreview)}
-                  onSnapshotChange={mode === 'organize' && organizePreview ? setOrganizePreview : workspace.setWorkingSnapshot}
+                  snapshot={canvasSnapshot}
+                  editable={canvasEditable}
+                  editableObjectIds={mode === 'build' && buildPreviewObjectId ? [buildPreviewObjectId] : undefined}
+                  onSnapshotChange={canvasChange}
                 />
               ) : null}
             </View>
@@ -96,13 +118,24 @@ export function FormShiftHome() {
               )}
               {mode === 'arrange' && <ArrangePanel hasPlan={!!workspace.workingSnapshot} dirty={workspace.dirty} busy={workspace.busy} onSave={workspace.saveArrangement} onDiscard={workspace.discardArrangement} />}
               {mode === 'arrange' && workspace.workingSnapshot ? <AddObjectCard busy={workspace.busy} onAdd={workspace.addObject} /> : null}
-              {mode === 'build' && <BuildPanel hasPlan={!!workspace.workingSnapshot} measurementSummary={workspace.measurementSummary} />}
+              {mode === 'build' && (
+                <BuildIntelligenceCard
+                  projectId={workspace.project?.id}
+                  spaceId={workspace.space?.id}
+                  activeVersionId={workspace.activeVersionId}
+                  snapshot={workspace.workingSnapshot}
+                  previewSnapshot={buildPreview}
+                  measurementSummary={workspace.measurementSummary}
+                  onPreviewChange={setBuildPreview}
+                  onAccepted={workspace.refresh}
+                />
+              )}
               <MeasurementCard summary={workspace.measurementSummary} />
             </View>
           </View>
 
           <View style={styles.footerRow}>
-            <Text style={styles.footerText}>Phase 2 · Organize Intelligence</Text>
+            <Text style={styles.footerText}>Phase 3 · Build Intelligence</Text>
             <Text style={styles.footerText}>{auth.configured ? `Auth: ${auth.session ? auth.access : 'ready'}` : 'Auth: awaiting Supabase project'}</Text>
           </View>
         </ScrollView>
@@ -132,11 +165,6 @@ function ArrangePanel({ hasPlan, dirty, busy, onSave, onDiscard }: { hasPlan: bo
   return <View style={styles.glassCard}><Text style={styles.cardEyebrow}>ARRANGE</Text><Text style={styles.cardTitle}>Move objects without dimension drift</Text><Text style={styles.cardBody}>Drag an object directly. The working layout changes locally until you save it as a new immutable spatial version.</Text><View style={styles.benefit}><Text style={styles.benefitText}>{dirty ? 'unsaved layout changes' : 'latest layout saved'}</Text></View>{dirty ? <View style={styles.actionRow}><Pressable disabled={busy} style={[styles.primary, styles.actionGrow, busy && styles.disabled]} onPress={() => void onSave()}><Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save arrangement'}</Text></Pressable><Pressable disabled={busy} style={styles.secondaryButton} onPress={onDiscard}><Text style={styles.secondaryText}>Discard</Text></Pressable></View> : null}</View>;
 }
 
-function BuildPanel({ hasPlan, measurementSummary }: { hasPlan: boolean; measurementSummary: string }) {
-  const verified = measurementSummary === 'measured';
-  return <View style={styles.glassCard}><Text style={styles.cardEyebrow}>BUILD</Text><Text style={styles.cardTitle}>{!hasPlan ? 'Measure the room first' : verified ? 'Measured room ready for build planning' : 'Build planning can start, verification cannot'}</Text><Text style={styles.cardBody}>{!hasPlan ? 'Build placement requires a real room boundary.' : verified ? 'The room boundary is user-confirmed. Build-critical object and attachment measurements will still be checked before a dimension-verified plan.' : 'Approximate geometry is useful for visual planning, but FormShift will not promote it to a dimension-verified build plan.'}</Text></View>;
-}
-
 function MeasurementCard({ summary }: { summary: 'needs_dimensions' | 'estimated' | 'measured' | 'mixed' }) {
   return <View style={styles.confidenceCard}><Text style={styles.cardEyebrow}>ROOM GEOMETRY</Text><Text style={[styles.metric, summary !== 'measured' && styles.metricNeutral]}>{measurementLabel(summary)}</Text><Text style={styles.cardBody}>{summary === 'measured' ? 'The room boundary comes from user-confirmed measurements. Photos remain supporting evidence.' : summary === 'estimated' ? 'The current room boundary is explicitly estimated. Measure it before relying on exact fit.' : summary === 'mixed' ? 'The room uses mixed measurement states. Exact-fit outputs remain gated.' : 'Capture a photo, then enter room dimensions to create the spatial model.'}</Text></View>;
 }
@@ -152,7 +180,7 @@ function copyFor(mode: Mode, hasPlan: boolean, objectCount: number) {
   if (!hasPlan) return 'Capture the room, then enter dimensions. FormShift will not infer authoritative geometry from a photo alone.';
   if (mode === 'organize') return objectCount > 0 ? 'Ask FormShift for practical layout options, then preview and drag the proposed boxes to fine-tune a validated draft before accepting it.' : 'Add the furniture and storage you want FormShift to reason about.';
   if (mode === 'arrange') return 'Move real objects directly, then save the layout as a new immutable spatial version.';
-  return 'Build planning now binds to the captured room and its measurement state rather than the original demo fixture.';
+  return 'Describe a freestanding shelving/storage build, adjust exact dimensions, preview it in the room, and accept a deterministic plan with cut list, materials, cost allowance, and effort.';
 }
 
 const styles = StyleSheet.create({
