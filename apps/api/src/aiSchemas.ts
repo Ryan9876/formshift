@@ -22,11 +22,14 @@ export const organizeOutputSchema = z.object({
 });
 
 export const buildBriefSchema = z.object({
+  label: z.string(),
   archetype: z.enum(['shelving', 'cabinet', 'storage', 'desk', 'bench', 'other']),
   purpose: z.string(),
   targetWidthMm: z.number().positive().nullable(),
   targetHeightMm: z.number().positive().nullable(),
   targetDepthMm: z.number().positive().nullable(),
+  interiorShelfCount: z.number().int().min(0).max(12).nullable(),
+  installationType: z.enum(['freestanding', 'wall_anchored', 'built_in', 'unknown']),
   placementIntent: z.string(),
   materialPreferences: z.array(z.string()),
   constraints: z.array(z.string()),
