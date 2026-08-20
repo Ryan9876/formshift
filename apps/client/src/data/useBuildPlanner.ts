@@ -7,8 +7,9 @@ import {
   type OpenShelvingPlanDraft,
   type SpatialSnapshot,
 } from '@formshift/domain';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../auth/AuthProvider';
+import { loadLatestSavedBuildPlan } from './loadSavedBuildPlan';
 
 export type NormalizedBuildBrief = {
   label: string;
@@ -75,11 +76,53 @@ export function useBuildPlanner({
   const [objectId, setObjectId] = useState(() => newBuildObjectId());
   const [plan, setPlan] = useState<OpenShelvingPlanDraft | null>(null);
   const [normalizing, setNormalizing] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [acceptedIds, setAcceptedIds] = useState<AcceptResponse['accepted'] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const restoredSpaceKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!projectId || !spaceId || !snapshot) return;
+    const key = `${projectId}:${spaceId}`;
+    if (restoredSpaceKey.current === key) return;
+    restoredSpaceKey.current = key;
+    let cancelled = false;
+    setRestoring(true);
+
+    void loadLatestSavedBuildPlan({ projectId, spaceId, snapshot })
+      .then((restored) => {
+        if (cancelled || !restored) return;
+        setBrief(restored.brief);
+        setNormalized(restored.normalized);
+        setSupported(true);
+        setUnsupportedReason(null);
+        setWidthIn(formatBuildInches(restored.plan.geometry.widthMm));
+        setHeightIn(formatBuildInches(restored.plan.geometry.heightMm));
+        setDepthIn(formatBuildInches(restored.plan.geometry.depthMm));
+        setInteriorShelves(String(restored.plan.geometry.interiorShelves));
+        setObjectId(restored.plan.input.objectId);
+        setPlan(restored.plan);
+        setAccepted(true);
+        setAcceptedIds({
+          buildRequestId: restored.buildRequestId,
+          buildPlanId: restored.buildPlanId,
+          buildObjectId: restored.buildObjectId,
+        });
+        setSavedMessage('Saved Build plan restored.');
+        setError(null);
+      })
+      .catch(() => {
+        if (!cancelled) setError('The saved Build plan could not be restored. You can still start a new plan.');
+      })
+      .finally(() => {
+        if (!cancelled) setRestoring(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [projectId, spaceId, snapshot]);
 
   const currentPlan = useMemo(() => {
     if (!plan || !snapshot) return plan;
@@ -283,6 +326,7 @@ export function useBuildPlanner({
     setInteriorShelves,
     currentPlan,
     normalizing,
+    restoring,
     accepting,
     accepted,
     acceptedIds,
