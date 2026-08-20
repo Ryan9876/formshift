@@ -1,19 +1,19 @@
 # FormShift Current State
 
-**Revision:** 0.6.1  
+**Revision:** 0.6.2  
 **Date:** 2026-08-20  
-**Milestone:** Photo Arrange v1 touch hotfix deployed; authenticated real-object interaction validation pending
+**Milestone:** Photo Arrange v1 MediaPipe invocation hotfix deployed; authenticated real-object interaction validation pending
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
 ## Photo Arrange v1
 
-Runtime baseline: `fd01f687e7fa8f98c60ae5f2cbdafffaa2e6f972`
+Runtime baseline: `6a57cde192c3c0e7468eb792e0a193b11dc4b2c9`
 
 Production evidence:
-- web deployment `dpl_GRgZtw4QBu15LF2BQjxZiJ825JJk` — READY on the exact runtime baseline
-- production `/arrange` route remains part of the exported web application
-- API runtime is unchanged by the gesture-only hotfix; the prior authenticated background-repair API remains the active production implementation
+- web deployment `dpl_5pwSnuUnfvZMcNSW6rNBnXXdqXMC` — READY on the exact runtime baseline
+- exact preview deployment `dpl_7d3sqPaXGv66taZWsgNZDKsQL5ow` — READY and exported `/arrange`
+- API runtime is unchanged by this client-only segmentation hotfix; the prior authenticated background-repair API remains active
 
 Implemented:
 - **Arrange** routes to `/arrange`
@@ -27,19 +27,29 @@ Implemented:
 - **Reset** restores the immutable source photo
 - native iOS currently falls back to Plan while web/iPhone Safari is validated
 
-### iPhone Safari gesture hotfix
+### iPhone Safari touch handling
 
-Observed production failure: long-pressing the room photo invoked Safari's native Copy / Find Selection callout instead of FormShift object selection.
+The room-photo selection surface now:
+- captures selection on pointer-down
+- calculates coordinates from the actual rendered photo bounds
+- suppresses Safari image/text callouts, selection, and drag behavior
+- prevents the room image from receiving pointer events directly
+- applies the same gesture shielding to the movable cutout
+
+### MediaPipe invocation hotfix
+
+Observed after the Safari gesture correction: the tap reached FormShift and began segmentation, but MediaPipe failed with `t.map is not a function`.
+
+Root cause: the compatibility guard required a runtime `BrushMode.POSITIVE` export before using MediaPipe's stateful `setImage() + segment(strokes)` contract. On the mobile bundle that enum was not exposed, so FormShift incorrectly fell back to the legacy one-shot segment call against a stateful segmenter.
 
 Deployed correction:
-- replaced the React Native synthetic press hit target with a web-native pointer surface
-- selection begins on pointer-down instead of waiting for a completed press
-- tap coordinates are calculated from the actual rendered photo bounds
-- Safari image/text callouts, selection, and drag behavior are suppressed inside the editing canvas
-- the room image no longer receives pointer events directly
-- the movable cutout receives the same Safari gesture shielding
+- stateful mode is selected whenever `setImage` exists
+- the source photo is set with `setImage(image)`
+- the tap is sent as a positive point stroke to `segment(strokes)`
+- brush mode uses the exported positive enum when present and the documented numeric positive value (`1`) otherwise
+- legacy image + ROI invocation remains only for runtimes without `setImage`
 
-This hotfix is deployment-verified but **not yet interaction-validated on the user's iPhone**.
+This correction is compile/export/deployment-verified but **not yet interaction-validated on the user's iPhone**.
 
 Privacy/accuracy boundaries:
 - selection is local
@@ -59,11 +69,11 @@ Infrastructure:
 
 ## Next validation
 
-On iPhone Safari: hard refresh, choose **Arrange**, use a normal quick tap near the center of a distinct object such as the guitar, confirm the UI immediately changes to **Finding object edges…**, then confirm the actual photographed pixels isolate and can be dragged. Long-press should no longer open Safari's Copy / Find Selection menu.
+On iPhone Safari: hard refresh, choose **Arrange**, use a normal quick tap near the center of a distinct object such as the guitar, confirm the UI changes to **Finding object edges…** and then to an isolated movable cutout without the prior `t.map` error. Drag the cutout and test Reset.
 
 ## Next implementation
 
-After the touch fix is interaction-validated: improve segmentation quality and drag ergonomics, then Photo Arrange v2 with persisted derived scenes/masks/transforms, binding to spatial IDs, camera/floor/wall calibration, depth/occlusion/perspective, stronger inpainting, reuse for Organize, and native iOS segmentation/RealityKit.
+After real-object selection is interaction-validated: improve segmentation quality and drag ergonomics, then Photo Arrange v2 with persisted derived scenes/masks/transforms, binding to spatial IDs, camera/floor/wall calibration, depth/occlusion/perspective, stronger inpainting, reuse for Organize, and native iOS segmentation/RealityKit.
 
 ## Not yet claimed
 
@@ -71,7 +81,7 @@ Photo Arrange real-object selection/rearrangement in the authenticated productio
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated for the deployed iPhone Safari gesture hotfix
+- `CURRENT-STATE.md`: updated for the deployed MediaPipe invocation hotfix
 - `PROJECT-CONSTITUTION.md`: unchanged
 - `ARCHITECTURE.md`: unchanged
 - `DESIGN-SYSTEM.md`: unchanged
