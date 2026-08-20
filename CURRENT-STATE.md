@@ -2,7 +2,7 @@
 
 **Revision:** 0.6.0  
 **Date:** 2026-08-20  
-**Milestone:** Photo Arrange v1 ready for production promotion; authenticated interaction validation pending
+**Milestone:** Photo Arrange v1 candidate ready; production deployment and authenticated interaction validation pending
 
 ## Product direction
 
@@ -18,33 +18,18 @@ Mode intent:
 
 ## Deployed validated baseline
 
-Production baseline before Photo Arrange v1 promotion: `c3c9d7cb10842b0924085a3109cc2bb03285aac6`
+Production baseline before Photo Arrange v1: `c3c9d7cb10842b0924085a3109cc2bb03285aac6`
 
-Validated prior capabilities:
+Validated prior capabilities include private room-photo capture/storage, canonical geometry and immutable versions, Plan-based Arrange persistence, Organize Intelligence, Build Intelligence with atomic acceptance, saved Build-plan restoration, blueprint presentation, and photo-first Build visualization.
 
-- responsive Expo web + iOS codebase
-- Google authentication through Supabase plus private access gate
-- private Supabase room-photo storage and RLS-protected project data
-- captured room photos associated with projects/spaces
-- canonical millimeter spatial model and immutable spatial versions
-- measured/estimated room dimensions with provenance
-- Arrange geometry persistence and deterministic movement rules
-- Organize Intelligence with Luna primary / Terra fallback and deterministic proposal validation
-- Build Intelligence for Class A freestanding open shelving/storage
-- atomic accepted Build persistence across Build records, measurements, and spatial version lineage
-- persisted Build-plan restoration after refresh
-- retained front/side/top blueprint geometry, BOM, material allowance, and effort estimate
-- photo-first Build workspace with Before / Augmented / Plan hierarchy
-- deterministic saved Build augmentation renderer
-
-## Photo Arrange v1
+## Photo Arrange v1 candidate
 
 Validated runtime candidate: `08f33120be42173531741809a89cb32df47d870f`
 
 Preview validation:
 
 - web preview exported successfully with `/arrange` as a static protected route
-- runtime candidate web preview was READY
+- exact runtime candidate web preview was READY
 - background-repair API compiled successfully at introducing commit `0ea66353d35cf94bbe12b0abbe0c1534efe3eb2e`; later runtime candidate commits only changed client files
 
 Implemented behavior:
@@ -52,23 +37,23 @@ Implemented behavior:
 - selecting **Arrange** routes to the photo-first `/arrange` workspace
 - the room photo is the primary Arrange surface
 - user taps a photographed object to request interactive segmentation
-- MediaPipe Interactive Segmenter is loaded in-browser and the selection operation runs locally on the client
+- MediaPipe Interactive Segmenter is loaded in-browser and selection runs locally on the client
 - selected object pixels are extracted into a transparent cutout
 - the cutout can be dragged directly over the same photo
-- user can adjust visual size and rotation
+- visual size and rotation can be adjusted
 - the original object location receives an immediate local reconstruction preview
-- **Refine background with AI** is an explicit action, not automatic
+- **Refine background with AI** is explicit and opt-in, not automatic
 - the authenticated background-repair API validates project/space access before invoking the configured image model
-- **Keep placement** composites the cutout into the derived preview scene
+- **Keep placement** composites the cutout into a derived preview scene
 - **Reset** restores the immutable original room photo
 - native iOS currently falls back to the measured Plan editor while the web/iPhone Safari interaction is validated
 
 Privacy boundary:
 
 - segmentation/object isolation is local to the browser
-- the original room photo remains the immutable source
-- AI background refinement is opt-in and sends a source scene plus selection mask to the configured image provider
-- current default image model is `openai/gpt-image-2`; this provider path must not be described as zero-data-retention
+- the original room photo remains immutable
+- AI background refinement sends the source scene and selection mask only after an explicit user action
+- current default image model is `openai/gpt-image-2`; this provider path is not zero-data-retention
 - photo scene edits in this release are preview-only and are not yet persisted to Supabase
 
 Accuracy boundary:
@@ -80,86 +65,41 @@ Accuracy boundary:
 ## Existing validated milestones
 
 ### Phase 1 — real room / geometry Arrange
-
-Validated:
-
-- photo capture/save
-- room measurements
-- real spatial objects
-- direct Plan dragging
-- immutable saved Arrange versions
-- refresh persistence
+Validated: photo capture/save, room measurements, real spatial objects, direct Plan dragging, immutable saved Arrange versions, refresh persistence.
 
 ### Phase 2 — Organize Intelligence
-
-Validated:
-
-- production AI generation
-- Luna production routing
-- deterministic validation
-- editable proposal dragging
-
-Still pending separate validation:
-
-- edited Organize accept/persist lineage
-- Terra fallback path
+Validated: production AI generation, Luna routing, deterministic validation, editable proposal dragging. Edited Organize accept/persist lineage and Terra fallback remain pending separate validation.
 
 ### Phase 3 — Build Intelligence
-
-Production browser end-to-end validated:
-
-- accepted Build request `641e4258-7b21-4b24-8a37-9f9ac36a7c84`
-- accepted Build plan `5348faa8-0de9-4acd-a12f-4a03cac6ea20`
-- committed Build spatial version `c71f44da-1722-4f62-a736-6a2409434a61`
-- parent `2223a418-d84c-413f-a3b6-d30211ff602c`
-- 48 × 72 × 16 in shelving with 3 interior shelves
-- inherited room/object measurement evidence preserved
-- 3 Build-derived measurements added
-- existing Desk and Chest unchanged
-- materials, planning cost range, effort estimate, and component rows persisted
+Production browser E2E validated, including accepted Build request/plan, immutable Build spatial version lineage, preserved measurement evidence, unchanged prior room objects, and persisted components/materials/cost/effort.
 
 ### Phase 4 — Build workspace / Blueprint
-
-Validated:
-
-- `/build` protected production route
-- retained blueprint views
-- latest saved Build plan restored after refresh
-- Blueprint tab rehydration browser-confirmed
+Validated: protected `/build` route, retained blueprint views, saved Build-plan restoration, and Blueprint-tab rehydration.
 
 ## Infrastructure
 
 ### Supabase
-
-- project: `FormShift`
 - project ref: `oomtpnqprxykcjzrlfgc`
 - private bucket: `formshift-private`
 - 25/25 public application tables RLS-enabled
-- Build acceptance RPC deployed and authorization-tested
+- Build acceptance RPC authorization-tested
 - open-shelving 48 in unsupported-span database guard deployed
 
 ### Vercel
-
-Web:
-- project: `formshift-web`
-- production: `https://formshift-web.vercel.app`
-
-API:
-- project: `formshift-api`
-- production: `https://formshift-api.vercel.app`
-- health endpoint previously verified HTTP 200
+- web production: `https://formshift-web.vercel.app`
+- API production: `https://formshift-api.vercel.app`
 
 ## Next validation target
 
-After production deployment, authenticated browser validation of **Photo Arrange v1** on iPhone Safari:
+After production deployment, validate **Photo Arrange v1** on iPhone Safari:
 
 1. hard refresh FormShift and choose **Arrange**
 2. confirm `/arrange` opens with the real room photo as the main workspace
 3. tap near the center of a distinct photographed object such as the guitar
 4. confirm the object becomes an isolated cutout rather than a rectangle
 5. drag the cutout to another visible location in the same room photo
-6. test size and rotation controls
-7. confirm **Reset** restores the untouched original photo
+6. test size and rotation
+7. confirm **Reset** restores the untouched source
 8. optionally choose **Refine background with AI** and verify the old location is reconstructed more naturally
 9. choose **Keep placement** and verify the derived preview remains within the current session
 
@@ -167,16 +107,7 @@ After production deployment, authenticated browser validation of **Photo Arrange
 
 **Photo Arrange v2 — persistent scene edits + calibration**
 
-Priority capabilities:
-
-1. persist derived scene versions, object masks, and transforms in Supabase
-2. bind selected photo objects to spatial object IDs where known
-3. floor/wall and camera calibration
-4. depth/occlusion ordering so moved objects pass naturally behind/in front of room elements
-5. stronger background inpainting and local edge refinement
-6. perspective-aware scale constraints
-7. reuse the same scene-editing contract for Organize before/after proposals
-8. add native iOS segmentation/RealityKit implementation behind the same scene model
+Priority: persist scene versions/masks/transforms; bind photo objects to spatial IDs; calibrate floor/walls/camera; add depth/occlusion and perspective constraints; improve inpainting; reuse the scene contract for Organize; then implement native iOS segmentation/RealityKit.
 
 ## Not yet validated / not claimed
 
@@ -190,7 +121,7 @@ Priority capabilities:
 - native iOS photo-object manipulation
 - native iOS RoomPlan/LiDAR production validation
 - dedicated persisted blueprint PDF package
-- project deletion/recovery end-to-end validation
+- project deletion/recovery E2E validation
 
 ## Authoritative record impact
 
