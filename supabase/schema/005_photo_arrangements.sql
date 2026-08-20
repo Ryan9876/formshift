@@ -48,5 +48,5 @@ create policy photo_arrangements_delete_none
   on public.photo_arrangements for delete
   using (false);
 
+revoke all privileges on public.photo_arrangements from public, anon, authenticated;
 grant select, insert on public.photo_arrangements to authenticated;
-revoke update, delete on public.photo_arrangements from authenticated;
