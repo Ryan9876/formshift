@@ -100,87 +100,86 @@ export async function POST(request: Request) {
     aiRunId = run.id;
 
     const startedAt = Date.now();
-    let selected: { model: string; proposals: Proposal[]; validCount: number } | null = null;
-    let lastError: unknown;
 
-    for (let index = 0; index < modelLadder.length; index += 1) {
-      const model = modelLadder[index]!;
-      const isLastAttempt = index === modelLadder.length - 1;
+    try {
+      let selected: { model: string; proposals: Proposal[]; validCount: number } | null = null;
+      let lastError: unknown;
 
-      try {
-        const { output, usage } = await generateText({
-          model,
-          output: Output.object({ schema: organizeOutputSchema, name: 'FormShiftOrganizeProposals' }),
-          system: [
-            'You are FormShift Organize. Improve the supplied structured room layout.',
-            'The supplied snapshot is authoritative geometry. Never invent or change dimensions.',
-            'Use only stable object IDs in the snapshot.',
-            'For this release, propose MOVE actions only. Do not propose rotation, addition, removal, resizing, or vertical movement.',
-            'For every move, preserve the object current Y coordinate exactly and change only X/Z.',
-            'Do not overlap object footprints and keep every footprint inside the room boundary.',
-            'Produce up to three meaningfully different practical layouts.',
-            'Each proposal must contain at least one actual move.',
-            'Optimize circulation, access, grouping, clutter reduction, useful storage, and practical use.',
-            'Your proposals are advisory. FormShift deterministic validation is the final authority.',
-          ].join(' '),
-          prompt: JSON.stringify({
-            basisSpatialVersionId: body.spatialVersionId,
-            roomContext: body.roomContext?.trim() || null,
-            snapshot,
-          }),
-        });
+      for (let index = 0; index < modelLadder.length; index += 1) {
+        const model = modelLadder[index]!;
+        const isLastAttempt = index === modelLadder.length - 1;
 
-        const proposals = normalizeProposals(snapshot, output as OrganizeOutput);
-        const validCount = proposals.filter((proposal) => proposal.geometryValidation.valid).length;
-        attempts.push({ model, status: 'completed', validProposalCount: validCount, usage: usage ?? null });
+        try {
+          const { output, usage } = await generateText({
+            model,
+            output: Output.object({ schema: organizeOutputSchema, name: 'FormShiftOrganizeProposals' }),
+            system: [
+              'You are FormShift Organize. Improve the supplied structured room layout.',
+              'The supplied snapshot is authoritative geometry. Never invent or change dimensions.',
+              'Use only stable object IDs in the snapshot.',
+              'For this release, propose MOVE actions only. Do not propose rotation, addition, removal, resizing, or vertical movement.',
+              'For every move, preserve the object current Y coordinate exactly and change only X/Z.',
+              'Do not overlap object footprints and keep every footprint inside the room boundary.',
+              'Produce up to three meaningfully different practical layouts.',
+              'Each proposal must contain at least one actual move.',
+              'Optimize circulation, access, grouping, clutter reduction, useful storage, and practical use.',
+              'Your proposals are advisory. FormShift deterministic validation is the final authority.',
+            ].join(' '),
+            prompt: JSON.stringify({
+              basisSpatialVersionId: body.spatialVersionId,
+              roomContext: body.roomContext?.trim() || null,
+              snapshot,
+            }),
+          });
 
-        selected = { model, proposals, validCount };
-        if (validCount > 0 || isLastAttempt) break;
-      } catch (generationError) {
-        lastError = generationError;
-        attempts.push({
-          model,
-          status: 'failed',
-          errorClass: generationError instanceof Error ? generationError.name : 'unknown',
-        });
-        if (isLastAttempt) throw generationError;
+          const proposals = normalizeProposals(snapshot, output as OrganizeOutput);
+          const validCount = proposals.filter((proposal) => proposal.geometryValidation.valid).length;
+          attempts.push({ model, status: 'completed', validProposalCount: validCount, usage: usage ?? null });
+
+          selected = { model, proposals, validCount };
+          if (validCount > 0 || isLastAttempt) break;
+        } catch (generationError) {
+          lastError = generationError;
+          attempts.push({
+            model,
+            status: 'failed',
+            errorClass: generationError instanceof Error ? generationError.name : 'unknown',
+          });
+          if (isLastAttempt) throw generationError;
+        }
       }
+
+      if (!selected) throw lastError ?? new Error('No Organize model completed.');
+
+      await active.client.from('ai_runs').update({
+        status: 'completed',
+        latency_ms: Date.now() - startedAt,
+        provider_model: selected.model,
+        token_usage: { attempts },
+      }).eq('id', aiRunId);
+
+      return json(request, {
+        aiRunId,
+        basisSpatialVersionId: body.spatialVersionId,
+        status: selected.validCount > 0 ? 'proposed' : 'no_valid_proposals',
+        validProposalCount: selected.validCount,
+        modelUsed: selected.model,
+        fallbackUsed: selected.model !== primaryModel,
+        proposals: selected.proposals,
+      });
+    } catch (generationError) {
+      const lastAttempt = attempts[attempts.length - 1];
+      await active.client.from('ai_runs').update({
+        status: 'failed',
+        latency_ms: Date.now() - startedAt,
+        provider_model: lastAttempt?.model ?? primaryModel,
+        token_usage: { attempts },
+        error_class: generationError instanceof Error ? generationError.name : 'unknown',
+      }).eq('id', aiRunId);
+      throw generationError;
     }
-
-    if (!selected) throw lastError ?? new Error('No Organize model completed.');
-
-    await active.client.from('ai_runs').update({
-      status: 'completed',
-      latency_ms: Date.now() - startedAt,
-      provider_model: selected.model,
-      token_usage: { attempts },
-    }).eq('id', aiRunId);
-
-    return json(request, {
-      aiRunId,
-      basisSpatialVersionId: body.spatialVersionId,
-      status: selected.validCount > 0 ? 'proposed' : 'no_valid_proposals',
-      validProposalCount: selected.validCount,
-      modelUsed: selected.model,
-      fallbackUsed: selected.model !== primaryModel,
-      proposals: selected.proposals,
-    });
   } catch (error) {
     if (error instanceof Response) return json(request, { error: await error.text() }, error.status);
-
-    if (aiRunId) {
-      // Best-effort observability. The request still returns the original generation error if this update fails.
-      try {
-        const bearer = request.headers.get('authorization');
-        if (bearer?.startsWith('Bearer ')) {
-          // The normal request path already owns the RLS-scoped client; failures before that point have no run to update.
-          // Avoid introducing service-role access solely for telemetry.
-        }
-      } catch {
-        // Intentionally ignored.
-      }
-    }
-
     return json(request, {
       error: 'organize_failed',
       aiRunId,
