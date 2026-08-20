@@ -214,11 +214,21 @@ begin
     v_user, v_hash, v_model, 'committed'
   );
 
+  -- Preserve every measurement relation inherited by the source version, then add
+  -- this accepted build's design dimensions. The spatial snapshot and relational
+  -- evidence ledger therefore describe the same complete evidence set.
+  insert into public.spatial_version_measurements (spatial_version_id, measurement_id)
+  select v_spatial_version_id, svm.measurement_id
+  from public.spatial_version_measurements svm
+  where svm.spatial_version_id = v_source_version
+  on conflict do nothing;
+
   insert into public.spatial_version_measurements (spatial_version_id, measurement_id)
   values
     (v_spatial_version_id, v_width_measurement_id),
     (v_spatial_version_id, v_height_measurement_id),
-    (v_spatial_version_id, v_depth_measurement_id);
+    (v_spatial_version_id, v_depth_measurement_id)
+  on conflict do nothing;
 
   update public.spaces
   set active_spatial_version_id = v_spatial_version_id,
