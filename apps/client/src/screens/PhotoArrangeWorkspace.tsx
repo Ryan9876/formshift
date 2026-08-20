@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import React from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BrandMark } from '../components/BrandMark';
-import { PhotoArrangeEditorV171 } from '../components/PhotoArrangeEditorV171';
+import { PhotoArrangeEditorV18 } from '../components/PhotoArrangeEditorV18';
 import { useRoomWorkspace } from '../data/useRoomWorkspace';
 import { tokens } from '../theme/tokens';
 
@@ -19,7 +19,7 @@ export function PhotoArrangeWorkspace() {
           </View>
           <View style={styles.headerCopy}>
             <Text style={styles.h1}>Move what is actually in the room.</Text>
-            <Text style={styles.sub}>Tap a photographed object to isolate its real pixels, refine the selection, lift it, and rearrange it directly in the room photo.</Text>
+            <Text style={styles.sub}>Tap a photographed object to isolate its real pixels, refine the selection only when needed, lift it, and rearrange it directly in the room photo.</Text>
           </View>
           <Pressable style={styles.back} onPress={() => router.replace('/')}><Text style={styles.backText}>Back to Studio</Text></Pressable>
         </View>
@@ -29,7 +29,7 @@ export function PhotoArrangeWorkspace() {
         ) : !workspace.workingSnapshot ? (
           <View style={styles.state}><Text style={styles.stateTitle}>Create the room first.</Text><Text style={styles.stateText}>Arrange keeps the photo primary, but the room still needs a canonical spatial version underneath it.</Text></View>
         ) : (
-          <PhotoArrangeEditorV171
+          <PhotoArrangeEditorV18
             photoUrl={workspace.photoUrl}
             snapshot={workspace.workingSnapshot}
             onSnapshotChange={workspace.setWorkingSnapshot}
@@ -40,8 +40,8 @@ export function PhotoArrangeWorkspace() {
         )}
 
         <View style={styles.note}>
-          <Text style={styles.noteStrong}>Photo Arrange v1.7.1</Text>
-          <Text style={styles.noteText}>Continuous Add/Remove refinement remains local. The refinement loupe is reduced and moved away from the active touch area, Safari pointer interruptions are cleaned up, and extra mobile bottom spacing keeps actions reachable above browser chrome. Existing Pan, Undo/Redo, AI repair, and immutable Keep placement behavior are preserved.</Text>
+          <Text style={styles.noteStrong}>Photo Arrange v1.8</Text>
+          <Text style={styles.noteText}>The local selection engine now prewarms before editing, performs semantic inference on a reduced working image, reuses the first semantic mask for instant local Add/Remove refinement, and starts candidate review in Pan mode so touching the selected object does not accidentally paint blue. The first mask is also tightened to favor precision over excessive background capture. Existing lift, move/scale/rotate, AI repair, and immutable Keep placement behavior are preserved.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
