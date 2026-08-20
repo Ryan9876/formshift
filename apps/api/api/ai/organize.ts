@@ -3,7 +3,6 @@ import { validateOrganizeActions, validateSnapshot, type LayoutAction, type Spat
 import { organizeOutputSchema, type OrganizeOutput } from '../../src/aiSchemas.js';
 import { requireEditableSpace } from '../../src/auth.js';
 import { json, parseJson, preflight } from '../../src/http.js';
-import { requireServerEnv } from '../../src/env.js';
 
 type Body = {
   projectId: string;
@@ -75,7 +74,7 @@ export async function POST(request: Request) {
     aiRunId = run.id;
 
     const startedAt = Date.now();
-    const model = requireServerEnv('FORMSHIFT_AI_MODEL');
+    const model = process.env.FORMSHIFT_AI_MODEL?.trim() || 'openai/gpt-5.6-sol';
 
     try {
       const { output, usage } = await generateText({
