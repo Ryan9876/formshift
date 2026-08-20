@@ -1,7 +1,7 @@
 # FormShift Design System
 
 **Status:** Authoritative visual and interaction baseline  
-**Revision:** 0.5.0  
+**Revision:** 0.5.1  
 **Established:** 2026-08-19  
 **Last material design decision:** 2026-08-20  
 **Visual lineage:** Parallax light-glass/depth language adapted for a photo-first spatial augmentation product
@@ -200,6 +200,19 @@ Selected visible object:
 - perspective/scale preserved automatically
 - fixed/estimated state visible in inspector
 
+### Arrange gesture contract
+
+Room navigation and selected-object manipulation are separate interaction targets.
+
+- before selection, two-finger pinch zooms the room and one-finger drag pans only when zoomed
+- object selection occurs only after a completed short tap; pointer/touch-down alone must never select or lift an object
+- beginning a pinch or pan cancels the pending selection tap
+- after selection, gestures beginning on the selected-object hit area manipulate the object: one finger moves; two fingers scale and rotate
+- gestures beginning outside the selected-object hit area continue to navigate the room: pan when zoomed and pinch to zoom
+- viewport zoom/pan never changes object geometry, canonical state, or the persisted derived scene
+- **Fit photo** restores the viewport framing without resetting or moving the selected object
+- numeric/button alternatives remain available for accessibility and precision
+
 The technical Plan view remains available for:
 
 - exact wall/object distance
@@ -347,8 +360,8 @@ Never animate the source photo in a way that makes measurement or object placeme
 
 Sign-in, pending approval, suspended/revoked, active, and configuration-unavailable states retain the FormShift glass/depth language while keeping authentication quiet and explicit. No private room imagery renders behind an unauthorized access state.
 
-## 21. Revision note — 0.5.0
+## 21. Revision note — 0.5.1
 
-Revision 0.5.0 makes the source room photo/live scene the explicit primary canvas. Earlier implementation rules overemphasized the Skia plan editor because it was the first precise spatial renderer available. The Plan view remains valuable but is now intentionally secondary to real-photo augmentation in Organize, Arrange, and Build.
+Revision 0.5.1 defines Arrange's room-viewport and object-manipulation gestures as separate targets. This prevents photo navigation from implicitly selecting, moving, scaling, or rotating an object and establishes tap-on-release selection plus a non-destructive Fit photo action as durable interaction requirements.
 
-The Parallax-derived brand, palette, typography, accessibility rules, and blueprint technical language are preserved. Prior revisions remain available in Git history.
+Revision 0.5.0 made the source room photo/live scene the explicit primary canvas while preserving the Plan view as a secondary technical tool. The Parallax-derived brand, palette, typography, accessibility rules, and blueprint technical language remain unchanged. Prior revisions remain available in Git history.
