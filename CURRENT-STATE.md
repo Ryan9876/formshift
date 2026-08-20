@@ -2,7 +2,7 @@
 
 **Revision:** 0.4.2  
 **Date:** 2026-08-19  
-**Milestone:** Phase 3 Build Intelligence is production browser end-to-end validated for the first Class A freestanding open-shelving/storage archetype
+**Milestone:** Phase 4 Build workspace and authoritative blueprint presentation are deployed; authenticated production UI validation is next
 
 ## Current implementation
 
@@ -21,6 +21,9 @@ FormShift currently includes:
 - persistent Arrange save/discard workflow
 - Organize Intelligence with exact-version AI requests, deterministic validation, editable proposal drafts, and explicit acceptance
 - Build Intelligence for Class A freestanding open shelving/storage with AI brief normalization plus deterministic geometry, cut list, material quantity, fit checks, planning cost allowance, effort estimate, room preview, and atomic acceptance
+- dedicated authenticated `/build` workspace with room fit, dimension editing, summary, cut list, materials/cost, effort, and retained-geometry blueprint views
+- retained technical front elevation, side elevation, and top view generated from authoritative Build geometry rather than AI-generated drawing pixels
+- browser print/save-PDF convenience from the Blueprint tab; this is not yet a dedicated persisted FormShift PDF export package
 - dedicated Vercel web and API projects
 - custom iOS RoomPlan/LiDAR capability module awaiting physical-device validation
 - dedicated Supabase Auth/Postgres/Storage backend with RLS enabled on all 25 public application tables
@@ -53,9 +56,7 @@ FormShift currently includes:
 - Organize cost-aware Luna -> Terra routing: deployed and production-observed
 - Build brief normalization route `/api/ai/build-brief`: deployed and production-observed
 - Build acceptance route `/api/build/accept`: deployed and production-observed
-- final Phase 3 guarded code baseline: `95bfdec16bb27417b978965241d17565d6d91c91`
-- production deployment for guarded baseline: `dpl_AZdKYuqTVBsZSXQeN9zK8ecixX4j` — READY
-- docs-aligned production deployment after state record update: `dpl_2PKNznYFx4HQsmrow5nxPNPuM1pa` — READY
+- Phase 4 does not change the API contract or Supabase persistence boundary
 
 ### Vercel Web
 
@@ -64,9 +65,11 @@ FormShift currently includes:
 - Phase 2 Organize Intelligence UI: deployed
 - editable Organize proposal drafts: deployed; direct proposal-box dragging browser-confirmed by user
 - Phase 3 Build Intelligence UI: deployed and production browser end-to-end validated
-- final Phase 3 guarded code baseline: `95bfdec16bb27417b978965241d17565d6d91c91`
-- production deployment for guarded baseline: `dpl_e8te5dwpysR9vPdT7cpNYvzkGYPP` — READY
-- docs-aligned production deployment after state record update: `dpl_5w4VsJu7T1LwweBAar6fcBmqpXX5` — READY
+- Phase 4 Build workspace code baseline: `0664be72e051c69d374201b8865785a925f66131`
+- Phase 4 production deployment: `dpl_GXjTGoUZGBdFvZLcpybvQhAVTuSL` — READY
+- Expo static export includes `/build`, `/`, `/_sitemap`, and `/+not-found`
+- production `/`: HTTP 200 smoke-verified
+- production `/build`: HTTP 200 smoke-verified and protected by the same FormShift access gate
 
 ## Organize Intelligence routing policy
 
@@ -191,66 +194,66 @@ Even when the room itself is measured, an accepted shelving plan is stored as `p
 
 ## Phase 3 validation
 
-Phase 3 is now production browser end-to-end validated for the first supported Build archetype.
+Phase 3 is production browser end-to-end validated for the first supported Build archetype.
 
-Validated path:
+Validated evidence:
 
-- user entered `Build a freestanding shelving unit 48 inches wide, 72 inches tall, 16 inches deep with 3 interior shelves.`
-- Build brief normalization succeeded in production
-- deterministic plan generation/preview succeeded
-- Build footprint direct manipulation succeeded
-- user accepted the valid Build plan
-- browser refresh persistence was confirmed by the user
 - accepted Build request: `641e4258-7b21-4b24-8a37-9f9ac36a7c84`
 - accepted Build plan: `5348faa8-0de9-4acd-a12f-4a03cac6ea20`
 - committed `build-placement` spatial version: `c71f44da-1722-4f62-a736-6a2409434a61`
 - parent/source spatial version: `2223a418-d84c-413f-a3b6-d30211ff602c`
-- `spaces.active_spatial_version_id` advanced to `c71f44da-1722-4f62-a736-6a2409434a61`
-- prior Desk and Chest objects were byte-equivalent between parent and child snapshot: **0 existing objects changed**
+- room active version advanced to the Build version
+- prior Desk and Chest unchanged: **0 existing objects changed**
 - inherited measurement completeness: **0 inherited measurement IDs missing**
-- parent measurement links: **9**
-- accepted Build version measurement links: **12**
-- exactly **3** new `build_derived` dimension observations were appended
+- measurement links: **9 inherited -> 12 total**, with exactly **3** new `build_derived` observations
 - persisted plan dimensions: 1219.2 mm wide x 1828.8 mm high x 406.4 mm deep
-- interior clear span: 1181.1 mm
 - interior shelves: 3
-- planning sheet quantity: 2 sheets of nominal 3/4 in 4 x 8 ft plywood
+- planning sheet quantity: 2 sheets
 - component groups persisted: side panels, top/bottom panels, interior shelves, rear stretchers
 - material rows persisted: plywood, cabinet screws, wood glue
 - planning material allowance persisted: **$110 low / $165 expected / $250 high USD**
-- effort estimate persisted: **3.75-7 active hours**, moderate difficulty, intermediate assumed skill
-- Build AI run: `14583f70-f182-4a81-8ba4-d641c2939e7d`
-- Build AI model: `openai/gpt-5.6-luna`
-- Build AI status: completed
-- Build AI latency: 4,887 ms
-- Build AI usage: 416 input tokens / 362 output tokens / 778 total tokens
-- Terra fallback was not required
+- effort estimate persisted: **3.75-7 active hours**, moderate difficulty
+- Build AI model: `openai/gpt-5.6-luna`; Terra fallback not required
 
-Pre-production and persistence validation also completed:
+## Phase 4 Build workspace
 
-- consolidated Phase 3 API preview: READY
-- consolidated Phase 3 web Expo preview: READY
-- final 48-inch span-guard API preview: READY
-- final 48-inch span-guard web Expo preview: READY
-- production API deployment at exact final guarded SHA: READY
-- production web deployment at exact final guarded SHA: READY
-- API builds compiled five TypeScript functions successfully using TypeScript 6.0.3
-- Expo/Metro web exports completed successfully with static routes exported
-- atomic Build database migration applied successfully
-- span constraint migration applied and validated successfully
-- RPC security/grant configuration verified
-- unauthenticated Build-acceptance RPC rejected
-- owner-context atomic acceptance transaction executed successfully under explicit rollback
-- rollback integrity verified: zero synthetic test measurements, spatial versions, or build requests remained
-- Build domain regression tests were added for valid shelving generation, collision rejection, and rejection of unsupported spans over 48 inches
-- standalone `domain:test` execution for the Phase 3 additions was not available from the connected execution environment because it cannot clone external GitHub hosts and the repository has no GitHub Actions workflow; TypeScript compilation of the included test source is covered by the domain package build configuration
+Phase 4 implements the approved finished-result direction without replacing the validated Phase 3 engine.
+
+Implementation:
+
+- shared `useBuildPlanner` owns Build brief normalization, deterministic plan generation, placement validation, and atomic acceptance for both Studio and the dedicated workspace
+- Studio Build card now offers **Open full Build workspace**
+- authenticated `/build` route uses the existing FormShift access gate
+- desktop workspace uses recessed navigation, left Build controls, central authoritative room plan, right summary/materials/accept rail, and bottom technical detail area
+- responsive layout collapses for narrower screens instead of shrinking the desktop three-column arrangement
+- only the proposed Build object remains draggable; existing room objects remain locked
+- tabs: **Cut list**, **Materials & cost**, **Effort**, **Blueprint**
+- Blueprint uses deterministic retained geometry for front elevation, side elevation, top footprint, dimensions, construction notes, and verification legend
+- the blueprint explicitly distinguishes planning geometry and verification requirements
+- no photorealistic room image is used as geometric authority; the central editor remains the real spatial plan
+- no optimized plywood nesting is claimed
+- web Blueprint tab exposes **Print / save PDF** through the browser print pipeline; a dedicated persisted blueprint-only PDF generator remains future work
+
+Deployment validation completed:
+
+- exact final branch preview SHA `0664be72e051c69d374201b8865785a925f66131`: READY
+- preview Expo export included `/build`
+- `main` fast-forwarded from validated Phase 3 baseline to the exact previewed Phase 4 SHA
+- production deployment `dpl_GXjTGoUZGBdFvZLcpybvQhAVTuSL`: READY
+- production `/` smoke test: HTTP 200
+- production `/build` smoke test: HTTP 200
+- API, database, and atomic Build acceptance contracts were intentionally unchanged
 
 ## Not yet validated / not claimed
 
-- standalone Phase 3 domain-test runner result
-- explicit browser test of an over-48-inch unsupported clear span being blocked
-- blueprint/PDF generation
+- authenticated browser validation of the full Phase 4 `/build` workspace
+- production validation of Build generation, drag, tabs, blueprint rendering, and acceptance from the new full workspace
+- browser print/save-PDF output quality
+- persisted/reloadable latest Build blueprint after a hard refresh of `/build`; the current full workspace blueprint is tied to the active planner session
+- dedicated persisted blueprint-only PDF/export record
 - optimized sheet nesting/cut-layout generation
+- standalone Phase 3/4 domain-test runner result
+- explicit browser test of an over-48-inch unsupported clear span being blocked
 - live retailer pricing/inventory
 - center-divider/stiffener design for shelving wider than the current unsupported-span limit
 - wall anchoring or built-in Build archetypes
@@ -277,23 +280,36 @@ Pre-production and persistence validation also completed:
 - **Organize production generation observed:** yes
 - **Editable Organize drag browser-validated:** yes
 - **Organize edited-layout accept/persist fully verified:** not yet
-- **Phase 3 Build code deployed:** yes
-- **Phase 3 Build database transaction deployed/preflight-verified:** yes
-- **Phase 3 48-inch unsupported-span guard deployed at app and database boundaries:** yes
 - **Phase 3 Build browser end-to-end verified:** yes
 - **Phase 3 Build persistence/lineage backend-verified:** yes
+- **Phase 4 full Build workspace deployed:** yes
+- **Phase 4 `/build` production route smoke-verified:** yes
+- **Phase 4 authenticated UI/browser workflow verified:** no
+- **Dedicated FormShift PDF export verified:** no
 - **Physical-device validated:** no
 - **Full product deployment-verified:** no
 
-## Next implementation target
+## Next validation target
 
-Proceed from the validated Build foundation to the next rollout slice. The architecture sequence now points to **blueprint/BOM/cost/effort presentation/export hardening** before native RoomPlan capture. The current Build data is sufficient to generate authoritative retained-vector plan/elevation/component views and a PDF package without using AI-generated drawing pixels as geometry.
+Validate the new production Build workspace while authenticated:
 
-A separate robustness task should also close historical observability debt by repairing stale pre-hotfix `ai_runs` rows and adding automated stale-run finalization.
+1. open Studio and switch to **Build**
+2. select **Open full Build workspace**
+3. confirm the dedicated workspace loads with Build controls, room canvas, summary rail, and detail tabs
+4. enter a supported freestanding shelving brief and run **Start build plan**
+5. confirm extracted dimensions, then generate the plan
+6. drag only the proposed Build footprint and confirm existing room objects remain locked
+7. inspect **Cut list**, **Materials & cost**, **Effort**, and **Blueprint**
+8. verify front/side/top blueprint dimensions match the generated plan
+9. test **Print / save PDF** and inspect the browser print output
+10. accept a valid Build plan and confirm the existing atomic acceptance path still succeeds
+11. return to Studio and confirm the committed Build object remains present
+
+After this passes, the next implementation should make accepted Build plans reloadable as persistent blueprint records and then generate a dedicated blueprint-only PDF/export artifact from retained geometry.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated to record the production browser-validated Phase 3 Build flow plus exact persistence, lineage, BOM, cost, effort, and AI telemetry evidence
-- `ARCHITECTURE.md`: no change required; Phase 3 validated the existing deterministic Build, immutable versioning, provenance, and no-partial-mutation architecture
-- `DESIGN-SYSTEM.md`: no change
+- `CURRENT-STATE.md`: updated for deployed Phase 4 Build workspace, exact production deployment evidence, route smoke verification, and remaining browser-validation limits
+- `ARCHITECTURE.md`: no change required; Phase 4 implements the existing retained-vector blueprint and deterministic Build architecture
+- `DESIGN-SYSTEM.md`: no change required; Phase 4 implements the existing Build workspace and blueprint visual language
 - `PROJECT-CONSTITUTION.md`: no change
