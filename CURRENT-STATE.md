@@ -2,7 +2,7 @@
 
 **Revision:** 0.4.2  
 **Date:** 2026-08-19  
-**Milestone:** Phase 2 Organize Intelligence deployed; real-room Phase 1 remains browser-verified; Organize proposal/preview/accept still requires end-to-end browser validation
+**Milestone:** Phase 2 Organize Intelligence is deployed; production AI generation is working through Luna; editable proposal drafts are deployed and awaiting browser validation before the full accept/persist loop is closed
 
 ## Current implementation
 
@@ -20,7 +20,7 @@ FormShift currently includes:
 - React Native Skia web Arrange canvas with direct object dragging
 - footprint-aware room-boundary clamping
 - persistent Arrange save/discard workflow
-- Organize Intelligence UI with exact-version requests, proposal validation, before/proposed preview, and explicit acceptance
+- Organize Intelligence UI with exact-version requests, proposal validation, before/proposed preview, explicit acceptance, and editable proposal drafts
 - dedicated Vercel web and API projects
 - custom iOS RoomPlan/LiDAR capability module awaiting physical-device validation
 - dedicated Supabase Auth/Postgres/Storage backend with RLS enabled on all 25 public application tables
@@ -47,7 +47,7 @@ FormShift currently includes:
 - Organize bearer-token verification hotfix: deployed
 - Organize model routing baseline: `13d5ce8bfb7c8d66fd99d102500d7d1ea8b487b5`
 - routing deployment evidence: `dpl_HLFDJ3db48NxFNwvgATdafn495EX` — READY
-- Organize AI route: not yet end-to-end browser-verified through proposal acceptance
+- Organize AI generation: production-observed working
 - Build AI route: not yet end-to-end verified
 
 ### Vercel Web
@@ -55,11 +55,13 @@ FormShift currently includes:
 - project: `formshift-web`
 - production alias: `https://formshift-web.vercel.app`
 - Phase 2 Organize Intelligence UI: deployed
+- editable Organize proposal draft baseline: `4aa7285097761044787054d75c0fba6d039fd843`
+- editable-draft production deployment: `dpl_Egh3fAKz3aGe6miUbnSBqqJkNpBf` — READY
 - authenticated production browser shell and Phase 1 real-room workflow: validated
 
 ## Organize Intelligence routing policy
 
-Organize now uses a cost-aware two-tier model ladder:
+Organize uses a cost-aware two-tier model ladder:
 
 1. primary default: `openai/gpt-5.6-luna`
 2. automatic fallback: `openai/gpt-5.6-terra`
@@ -74,6 +76,17 @@ Behavior:
 - the selected model and per-attempt usage/error metadata are recorded in `ai_runs`
 - model output remains advisory; deterministic geometry validation is authoritative
 - no proposal can become committed room state without explicit user acceptance
+
+Latest observed production Organize run:
+
+- run ID: `1ff57016-81a3-47cf-a21f-2d9f0bce46f8`
+- status: completed
+- model: `openai/gpt-5.6-luna`
+- fallback used: no
+- valid proposals: 2
+- latency: 12,813 ms
+- input tokens: 947
+- output tokens: 1,043
 
 ## Validated
 
@@ -106,7 +119,7 @@ Supabase persistence evidence at Phase 1 close:
 - two persisted objects: Desk and Chest
 - both retained identical physical dimensions across saved Arrange versions while their X/Z positions changed
 
-### Phase 2 deployment validation completed so far
+### Phase 2 validation completed so far
 
 - Phase 2 Organize API TypeScript/Vercel preview build: PASS
 - Phase 2 Organize web Expo/Vercel build: PASS
@@ -117,11 +130,32 @@ Supabase persistence evidence at Phase 1 close:
 - missing required model-environment regression discovered in production and fixed with safe defaults
 - Luna primary / Terra fallback routing preview build: PASS
 - Luna primary / Terra fallback production API deployment: READY
+- production Organize generation: browser-observed working
+- production model telemetry: Luna completed the latest run with 2 valid proposals and no Terra fallback
+- editable proposal draft web preview export: PASS
+- editable proposal draft production web deployment: READY
+
+## Editable Organize draft behavior
+
+A validated Organize proposal can now become a temporary editable draft:
+
+- **Preview & edit** displays the proposal in the room plan and enables direct box dragging
+- manual drag changes update only the proposal draft, not the committed room state
+- **Show current** temporarily returns to the committed layout while preserving the edited draft
+- **Resume editing** restores the preserved draft
+- draft moves are re-derived against the exact committed basis version
+- deterministic Organize validation runs against the edited draft
+- collision/boundary/fixed-object/dimension/vertical-placement violations disable acceptance
+- **Accept edited layout** commits only the revalidated adjusted moves
+- Reject discards the draft without changing committed state
 
 ## Not yet validated / not claimed
 
-- complete Organize flow: Generate options -> validated proposal -> preview -> accept -> refresh persistence
-- observed production Luna success path
+- browser validation that proposal boxes can be dragged in editable Organize preview
+- browser validation of Show current -> Resume editing draft preservation
+- browser validation that an invalid manual collision blocks Accept edited layout
+- complete Organize flow: Generate options -> edit/preview -> accept -> refresh persistence
+- verified immutable `organize` spatial-version parent lineage after accepting an edited proposal
 - observed production Terra fallback path
 - semantic quality threshold for escalating otherwise-valid but subjectively weak Luna proposals
 - end-to-end Build AI route
@@ -145,28 +179,34 @@ Supabase persistence evidence at Phase 1 close:
 - **Arrange persistence backend-verified:** yes
 - **Organize Intelligence code deployed:** yes
 - **Organize cost-aware model routing deployed:** yes
-- **Organize end-to-end browser-verified:** no
+- **Organize production generation observed:** yes
+- **Editable Organize draft deployed:** yes
+- **Editable Organize draft browser-validated:** no
+- **Organize end-to-end accept/persist browser-verified:** no
 - **Physical-device validated:** no
 - **Build AI end-to-end verified:** no
 - **Full product deployment-verified:** no
 
 ## Next validation target
 
-Validate the production Organize Intelligence vertical slice:
+Validate the production editable Organize loop:
 
-1. generate options against the current committed spatial version
-2. confirm at least one proposal is deterministically Validated
-3. preview proposed vs current layout
-4. accept one proposal
-5. verify a new immutable `organize` spatial version is committed with correct parent lineage
-6. refresh and confirm accepted positions persist
-7. inspect `ai_runs` to confirm which model ran and whether fallback occurred
+1. generate options and select a Validated proposal
+2. click **Preview & edit**
+3. drag one or more proposal boxes and confirm they move
+4. confirm the draft status remains geometry-valid for a legal move
+5. use **Show current**, then **Resume editing**, and confirm the edited draft is preserved
+6. intentionally overlap two objects and confirm acceptance becomes blocked
+7. move the object back to a valid location
+8. accept the edited layout
+9. verify a new immutable `organize` spatial version is committed with correct parent lineage
+10. refresh and confirm the accepted adjusted positions persist
 
 Do not advance to Build implementation until this loop is validated or a blocking defect is understood.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated for confirmed Phase 2 deployment and Luna -> Terra routing decision
-- `ARCHITECTURE.md`: no change required; existing architecture already defines configurable model selection and retry/fallback policy
+- `CURRENT-STATE.md`: updated for confirmed editable-draft deployment and observed production Luna success
+- `ARCHITECTURE.md`: no change required; existing architecture already defines editable/reversible Organize proposals plus deterministic validation
 - `DESIGN-SYSTEM.md`: no change
 - `PROJECT-CONSTITUTION.md`: no change
