@@ -1,7 +1,7 @@
 # FormShift Design System
 
 **Status:** Authoritative visual and interaction baseline  
-**Revision:** 0.5.2  
+**Revision:** 0.5.3  
 **Established:** 2026-08-19  
 **Last material design decision:** 2026-08-20  
 **Visual lineage:** Parallax light-glass/depth language adapted for a photo-first spatial augmentation product
@@ -220,8 +220,12 @@ An automatic segmentation result is a **candidate**, not an accepted object cuto
 - the first object tap creates an in-place selection preview over the unchanged room photo; it must not immediately lift or remove pixels
 - the candidate mask is visually distinguishable from the source photo without obscuring object detail
 - users can refine the candidate with explicit **Add** and **Remove** interactions while room zoom/pan remains available
+- Add/Remove should support continuous one-finger painting when precision or irregular edges make repeated taps inefficient
+- a dedicated **Pan** refinement mode owns one-finger room navigation while a candidate exists; two-finger pinch-to-zoom remains available from Add, Remove, and Pan
+- the current Add/Remove stroke is previewed while the finger moves; the mask is recomputed after the stroke completes
+- refinement provides **Undo** and **Redo** for completed Add/Remove strokes without discarding the initial candidate
 - Add/Remove changes must update the visible mask before acceptance
-- touch refinement should provide a local magnifier/loupe when precision is useful on a phone
+- touch refinement should provide a local magnifier/loupe that follows the active refinement point when precision is useful on a phone
 - **Use selection** is the explicit transition from candidate mask to lifted photographed object
 - **Cancel** discards the candidate and returns to the unchanged source/derived scene
 - background removal/repair begins only after the candidate is accepted for lift
@@ -375,9 +379,11 @@ Never animate the source photo in a way that makes measurement or object placeme
 
 Sign-in, pending approval, suspended/revoked, active, and configuration-unavailable states retain the FormShift glass/depth language while keeping authentication quiet and explicit. No private room imagery renders behind an unauthorized access state.
 
-## 21. Revision note — 0.5.2
+## 21. Revision note — 0.5.3
 
-Revision 0.5.2 makes selection refinement a required stage before lifting photographed objects in Arrange. Automatic segmentation is treated as a candidate; users can review and locally Add/Remove before explicitly choosing **Use selection**. It also establishes the mobile magnifier and compact refinement tray as durable interaction patterns.
+Revision 0.5.3 extends selection refinement from point corrections to continuous Add/Remove strokes, adds an explicit Pan mode during candidate refinement, keeps two-finger room zoom available in all refinement modes, and establishes Undo/Redo for completed refinement strokes.
+
+Revision 0.5.2 made selection refinement a required stage before lifting photographed objects in Arrange. Automatic segmentation is treated as a candidate; users can review and locally Add/Remove before explicitly choosing **Use selection**. It also establishes the mobile magnifier and compact refinement tray as durable interaction patterns.
 
 Revision 0.5.1 defined Arrange's room-viewport and object-manipulation gestures as separate targets. This prevents photo navigation from implicitly selecting, moving, scaling, or rotating an object and establishes tap-on-release selection plus a non-destructive Fit photo action as durable interaction requirements.
 
