@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.8.1  
+**Revision:** 0.8.2  
 **Date:** 2026-08-20  
-**Milestone:** Photo Arrange v2.0.1 automatic AI-repair trigger fix deployed; first real AI-repair visual validation pending
+**Milestone:** Photo Arrange v2.0.1 AI background repair validated in production; scene-placement realism is now the primary Arrange quality target
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
@@ -17,8 +17,9 @@ Authenticated browser/iPhone testing has established that:
 - immutable source room imagery remains preserved in private FormShift storage
 - persisted derived photo arrangements restore after refresh
 - object-centered local inference materially improved guitar isolation enough to shift the primary bottleneck from gesture design to rendering quality
+- the authenticated AI background-repair path now executes successfully after explicit opt-in and materially improves the removed-object location compared with the deterministic local fallback
 
-The experience remains prototype-quality. Removed-object reconstruction, edge realism, contact, occlusion, perspective, and lighting remain the dominant quality constraints.
+The experience remains prototype-quality. The dominant remaining quality constraints are now placement realism: depth, occlusion, perspective-aware scale, contact, edge integration, and lighting.
 
 ## Retained Arrange foundations
 
@@ -55,22 +56,6 @@ Implemented:
 - enabling it displays an explicit privacy notice that the current scene and accepted repair mask will be sent to the configured image provider
 - v1.9 selection, refinement, movement, scale/rotation, persistence, and source-photo integrity remain unchanged
 
-## User A/B evidence and v2.0 diagnosis
-
-The user compared two production screenshots:
-- **AI repair Off**
-- **AI repair On**
-
-The two outputs were nearly identical and the large synthetic removed-object artifact remained.
-
-Production diagnosis showed this was **not a weak AI inpainting result**. The automatic AI-repair request never executed:
-- production Vercel API logs contained no matching repair request for the test
-- `public.ai_runs` contained **zero** rows with `task_name = 'photo-background-repair'`
-- the v2.0 wrapper set its per-lift handled flag as soon as lifted-state text appeared, before the rendered AI-repair button necessarily existed
-- when the button appeared in a later DOM update, the wrapper believed that lift had already been handled and skipped the automatic request
-
-Therefore the first v2.0 A/B comparison does **not** validate or invalidate `openai/gpt-image-2` reconstruction quality. It compared local reconstruction against another local reconstruction while the UI incorrectly implied automatic AI repair was enabled.
-
 ## Photo Arrange v2.0.1 — repair-trigger observability hotfix
 
 Functional runtime baseline: `c1ddc2cbda44d9a5d5b1eedfc1fc2069a4a750f9`
@@ -78,7 +63,7 @@ Functional runtime baseline: `c1ddc2cbda44d9a5d5b1eedfc1fc2069a4a750f9`
 Implemented:
 - automatic repair no longer marks a lift as handled until the actual enabled repair control exists
 - after an opted-in lift, the wrapper waits for the repair action to be rendered and only then schedules the request
-- removed the fragile mutation of the repair button's visible React text; accessibility labeling is applied without rewriting the rendered control contents
+- removed the fragile mutation of the repair button's visible React text; accessibility labeling is applied without rewriting rendered control contents
 - added explicit visible repair states:
   - **AI repair queued**
   - **Sending for AI repair…**
@@ -96,40 +81,47 @@ Implemented:
 - production deployment `dpl_E8YpNCYg4uBD8GADLdPPhbZNLqEv` — READY on the exact runtime baseline and serving `formshift-web.vercel.app`
 - live production `/arrange` — HTTP 200 smoke-verified
 
+## Validated AI background repair
+
+A real production iPhone test after v2.0.1 showed the removed guitar location reconstructed as continuous room background instead of the faceted deterministic fallback. The user assessed the result as **not bad**, which is sufficient to retain the current authenticated AI repair path for the prototype baseline.
+
+Server-side evidence for that exact test:
+- `public.ai_runs.task_name = 'photo-background-repair'`
+- status: `completed`
+- provider model: `openai/gpt-image-2`
+- latency: `24,880 ms`
+- error class: none
+- created at: `2026-08-20 17:16:28.707697+00`
+
+This validates that the v2.0.1 trigger fix executes the intended provider request and that the current model/prompt/mask can produce a materially improved removed-object reconstruction on the user's real room.
+
 ## Accuracy and privacy boundaries
 
 - segmentation/refinement remain local in the browser
 - contact shadow and edge treatment are illustrative rendering aids, not measured floor contact or calibrated lighting
 - automatic AI repair occurs only after explicit user opt-in and remains disabled by default
 - the configured image-edit provider path is not claimed to be zero-data-retention
-- deterministic local removed-object reconstruction is not claimed to be photorealistic
+- deterministic local removed-object reconstruction remains a fast fallback and is not claimed to be photorealistic
 - pixel movement does not implicitly alter canonical physical dimensions, room geometry, or measurement provenance
 - perspective, depth, floor/wall contact, occlusion, relighting, and physical scale remain uncalibrated for free-form photographed-object movement
 
-## Next validation
+## Next implementation target
 
-In production:
-1. hard refresh and open **Arrange**
-2. enable **AI repair after lift** before selecting/lifting the guitar
-3. select and choose **Lift object**
-4. confirm the scene-rendering bar visibly progresses through **AI repair queued** and **Sending for AI repair…**
-5. wait for **AI background repaired** or a visible failure state
-6. after completion, confirm Supabase receives a `photo-background-repair` `ai_runs` row and compare the reconstructed old location against the local preview
-7. only after a confirmed completed run judge whether the current image model/prompt/mask produces materially better reconstruction
-
-## Next implementation decision
-
-If a confirmed AI run materially improves the old location, keep the authenticated provider path and then proceed toward scene intelligence: floor/wall understanding, depth assistance, occlusion, perspective-aware scale, and lighting/contact treatment.
-
-If a confirmed completed AI run still leaves the removed-object area visibly synthetic, stop tuning the wrapper and improve the reconstruction pipeline itself: repair-mask construction, model/prompt/provider strategy, and result compositing. Depth work should not precede acceptable background reconstruction.
+Retain `openai/gpt-image-2` background reconstruction for the prototype baseline and shift development effort to **scene-placement realism**:
+1. estimate floor/wall/support surfaces and a coarse depth field
+2. make apparent object scale respond to placement depth/perspective rather than manual 2D scaling alone
+3. introduce depth-aware occlusion so real furniture can correctly pass in front of or behind the moved object
+4. anchor a contact point and generate scene-aware contact shadow rather than a generic shadow ellipse
+5. improve edge matting/color spill so the moved cutout inherits nearby scene tone more naturally
+6. preserve all scene-intelligence outputs as estimates with confidence, never as measured geometry unless calibrated
 
 ## Not yet claimed
 
-A successful production `photo-background-repair` run after the v2.0.1 trigger fix, materially improved AI inpainting quality on the user's room, photorealistic local reconstruction, calibrated contact shadow, depth-aware occlusion, perspective-aware physical scaling, calibrated relighting, native iOS continuous photo manipulation, or dedicated persisted blueprint PDF.
+Photorealistic local reconstruction without AI, calibrated contact shadow, depth-aware occlusion, perspective-aware physical scaling, calibrated relighting, native iOS continuous photo manipulation, or dedicated persisted blueprint PDF.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated for the diagnosed v2.0 false A/B result and deployed v2.0.1 automatic-repair trigger/observability fix
+- `CURRENT-STATE.md`: updated for the validated production AI background-repair result and next scene-placement priority
 - `DESIGN-SYSTEM.md`: unchanged; no durable interaction rule changed
-- `ARCHITECTURE.md`: unchanged; the intended authenticated repair boundary remains the same and this patch fixes invocation reliability rather than architecture
+- `ARCHITECTURE.md`: unchanged; the authenticated repair boundary and provider strategy remain as previously defined
 - `PROJECT-CONSTITUTION.md`: unchanged; existing source-integrity, privacy, and photo-first rules continue to govern the release
