@@ -279,9 +279,11 @@ async function getSegmenter(ref: { current: any }) {
 }
 
 function runSegmenter(segmenter: any, image: HTMLCanvasElement, x: number, y: number) {
-  if (typeof segmenter.setImage === 'function' && segmenter.__formshiftBrushMode?.POSITIVE !== undefined) {
+  if (typeof segmenter.setImage === 'function') {
     segmenter.setImage(image);
-    return segmenter.segment([{ brushMode: segmenter.__formshiftBrushMode.POSITIVE, point: [{ x, y }], isCompleted: true }]);
+    const positiveBrushMode = segmenter.__formshiftBrushMode?.POSITIVE ?? 1;
+    const result = segmenter.segment([{ brushMode: positiveBrushMode, point: [{ x, y }], isCompleted: true }]);
+    return result?.confidenceMasks?.[0] ?? result;
   }
   const result = segmenter.segment(image, { keypoint: { x, y } });
   return result?.confidenceMasks?.[0] ?? result;
