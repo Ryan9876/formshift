@@ -1,6 +1,6 @@
 import { AccessGate } from '../src/screens/AccessGate';
-import { BuildWorkspace } from '../src/screens/BuildWorkspace';
+import { PhotoBuildWorkspace } from '../src/screens/PhotoBuildWorkspace';
 
 export default function BuildRoute() {
-  return <AccessGate><BuildWorkspace /></AccessGate>;
+  return <AccessGate><PhotoBuildWorkspace /></AccessGate>;
 }
