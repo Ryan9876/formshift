@@ -90,5 +90,14 @@ test('Build engine rejects a shelving placement that collides with existing furn
   equal(plan.validation.errors.some((value) => value.includes('collides with object')), true, 'expected collision rejection');
 });
 
+test('Build engine rejects an excessive unbraced clear shelf span', () => {
+  const clearRoom = { ...demoSnapshot, objects: [] };
+  const plan = createOpenShelvingPlan(clearRoom, {
+    objectId: 'build-test-3', label: 'Too-wide shelves',
+    widthMm: inchesToMm(72), heightMm: inchesToMm(72), depthMm: inchesToMm(16), interiorShelves: 3,
+  }, { x: 2200, z: 500 });
+  equal(plan.validation.errors.some((value) => value.includes('clear shelf span exceeds 48 in')), true, 'expected span guard');
+});
+
 if (failures > 0) throw new Error(`${failures} domain test(s) failed`);
 console.log('All domain tests passed.');
