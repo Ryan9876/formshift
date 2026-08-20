@@ -2,129 +2,130 @@
 
 **Revision:** 0.4.2  
 **Date:** 2026-08-19  
-**Milestone:** Milestone 0 implementation in progress — dedicated Supabase backend deployed and validated; dependency-resolved web/iOS and Vercel/device validation pending
+**Milestone:** Phase 1 real-room workspace deployed and browser-verified; AI Organize/Build and native iOS device validation remain
 
 ## Current implementation
 
-FormShift has a concrete v0.4.2 implementation repository containing:
+FormShift currently includes:
 
-- Expo iOS + responsive web client shell
-- Parallax-derived FormShift branding and private access gate
-- persistent Organize / Arrange / Build modes
-- responsive React Native Skia precision-plan editor spike with footprint-aware room-boundary clamping
-- dependency-free canonical spatial/measurement domain package
-- standalone Vercel Functions API application
-- structured Organize and Build-brief AI endpoints with model-facing nullable schemas and deterministic validation
-- custom iOS RoomPlan capability module
-- deployed dedicated Supabase Auth/Postgres/Storage backend in `us-east-2`
-- 25-table Supabase schema with RLS enabled on every public application table
-- private Storage bucket and project-scoped Storage policies
-- configured first-owner bootstrap through security-invoker RPC + RLS; no Supabase service/secret key is required at runtime
-- owner-only access-management path using the caller's verified JWT and RLS
-- executable repository/security verification scripts and rollback-only live RLS harness
+- Expo iOS + responsive web client
+- Google-only Supabase authentication for the current private release
+- account allowlist/approval and owner bootstrap
+- Organize / Arrange / Build mode shell
+- real room photo capture and private Supabase Storage persistence
+- explicit room measurement workflow; photos remain supporting evidence rather than authoritative geometry
+- canonical millimeter spatial model
+- immutable committed spatial versions with parent-version lineage
+- real object creation with recorded dimensions and measurement provenance
+- React Native Skia web Arrange canvas with direct object dragging
+- footprint-aware room-boundary clamping
+- persistent Arrange save/discard workflow
+- dedicated Vercel web and API projects
+- structured Organize and Build AI API routes awaiting end-to-end model/configuration validation
+- custom iOS RoomPlan/LiDAR capability module awaiting physical-device validation
+- dedicated Supabase Auth/Postgres/Storage backend with RLS enabled on all 25 public application tables
 
-## Validated in this environment
+## Deployed infrastructure
 
-### Source/domain validation — PASS
-
-- repository structural verifier
-- security source verifier
-- public-table RLS source coverage: **25/25**
-- no Android platform drift in active client configuration
-- no committed secret-shaped values detected by the verifier
-- canonical TypeScript domain compilation
-- seven domain tests covering unit conversion, round-trip stability, baseline model validation, dimension-preserving Arrange movement, fixed-object protection, and baseline AI/layout boundary checks
-- API internal/source TypeScript shape check using temporary external-module stubs
-
-### Live Supabase backend — DEPLOYED AND VALIDATED
-
-Dedicated project:
+### Supabase
 
 - project: `FormShift`
 - project ref: `oomtpnqprxykcjzrlfgc`
 - region: `us-east-2`
-- reported project cost at creation: **$0/month**
-- status at creation: `ACTIVE_HEALTHY`
+- private bucket: `formshift-private`
+- public application tables: **25/25 RLS-enabled**
+- Security Advisor after hardening: **0 findings**
+- owner bootstrap and cross-user RLS isolation: validated
+- no Supabase service-role/secret key is used by normal FormShift runtime code
 
-Applied migrations:
+### Vercel API
 
-1. `formshift_initial_core`
-2. `formshift_initial_auth_helpers`
-3. `formshift_initial_rls`
-4. `formshift_initial_storage`
-5. `harden_owner_bootstrap`
-6. `formshift_performance_hardening`
+- project: `formshift-api`
+- production alias: `https://formshift-api.vercel.app`
+- `/api/health`: deployment-verified HTTP 200
+- Organize/Build AI routes: not yet end-to-end verified
 
-Live verification evidence:
+### Vercel Web
 
-- Supabase reports **25 public application tables**, all with RLS enabled.
-- rollback-only two-user RLS isolation test passed: non-members cannot read; viewers can read only after membership; viewers cannot edit or create AI runs; project ownership cannot be reassigned through an authorized update; pending users cannot read shared project data.
-- first-owner rollback-only test passed: configured owner activates; a non-configured identity remains pending.
-- Supabase Security Advisor: **0 lints** after hardening.
-- Supabase Performance Advisor: no remaining warning-class findings after policy/index hardening; only `unused_index` informational notices remain on the fresh empty database, which is expected before workload statistics exist.
-- live TypeScript database contract generation succeeded and exposes the expected tables, relationships, enums, and `bootstrap_formshift_owner` RPC.
-- client/API local untracked environment files now contain the live Supabase URL and current publishable key. No service-role/secret key is used by FormShift runtime code.
+- project: `formshift-web`
+- production alias: `https://formshift-web.vercel.app`
+- current validated code baseline: `ef5e7958e6442bc6e50203b5d9fbfdd49b95f7ae`
+- current production deployment: `dpl_3yP3g6n9RRkAn9L6BrWnBeHRbF1D`
+- deployment state: READY
 
-## Corrected during this release
+## Validated
 
-- Apple authentication was removed from the active delivery scope; Google is the sole sign-in provider for the current private beta
-- native Google browser-OAuth callback handling now accepts either a PKCE code or returned access/refresh tokens before establishing the Supabase session
+- repository structural verifier: PASS
+- security source verifier: PASS
+- public-table RLS source coverage: **25/25**
+- domain tests: PASS
+- client TypeScript typecheck: PASS
+- Expo static web export: PASS
+- Google OAuth sign-in: browser-validated
+- authenticated workspace load: browser-validated
+- owner bootstrap: validated
+- Choose Photo -> Review -> Save to Room: browser-validated end to end
+- room photo persists to private Supabase Storage
+- room dimensions persist as measurement evidence
+- canonical room geometry persists in committed spatial versions
+- real objects persist with explicit dimensions
+- real persisted objects render in the Skia Arrange canvas
+- objects drag in Arrange mode without dimension drift
+- Save Arrangement creates a new committed immutable spatial version
+- committed Arrange versions preserve parent-version lineage
+- browser refresh restores saved object positions
 
-- unauthenticated users do not render the room workspace; active product access is required
-- new OAuth users default to `pending`, never automatically active
-- project-owner updates preserve ownership and avoid recursive RLS behavior
-- server bearer-token verification uses the Supabase access-token provider plus `auth.getClaims()`
-- exposed elevated owner-bootstrap RPC was replaced with a normal security-invoker RPC governed by a narrowly scoped private RLS helper
-- overlapping permissive RLS policies were consolidated
-- missing foreign-key covering indexes were added through a catalog-driven migration
-- Skia web loading uses deferred CanvasKit initialization instead of loading the precision renderer into every web route
-- Arrange movement clamps by object footprint rather than only object center
-- model-facing structured AI fields avoid optional-property ambiguity and are normalized before domain validation
+Supabase persistence evidence at Phase 1 close:
+
+- latest committed Arrange version: `242420a3-1327-40c1-bf69-7dac10af958d`
+- parent: `29f98427-b6bc-44bd-8437-195b328fea6e`
+- two persisted objects: Desk and Chest
+- both retained identical physical dimensions across saved Arrange versions while their X/Z positions changed
 
 ## Not yet validated / not claimed
 
-- npm dependency installation in this sandbox: **not completed** because outbound npm registry DNS remains unavailable
-- dependency-resolved client typecheck: **not completed**
-- dependency-resolved API typecheck: **not completed**
-- Expo web export: **not completed**
-- Skia runtime/input behavior in Safari/iPhone/desktop browser: **not completed**
-- Google OAuth provider: **not configured/validated**; Google is the only active sign-in provider requirement
-- Apple authentication: **deferred / outside the current delivery gate**
-- FormShift Vercel client project: **not created/linked**
-- FormShift Vercel API project: **not created/linked**
-- Vercel preview: **not deployed**
-- physical supported-iPhone RoomPlan capability/capture: **not validated**
-- signed iOS development/TestFlight build: **not produced**
-- production web/API: **not deployed**
-- end-to-end deployment verification: **not complete**
+- physical iPhone camera capture through production web
+- physical supported-iPhone RoomPlan/LiDAR scan
+- signed native iOS development/TestFlight build
+- native iOS Arrange interaction
+- end-to-end Organize AI route
+- end-to-end Build AI route
+- deterministic validation of live AI proposals
+- production browser AI API CORS/auth flow
+- project/asset deletion and recovery flow
+- multi-project / multi-room selection UX
+- full production verification across AI + native iOS + recovery flows
 
 ## Release status
 
-- **Generated:** yes
-- **Locally source/domain validated:** yes
-- **Supabase backend deployed:** yes
-- **Supabase backend deployment-verified:** yes, for schema/RLS/storage/bootstrap/advisor scope
-- **Dependency-resolved web/iOS build validated:** no
-- **Vercel deployed:** no
+- **Supabase backend deployed and verified:** yes
+- **Web build validated:** yes
+- **Vercel web deployed:** yes
+- **Vercel API deployed:** yes
+- **Google OAuth browser-validated:** yes
+- **Photo capture/save browser-validated:** yes
+- **Real-room Phase 1 browser-validated:** yes
+- **Arrange persistence backend-verified:** yes
 - **Physical-device validated:** no
-- **End-to-end deployed:** no
-- **End-to-end deployment-verified:** no
+- **AI Organize/Build end-to-end verified:** no
+- **Full product deployment-verified:** no
 
-## v0.4.2 delivery decision
+## Next implementation phase
 
-- Google is the sole active authentication provider for the current private release.
-- Apple authentication is deferred; Apple-native RoomPlan/LiDAR support remains in scope.
-- Native Google browser OAuth now handles both PKCE-code and access/refresh-token redirects.
-- Web OAuth redirects use the actual browser origin so Vercel preview and production deployments can return to the deployment that initiated sign-in.
-- Intended isolated Vercel projects are `formshift-web` and `formshift-api` under team `lew7`; neither project has been created or linked yet.
-- Supabase Vercel preview redirect pattern to add once OAuth is configured: `https://*-lew7.vercel.app/**`.
+Implement Organize Intelligence on the validated real-room substrate:
 
-## Next release gate
+1. bind requests to the exact committed spatial version
+2. send structured room/object/constraint state to AI
+3. receive structured proposals over stable object IDs
+4. validate every proposal deterministically
+5. reject invalid proposals before user presentation
+6. show before/proposed layout with reasons and assumptions
+7. require explicit acceptance before committing a new spatial version
+8. preserve original layout and version lineage
 
-1. Configure Google OAuth in the dedicated FormShift Supabase project, including the Supabase callback, Vercel web redirects, and `formshift://**` iOS deep-link redirect. Apple authentication is not required for the current release path.
-2. Resolve/install dependencies in a networked environment; run real client/API typechecks and Expo web export.
-3. Create/link distinct FormShift Vercel client and API projects, populate public Supabase values plus the AI Gateway/model configuration, and deploy a preview.
-4. Browser-verify authentication/access states, owner bootstrap, project isolation, Arrange interaction, API CORS/auth behavior, and failure states.
-5. Build the custom iOS development client and validate RoomPlan capability/fallback on physical iPhones.
-6. Validate project/asset deletion and recovery/rollback behavior before friend-access beta.
-7. Update this record with deployment/device evidence before declaring Milestone 0 complete.
+## Authoritative record impact
+
+- `CURRENT-STATE.md`: updated for validated Phase 1
+- `ARCHITECTURE.md`: no change
+- `DESIGN-SYSTEM.md`: no change
+- `PROJECT-CONSTITUTION.md`: no change
