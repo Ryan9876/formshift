@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import React from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BrandMark } from '../components/BrandMark';
-import { PhotoArrangeEditorV19 } from '../components/PhotoArrangeEditorV19';
+import { PhotoArrangeEditorV20 } from '../components/PhotoArrangeEditorV20';
 import { useRoomWorkspace } from '../data/useRoomWorkspace';
 import { tokens } from '../theme/tokens';
 
@@ -29,7 +29,7 @@ export function PhotoArrangeWorkspace() {
         ) : !workspace.workingSnapshot ? (
           <View style={styles.state}><Text style={styles.stateTitle}>Create the room first.</Text><Text style={styles.stateText}>Arrange keeps the photo primary, but the room still needs a canonical spatial version underneath it.</Text></View>
         ) : (
-          <PhotoArrangeEditorV19
+          <PhotoArrangeEditorV20
             photoUrl={workspace.photoUrl}
             snapshot={workspace.workingSnapshot}
             onSnapshotChange={workspace.setWorkingSnapshot}
@@ -40,8 +40,8 @@ export function PhotoArrangeWorkspace() {
         )}
 
         <View style={styles.note}>
-          <Text style={styles.noteStrong}>Photo Arrange v1.9</Text>
-          <Text style={styles.noteText}>Precision selection now analyzes an object-centered crop around the tap instead of the entire room. This gives the local model more effective pixels for narrow and irregular objects while reducing unrelated room context. The candidate still opens in Review/Pan mode, manual Add/Remove remains local and fast, and the lifted object uses a silhouette emphasis rather than a rectangular sticker outline. Existing AI repair and immutable Keep placement behavior are preserved.</Text>
+          <Text style={styles.noteStrong}>Photo Arrange v2.0 — Scene Rendering</Text>
+          <Text style={styles.noteText}>The v1.9 object-centered selector is retained. Lifted objects now receive a restrained local edge treatment and contact shadow so they sit more naturally in the photograph. Background reconstruction is elevated to an explicit Improve background action, with an optional AI-repair-after-lift switch. That switch is off by default because AI reconstruction sends the current scene and accepted repair mask to the configured image provider. Depth, occlusion, perspective-aware scale, and calibrated lighting remain future scene-intelligence work.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
