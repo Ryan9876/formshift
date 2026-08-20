@@ -2,7 +2,7 @@
 
 **Revision:** 0.4.2  
 **Date:** 2026-08-19  
-**Milestone:** Phase 3 Build Intelligence is deployed for the first Class A freestanding open-shelving/storage archetype; production browser end-to-end validation is next
+**Milestone:** Phase 3 Build Intelligence and final open-shelving span hardening are deployed; production browser end-to-end validation is next
 
 ## Current implementation
 
@@ -37,10 +37,12 @@ FormShift currently includes:
 - Security Advisor after hardening: **0 findings**
 - owner bootstrap and cross-user RLS isolation: validated
 - no Supabase service-role/secret key is used by normal FormShift runtime code
-- Phase 3 migration `atomic_build_acceptance`: deployed
+- Phase 3 atomic Build acceptance migration: deployed
+- final open-shelving span constraint migration: deployed and validated
 - `accept_shelving_build_plan(jsonb)`: SECURITY DEFINER, empty search path, execute granted to `authenticated`, denied to `anon` and `public`
 - unauthenticated RPC invocation: verified rejected with `authentication_required`
-- full owner-context Build acceptance transaction: executed successfully inside an explicit rollback test; follow-up verification confirmed zero test measurements, spatial versions, or build requests remained
+- full owner-context Build acceptance transaction: executed successfully inside an explicit rollback test; follow-up verification confirmed zero synthetic measurements, spatial versions, or build requests remained
+- database constraint `build_plans_open_shelving_span_check`: validated and enforces `interiorSpanMm <= 1219.2` (48 in) for the current `open_shelving` archetype
 
 ### Vercel API
 
@@ -51,8 +53,8 @@ FormShift currently includes:
 - Organize cost-aware Luna -> Terra routing: deployed and production-observed
 - Build brief normalization route `/api/ai/build-brief`: deployed
 - Build acceptance route `/api/build/accept`: deployed
-- Phase 3 production baseline: `8fb21a13b16999a1b845454f68b323b5203bdf27`
-- Phase 3 production deployment: `dpl_DU8vCB9UJS8kJGkSJ3piMvKJcH4F` — READY
+- final Phase 3 guarded code baseline: `95bfdec16bb27417b978965241d17565d6d91c91`
+- production deployment for guarded baseline: `dpl_AZdKYuqTVBsZSXQeN9zK8ecixX4j` — READY
 
 ### Vercel Web
 
@@ -61,8 +63,8 @@ FormShift currently includes:
 - Phase 2 Organize Intelligence UI: deployed
 - editable Organize proposal drafts: deployed; direct proposal-box dragging browser-confirmed by user
 - Phase 3 Build Intelligence UI: deployed
-- Phase 3 production baseline: `8fb21a13b16999a1b845454f68b323b5203bdf27`
-- Phase 3 production deployment: `dpl_HGaAsVX8qqmyB3btaryuUkNuPJWL` — READY
+- final Phase 3 guarded code baseline: `95bfdec16bb27417b978965241d17565d6d91c91`
+- production deployment for guarded baseline: `dpl_e8te5dwpysR9vPdT7cpNYvzkGYPP` — READY
 
 ## Organize Intelligence routing policy
 
@@ -149,7 +151,7 @@ The workflow is:
 2. AI normalizes the brief and extracts explicitly supplied dimensions/intent
 3. unknown build-critical dimensions remain unknown and must be entered by the user
 4. FormShift deterministically generates a rectangular open-shelving design using nominal 3/4 in plywood
-5. FormShift deterministically validates room fit and collisions
+5. FormShift deterministically validates room fit, ceiling fit, collisions, stock-sheet compatibility, and the current archetype span limit
 6. FormShift computes a cut list, material quantity, planning cost allowance, and effort range
 7. the proposed Build footprint appears in the room plan
 8. only the proposed Build footprint is draggable in Build mode; existing room objects remain locked
@@ -164,13 +166,14 @@ The first archetype produces:
 - top and bottom panels
 - user-selected interior shelf count
 - two rear plywood stretchers
-- standard 4 × 8 ft sheet-fit checks
+- standard 4 x 8 ft sheet-fit checks
+- a conservative maximum **48 in / 1219.2 mm clear unsupported shelf span** for this unbraced archetype
 - plywood planning quantity from panel area plus 15% waste
 - material rows for nominal 3/4 in plywood, appropriate wood/cabinet screws, and wood glue
 - generic USD low / expected / high material allowance
 - deterministic active-labor range and basic tool profile
 
-The material cost is explicitly a **planning allowance**, not live retailer pricing or an inventory quote.
+Units wider than the current 48-inch clear-span limit are intentionally blocked until a later archetype adds a center divider/stiffener/support design. The material cost is explicitly a **planning allowance**, not live retailer pricing or an inventory quote.
 
 ### Build safety/verification boundary
 
@@ -188,19 +191,23 @@ Even when the room itself is measured, an accepted shelving plan is stored as `p
 
 ## Phase 3 validation completed so far
 
-- latest consolidated API preview: READY
-- latest consolidated web Expo preview: READY
-- production API deployment at exact Phase 3 SHA: READY
-- production web deployment at exact Phase 3 SHA: READY
-- API build compiled five TypeScript functions successfully using TypeScript 6.0.3
-- Expo/Metro web export completed successfully with static routes exported
-- database migration applied successfully
+- consolidated Phase 3 API preview: READY
+- consolidated Phase 3 web Expo preview: READY
+- final 48-inch span-guard API preview: READY
+- final 48-inch span-guard web Expo preview: READY
+- production API deployment at exact final guarded SHA: READY
+- production web deployment at exact final guarded SHA: READY
+- API builds compiled five TypeScript functions successfully using TypeScript 6.0.3
+- Expo/Metro web exports completed successfully with static routes exported
+- atomic Build database migration applied successfully
+- span constraint migration applied and validated successfully
 - RPC security/grant configuration verified
 - unauthenticated Build-acceptance RPC rejected
 - owner-context atomic acceptance transaction executed successfully under explicit rollback
 - rollback integrity verified: zero synthetic test measurements, spatial versions, or build requests remained
 - Build acceptance preserves inherited `spatial_version_measurements` lineage and appends the three Build-derived dimension observations
-- new Build domain tests were added for valid shelving generation and collision rejection; a standalone `domain:test` execution was not available from the connected execution environment because it cannot clone external GitHub hosts and the repository has no GitHub Actions workflow
+- Build domain regression tests were added for valid shelving generation, collision rejection, and rejection of unsupported spans over 48 inches
+- standalone `domain:test` execution for the Phase 3 additions was not available from the connected execution environment because it cannot clone external GitHub hosts and the repository has no GitHub Actions workflow; TypeScript compilation of the included test source is covered by the domain package build configuration
 
 ## Not yet validated / not claimed
 
@@ -212,6 +219,7 @@ Even when the room itself is measured, an accepted shelving plan is stored as `p
 - blueprint/PDF generation
 - optimized sheet nesting/cut-layout generation
 - live retailer pricing/inventory
+- center-divider/stiffener design for shelving wider than the current unsupported-span limit
 - wall anchoring or built-in Build archetypes
 - Class B installed/non-structural Build workflow
 - Class C structural/site-dependent Build workflow
@@ -237,6 +245,7 @@ Even when the room itself is measured, an accepted shelving plan is stored as `p
 - **Organize edited-layout accept/persist fully verified:** not yet
 - **Phase 3 Build code deployed:** yes
 - **Phase 3 Build database transaction deployed/preflight-verified:** yes
+- **Phase 3 48-inch unsupported-span guard deployed at app and database boundaries:** yes
 - **Phase 3 Build browser end-to-end verified:** no
 - **Physical-device validated:** no
 - **Full product deployment-verified:** no
@@ -246,7 +255,7 @@ Even when the room itself is measured, an accepted shelving plan is stored as `p
 Validate the production Phase 3 Build slice:
 
 1. switch to **Build**
-2. describe a freestanding shelving/storage unit, preferably with explicit width/height/depth and shelf count
+2. enter: `Build a freestanding shelving unit 48 inches wide, 72 inches tall, 16 inches deep with 3 interior shelves.`
 3. run **Start build plan** and confirm the normalized brief/dimensions are sensible
 4. generate the deterministic plan and preview
 5. confirm the cut list, material allowance, effort range, and fit status appear
@@ -256,9 +265,11 @@ Validate the production Phase 3 Build slice:
 9. refresh and confirm the new shelving object remains in the room
 10. inspect Supabase to verify the Build request/plan/BOM/material/cost/effort rows, Build-derived measurements, atomic spatial-version parent lineage, and active-version advancement
 
+After the primary path passes, separately try a width that creates a clear span over 48 inches and confirm FormShift blocks it with the unsupported-span message.
+
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated for the deployed Phase 3 Build Intelligence release and database migration/preflight evidence
+- `CURRENT-STATE.md`: updated for the final deployed Phase 3 guarded release, exact production SHA/deployments, and enforced 48-inch unsupported-span limit
 - `ARCHITECTURE.md`: no change required; Phase 3 implements the existing deterministic Build, immutable versioning, provenance, and no-partial-mutation architecture
 - `DESIGN-SYSTEM.md`: no change
 - `PROJECT-CONSTITUTION.md`: no change
