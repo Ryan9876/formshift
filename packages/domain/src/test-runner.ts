@@ -1,3 +1,4 @@
+import { createOpenShelvingPlan } from './build.js';
 import { demoSnapshot } from './fixtures.js';
 import { applyActions, physicalDimensionsEqual, validateLayoutActions, validateOrganizeActions, validateSnapshot } from './spatial.js';
 import { inchesToMm, mmToInches } from './units.js';
@@ -66,6 +67,27 @@ test('Organize validation rejects rotate actions until accepted by the Organize 
     type: 'rotate', objectId: object.id, rotation: { x: 0, y: 0, z: 0, w: 1 }
   }]);
   equal(errors.some((value) => value.includes('move actions only')), true, 'expected rotate rejection');
+});
+
+test('Build engine creates a deterministic valid open-shelving plan in clear space', () => {
+  const clearRoom = { ...demoSnapshot, objects: [] };
+  const plan = createOpenShelvingPlan(clearRoom, {
+    objectId: 'build-test-1', label: 'Garage shelves',
+    widthMm: inchesToMm(48), heightMm: inchesToMm(72), depthMm: inchesToMm(16), interiorShelves: 3,
+  }, { x: 2200, z: 500 });
+  equal(plan.validation.valid, true, plan.validation.errors.join('; '));
+  equal(plan.components.some((component) => component.componentKey === 'interior-shelves'), true);
+  equal(plan.geometry.sheetCountPlanning > 0, true);
+  equal(plan.cost.lowAmount <= plan.cost.expectedAmount && plan.cost.expectedAmount <= plan.cost.highAmount, true);
+});
+
+test('Build engine rejects a shelving placement that collides with existing furniture', () => {
+  const desk = demoSnapshot.objects.find((item) => item.id === 'desk-1')!;
+  const plan = createOpenShelvingPlan(demoSnapshot, {
+    objectId: 'build-test-2', label: 'Shelves',
+    widthMm: inchesToMm(36), heightMm: inchesToMm(60), depthMm: inchesToMm(16), interiorShelves: 2,
+  }, { x: desk.transform.translation.x, z: desk.transform.translation.z });
+  equal(plan.validation.errors.some((value) => value.includes('collides with object')), true, 'expected collision rejection');
 });
 
 if (failures > 0) throw new Error(`${failures} domain test(s) failed`);
