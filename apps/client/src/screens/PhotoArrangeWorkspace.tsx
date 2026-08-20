@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import React from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BrandMark } from '../components/BrandMark';
-import { PhotoArrangeEditor } from '../components/PhotoArrangeEditor';
+import { PhotoArrangeEditorV17 } from '../components/PhotoArrangeEditorV17';
 import { useRoomWorkspace } from '../data/useRoomWorkspace';
 import { tokens } from '../theme/tokens';
 
@@ -19,7 +19,7 @@ export function PhotoArrangeWorkspace() {
           </View>
           <View style={styles.headerCopy}>
             <Text style={styles.h1}>Move what is actually in the room.</Text>
-            <Text style={styles.sub}>Tap a photographed object to isolate its real pixels, lift it, and rearrange it directly in the room photo.</Text>
+            <Text style={styles.sub}>Tap a photographed object to isolate its real pixels, refine the selection, lift it, and rearrange it directly in the room photo.</Text>
           </View>
           <Pressable style={styles.back} onPress={() => router.replace('/')}><Text style={styles.backText}>Back to Studio</Text></Pressable>
         </View>
@@ -29,7 +29,7 @@ export function PhotoArrangeWorkspace() {
         ) : !workspace.workingSnapshot ? (
           <View style={styles.state}><Text style={styles.stateTitle}>Create the room first.</Text><Text style={styles.stateText}>Arrange keeps the photo primary, but the room still needs a canonical spatial version underneath it.</Text></View>
         ) : (
-          <PhotoArrangeEditor
+          <PhotoArrangeEditorV17
             photoUrl={workspace.photoUrl}
             snapshot={workspace.workingSnapshot}
             onSnapshotChange={workspace.setWorkingSnapshot}
@@ -40,8 +40,8 @@ export function PhotoArrangeWorkspace() {
         )}
 
         <View style={styles.note}>
-          <Text style={styles.noteStrong}>Photo Arrange v1.5</Text>
-          <Text style={styles.noteText}>Selection and mask cleanup run locally. Drag with one finger; pinch and rotate with two. Background AI repair is explicit and asynchronous. Keep placement saves an immutable derived photo arrangement in private FormShift storage so it restores after refresh.</Text>
+          <Text style={styles.noteStrong}>Photo Arrange v1.7</Text>
+          <Text style={styles.noteText}>Selection and continuous Add/Remove mask refinement run locally. Paint with one finger, switch to Pan for one-finger room navigation, and use two fingers to zoom at any time. Undo/Redo protects refinement work. Background AI repair remains explicit and asynchronous. Keep placement saves an immutable derived photo arrangement in private FormShift storage.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
