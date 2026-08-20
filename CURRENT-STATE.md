@@ -1,23 +1,25 @@
 # FormShift Current State
 
-**Revision:** 0.6.6  
+**Revision:** 0.6.7  
 **Date:** 2026-08-20  
-**Milestone:** Photo Arrange room zoom/object gesture separation validated as a moderate iPhone improvement; selection quality is now the primary Arrange bottleneck
+**Milestone:** Photo Arrange v1.6 Selection Refinement deployed; iPhone refinement validation pending
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
-## Photo Arrange v1 — validated baseline
+## Validated Photo Arrange baseline
 
-Authenticated iPhone Safari validation has confirmed the core interaction model:
+Authenticated iPhone Safari validation has established that:
 - a normal tap reaches FormShift rather than Safari's native image-selection UI
 - MediaPipe interactive segmentation completes successfully
-- a real photographed object such as the guitar can be isolated as a transparent cutout
-- the actual photographed pixels can be lifted and moved over the same room photo
+- a real photographed object such as the guitar can be isolated, lifted, and moved using its photographed pixels
+- room pinch-zoom and pan make small-object targeting materially easier
+- room-navigation gestures and selected-object manipulation are meaningfully separated
+- the viewport interaction is a **moderate improvement**, not yet production-quality
 - the immutable source room photo remains preserved in private FormShift storage
 
-## Photo Arrange v1.5 — deployed
+## Photo Arrange v1.5 — persistence and manipulation baseline
 
-Persistence/visual-quality runtime baseline: `ccd5d98df77cfa61bc9c6bb12b6696663b053839`
+Runtime baseline: `ccd5d98df77cfa61bc9c6bb12b6696663b053839`
 
 Implemented:
 - seeded connected-component mask cleanup, morphological closing, feathered cutout edges, and expanded repair masks
@@ -33,64 +35,64 @@ Persistence/security evidence:
 - anonymous has no `photo_arrangements` table privileges; authenticated has SELECT + INSERT only
 - authenticated owner-context insert passed in a rollback transaction; zero test arrangement rows remained afterward
 
-## Photo Arrange v1.5.1 — viewport interaction validated as moderate improvement
+## Photo Arrange v1.5.1 — viewport interaction validated
 
 Runtime baseline: `8ac6636e32ff02e54ed40892170e1e49fa301bd3`
 
+Validated behavior:
+- two-finger pinch zooms the room before selection
+- one-finger drag pans when zoomed
+- selection occurs only on a completed short tap
+- pinch/pan cancels a pending selection tap
+- zoomed taps map back to the correct image coordinates
+- selected objects have bounded gesture hit areas rather than owning the full canvas
+- gestures on the object manipulate it; gestures outside navigate the room
+- **Fit photo** resets only viewport framing
+
+The user's latest iPhone test classified this as a moderate improvement and exposed segmentation-mask quality as the dominant remaining defect.
+
+## Photo Arrange v1.6 — Selection Refinement deployed
+
+Runtime baseline: `2dfc89dea13f2e1d943a24acfe9f7d0c94612f8d`
+
 Production evidence:
-- exact branch preview `dpl_8wzFg5iEMjoW5LFoLkzrSdrMsjzG` — READY; Expo static export explicitly included `/arrange`
-- production web deployment `dpl_3Ln2NAmQL5jhrFdRm5SuhL4PpY7m` — READY on the exact runtime baseline and serving the production alias
-- branch regression check showed one commit / one changed runtime file: `apps/client/src/components/PhotoArrangeEditor.web.tsx`
-- API source was unchanged; the Vercel API deployment for this client-only commit was canceled and the prior production API deployment remains READY
+- exact branch preview `dpl_8xqtDzS6vdUiEFYnUXRKQbAnmQec` — READY on the runtime baseline
+- preview Expo export completed successfully and explicitly included `/arrange`
+- branch comparison was one commit ahead of `main` with one runtime file changed: `apps/client/src/components/PhotoArrangeEditor.web.tsx`
+- production web deployment `dpl_4QPSdYxJU3NyKj9Kq2sYjQW7whG5` — READY on the exact runtime baseline and serving `formshift-web.vercel.app`
+- production `/arrange` — HTTP 200 smoke-verified
+- API source did not change; the Vercel API deployment generated for this client-only commit (`dpl_Bbzr9xk9oUmBJCAgvELc6wcfzAqD`) was canceled and the prior production API deployment `dpl_DynPyeinheV9UHHbkwb6MWV1tg6n` remains READY
+- no database/schema migration was required
 
-Validated on iPhone Safari:
-- room pinch zoom works before object selection
-- zoomed room framing makes small-object targeting materially easier than the previous full-canvas manipulation model
-- room and selected-object gesture targets are now meaningfully separated
-- the interaction is a **moderate improvement**, not yet production-quality
+Implemented selection flow:
+- first object tap creates a **candidate segmentation preview** over the unchanged room image instead of immediately lifting the object
+- the candidate is shown with a translucent FormShift-blue mask and dashed extent
+- **Add** and **Remove** modes collect positive/negative refinement points locally
+- MediaPipe is rerun with the accumulated refinement points; deterministic local circular brush edits supplement the model output so the requested correction is visible even when the model response is imperfect
+- each successful refinement recomputes the visible preview, cutout, and background-repair mask
+- **Use selection** explicitly accepts the refined candidate, creates the lifted object, and starts the local old-location repair
+- **Cancel** discards the candidate without modifying the current scene
+- zoom/pan remains available while a candidate is being refined
+- a touch loupe/magnifier follows the refinement point for small-edge work on a phone
+- mobile controls now use a compact wrapping tray rather than the previous horizontally overflowing action strip
+- after lift, the established object move/scale/rotate, AI repair, Keep placement, and persisted arrangement flow remain available
+- persisted edit metadata now identifies renderer version `photo-arrange-1.6`
 
-Implemented interaction contract:
-- before selection, two-finger pinch zooms the room up to 5×
-- when zoomed, one-finger drag pans the room
-- object selection is triggered only on a completed short tap, not pointer/touch-down
-- beginning a pan or pinch cancels a pending object-selection tap
-- selection coordinates are mapped back through the room viewport transform so zoomed tapping targets the correct image pixel
-- after selection, the selected object has its own bounded gesture hit area rather than a full-canvas manipulation layer
-- gestures beginning on the object move/scale/rotate the object
-- gestures beginning outside the object continue to pan/zoom the room
-- **Fit photo** returns the room viewport to 1× without resetting the object transform or persisted scene
-- room zoom/pan is view-only and is never written into object geometry or arrangement persistence
-- existing v1.5 mask cleanup, AI repair, and save behavior are preserved
-
-## Current quality bottleneck — selection refinement
-
-The latest iPhone validation shows the dominant remaining Arrange defect is the segmentation mask, not basic touch routing. In a guitar test, the selected cutout can still include substantial adjacent/background pixels and produce a visibly oversized/incorrect lifted region. The local removed-object preview also remains visibly synthetic.
-
-The next implementation target is **Photo Arrange v1.6 — Selection Refinement**:
-- show a mask preview before the object is lifted
-- support positive **Add** taps/brush strokes to include missing object regions
-- support negative **Remove** taps/brush strokes to exclude wall, furniture, stand, straps, shadows, or other accidentally selected pixels
-- provide an iPhone magnifier/loupe while refining small edges
-- recompute the cutout and repair mask from the refined segmentation before lift
-- preserve zoom/pan while refinement is active
-- keep a one-tap **Use selection** path when the automatic mask is already acceptable
-- compact the mobile control surface so selection/refinement controls do not horizontally overflow the photo workspace
-
-This refinement step should be completed before deeper camera/depth/occlusion work, because perspective and scene intelligence cannot compensate for an incorrect source-object mask.
+Current implementation detail: v1.6 provides discrete Add/Remove refinement taps with local brush-area effects; continuous finger-painted brush strokes are not yet claimed.
 
 ## Privacy and accuracy boundaries
 
-- segmentation and mask cleanup run locally in the browser
-- room zoom/pan is local transient viewport state
-- AI repair sends the current source scene and selection mask only after the user explicitly chooses **Refine background with AI**
+- initial segmentation, mask cleanup, Add/Remove refinement, and candidate preview run locally in the browser
+- the source/derived room scene is not altered merely by creating or refining a candidate selection
+- AI repair sends the current source scene and accepted refined selection mask only after the user explicitly chooses **AI repair**
 - the configured image-edit path is not claimed to be zero-data-retention
 - derived scene files remain private household assets under project-scoped Storage policies
-- pixel movement does not implicitly alter canonical physical dimensions, room geometry, or spatial measurement provenance
+- pixel movement does not implicitly alter canonical physical dimensions, room geometry, or measurement provenance
 - perspective, depth, floor/wall contact, occlusion, relighting, and physical scale are still uncalibrated for free-form photographed-object movement
 
-## Existing validated baseline
+## Existing validated product baseline
 
-Prior validated phases retain private room-photo capture/storage, canonical geometry and immutable versions, Plan Arrange persistence, Organize Intelligence, Build Intelligence/atomic acceptance, Build-plan restoration, blueprint presentation, Photo Arrange v1 real-object selection/lift/move, and the v1.5.1 room zoom/object gesture separation.
+Prior validated phases retain private room-photo capture/storage, canonical geometry and immutable spatial versions, Plan Arrange persistence, Organize Intelligence, Build Intelligence/atomic acceptance, Build-plan restoration, blueprint presentation, and the Photo Arrange real-object interaction baseline.
 
 Infrastructure:
 - Supabase ref `oomtpnqprxykcjzrlfgc`; private bucket `formshift-private`; 26/26 public app tables RLS-enabled
@@ -99,27 +101,31 @@ Infrastructure:
 
 ## Next validation
 
-After v1.6 implementation, validate on iPhone Safari with the guitar and at least one less isolated object:
-1. zoom/pan to frame the object
-2. tap to create an initial segmentation preview without lifting it
-3. use Remove to exclude an adjacent/background region
-4. use Add to recover any missed object region
-5. confirm the preview mask visibly updates after each refinement
-6. accept the refined selection and lift the object
-7. verify the moved cutout contains substantially less adjacent/background imagery
-8. continue to move/scale/rotate and save/reload the arrangement
+On iPhone Safari:
+1. hard refresh and open **Arrange**
+2. zoom/pan to frame the guitar or another distinct object
+3. tap once; confirm the object does **not** lift immediately and instead shows a blue candidate selection preview
+4. choose **Remove** and tap an obvious background area incorrectly included in the candidate; confirm the mask updates/shrinks
+5. choose **Add** and tap a missed part of the real object if necessary; confirm the mask updates/expands
+6. confirm the loupe appears during refinement touch interaction
+7. use **Cancel** once and confirm the current scene remains unchanged
+8. select/refine again and choose **Use selection**
+9. confirm the lifted object uses the refined mask and contains substantially less adjacent/background imagery
+10. move/scale/rotate it and verify existing AI repair and Keep placement behavior still work
 
-## Next implementation after selection refinement
+## Next implementation after v1.6 validation
 
-Photo Arrange v2 should then add scene intelligence: camera/floor/wall calibration, depth, perspective-aware physical scaling, contact constraints, occlusion, lighting/shadow treatment, photo-object to spatial-ID binding, reuse of the same visual pipeline for Organize, and native iOS segmentation/RealityKit where it materially improves fidelity.
+If refinement materially improves the cutout, the next phase should move into **Photo Arrange v2 scene intelligence** rather than adding more flat controls: camera/floor/wall calibration, monocular/depth assistance, perspective-aware physical scaling, contact constraints, occlusion, contact shadow/lighting treatment, photo-object to spatial-ID binding, and reuse of the scene pipeline in Organize and Build.
+
+If refinement is still too cumbersome or masks remain poor, improve the selection model/refinement ergonomics before scene-intelligence work; depth and perspective cannot compensate for a bad source mask.
 
 ## Not yet claimed
 
-Production-quality segmentation or inpainting, production-quality iPhone object selection/refinement, successful real Storage persistence/reload from every authenticated browser edit path, calibrated projection/occlusion/relighting, native iOS photo manipulation, or dedicated persisted blueprint PDF.
+Production-quality segmentation or inpainting, successful iPhone validation of v1.6 Add/Remove refinement, continuous brush-stroke refinement, calibrated perspective/occlusion/relighting, native iOS photo manipulation, or dedicated persisted blueprint PDF.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated to record the moderate iPhone viewport improvement and prioritize Selection Refinement v1.6
-- `DESIGN-SYSTEM.md`: unchanged in this release; its existing separate viewport/object gesture contract remains authoritative
-- `ARCHITECTURE.md`: unchanged; no data-flow/platform/canonical-state architecture changed
-- `PROJECT-CONSTITUTION.md`: unchanged
+- `CURRENT-STATE.md`: updated for the deployed Photo Arrange v1.6 release and pending iPhone validation
+- `DESIGN-SYSTEM.md`: updated to make candidate-preview/refine-before-lift behavior a durable Arrange interaction requirement
+- `ARCHITECTURE.md`: unchanged; v1.6 changes interaction behavior but not canonical data flow, platform boundaries, or persistence architecture
+- `PROJECT-CONSTITUTION.md`: unchanged; the existing photo-first product rule already governs this release
