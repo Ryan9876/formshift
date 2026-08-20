@@ -1,17 +1,16 @@
 # FormShift Design System
 
 **Status:** Authoritative visual and interaction baseline  
-**Revision:** 0.4.2  
+**Revision:** 0.5.0  
 **Established:** 2026-08-19  
-**Visual lineage:** Deliberate adaptation of the established Parallax light-glass/depth language
+**Last material design decision:** 2026-08-20  
+**Visual lineage:** Parallax light-glass/depth language adapted for a photo-first spatial augmentation product
 
 ## 1. Brand
 
 ### Name
 
 **FormShift**
-
-Meaning: a space is not treated as fixed; its *form* can be understood, reorganized, rearranged, and extended with something new. “Shift” maps naturally to the application’s spatial manipulation while avoiding a name limited to indoor rooms.
 
 ### Brand line
 
@@ -23,398 +22,333 @@ Mode microcopy:
 - **Arrange — Try the space another way.**
 - **Build — Make what the space needs.**
 
-The tagline should not be repeated excessively in-product.
+FormShift should feel spatial, precise, calm, modern, tactile, and useful in a real home without resembling a conventional CAD package.
 
-## 2. Logo direction
+## 2. Primary visual rule
 
-The FormShift mark is an abstract **F / spatial frame** made from two offset rounded room contours:
+**The user's real room photograph or live spatial scene is the primary canvas whenever available.**
 
-- rear contour curves inward/recesses
-- front contour bows outward
-- a small blue datum point anchors the intersection
-- negative space suggests both an `F` and an offset floor-plan corner
+Structured geometry, measurements, collision overlays, and plan rectangles support that experience. They do not replace it.
 
-This intentionally echoes the depth/perception idea behind Parallax without copying the Parallax orbit logo.
+Default hierarchy inside a project:
 
-### Logo motion
+1. real source photo / augmented scene
+2. contextual controls and AI recommendations
+3. measurements/status needed for the current decision
+4. technical Plan view
+5. blueprint/BOM/export detail
 
-On supported motion settings:
+Do not default users into a top-down rectangle editor merely because the geometry exists.
 
-- rear contour shifts 1–2 px opposite pointer/device motion
-- front contour shifts 1–2 px with motion
-- datum point remains optically stable
-- 500–900 ms slow settle; no bouncing/spinning
+## 3. Source-scene integrity
 
-`prefers-reduced-motion` / iOS Reduce Motion disables the layer shift.
+The original room capture remains visually identifiable and recoverable.
 
-## 3. Visual character
+Required scene states:
 
-FormShift should feel:
+- **Before** — untouched source capture
+- **Augmented** — source capture plus FormShift-projected or reconstructed changes
+- **Plan** — secondary technical geometry view
 
-- spatial
-- precise
-- calm
-- modern
-- tactile without skeuomorphism
-- technical enough for measurements, approachable enough for home use
+The Before/Augmented/Plan control should remain close to the scene, compact, and persistent when relevant.
 
-It deliberately inherits Parallax’s **clear-glass / clear-ice depth illusion**, conflicting surface curves, warm-neutral field, restrained blue, and subtle motion.
+The product must never visually imply that an estimated overlay is camera-calibrated when it is not.
 
-Avoid:
+## 4. Visual-confidence language
 
-- CAD-black interfaces as the default
-- bright home-decor palettes
-- purple/pink casts
-- heavy gradients
-- thick dashboard cards
-- exaggerated glass blur that hurts legibility
-- decorative blueprint textures
+Every scene result that could be mistaken for spatial truth carries one of these states:
 
-## 4. Parallax-derived depth model
+### Source photo
 
-### Recessed navigation surface
+Original captured image. No synthetic spatial change.
 
-On large screens, the project/navigation rail visually **dips inward**:
+### Estimated augmentation
 
-- lightest through the middle
-- slightly darker toward top and bottom
-- subtle concave side boundary where it meets the workspace
-- lower elevation than the main canvas
+Object position/scale is derived from available geometry but camera calibration, occlusion, or lighting fidelity is incomplete.
 
-### Lifted workspace surface
+### Calibrated augmentation
 
-The active spatial workspace visually **bows outward** against the nav:
+Camera/scene mapping is calibrated sufficiently for geometry-faithful projection within documented tolerance.
 
-- slightly darker/grayer through the central field
-- subtly lighter toward upper/lower edges
-- convex opposing boundary
-- clear-ice highlight/shear responds very slightly to pointer/device movement
+### Geometry-rendered
 
-The opposing curves create depth without heavy shadows.
+Rendered directly from authoritative spatial geometry with a known camera/scene transform.
 
-### Mobile translation
+### Illustrative concept
 
-There is no permanent sidebar on iPhone. Translate the same depth relationship into:
+AI-generated or reconstructed pixels useful for visualization but not proof of fit.
 
-- recessed top project/mode shelf
-- lifted canvas below
-- bottom action sheet floating above the canvas only when needed
+### Measured / Estimated plan
 
-## 5. Color system
+Technical Plan view whose status comes from measurement provenance.
 
-The palette adapts the latest light Parallax profile.
+Status must use text/icon/treatment, never color alone.
+
+## 5. Parallax-derived visual character
+
+Retain the approved FormShift translation of Parallax:
+
+- warm neutral outer field
+- lifted clear-glass workspace
+- recessed navigation/supporting chrome
+- restrained FormShift blue
+- soft peach metadata
+- subtle beige/green/brown undertones
+- opposing curved surfaces where they reinforce depth
+- very restrained parallax/shear motion
+
+The real room image should not be dimmed, over-tinted, blurred, or visually subordinated to decorative glass.
+
+Controls float around or lightly over the image; the image remains the visual anchor.
+
+## 6. Color system
 
 | Token | Value | Use |
 |---|---:|---|
-| `canvas-high` | `#F4F2EA` | warm neutral outer field |
-| `canvas-mid` | `#E8E8E1` | grayer lifted workspace center |
-| `canvas-warm` | `#EEE9DC` | subtle beige/brown undertone |
-| `canvas-green` | `#E7E9DD` | extremely restrained yellow-green undertone |
-| `glass` | `rgba(255,255,255,.56)` | translucent controls/sheets |
-| `glass-strong` | `rgba(255,255,255,.76)` | high-legibility surfaces |
+| `canvas-high` | `#F4F2EA` | outer warm neutral field |
+| `canvas-mid` | `#E8E8E1` | supporting workspace chrome |
+| `canvas-warm` | `#EEE9DC` | beige undertone |
+| `canvas-green` | `#E7E9DD` | restrained green undertone |
+| `glass` | `rgba(255,255,255,.56)` | translucent controls |
+| `glass-strong` | `rgba(255,255,255,.76)` | higher-legibility sheets |
 | `ink` | `#253034` | primary text |
 | `ink-soft` | `#526066` | secondary text |
-| `metadata-peach` | `#C98E78` | restrained secondary metadata / AI notes |
-| `blue` | `#0D7496` | primary action, selected state, key spatial accent |
-| `blue-soft` | `#DCECF1` | selection/measurement backgrounds |
-| `blue-deep` | `#0A5B76` | active/pressed emphasis |
-| `line` | `rgba(42,61,66,.14)` | glass borders/dividers |
-| `verified` | `#387461` | confirmed/verified state |
-| `estimated` | `#9A6B32` | estimated/attention state |
-| `danger` | `#A84C4C` | destructive/error state |
+| `metadata-peach` | `#C98E78` | secondary metadata/AI notes |
+| `blue` | `#0D7496` | primary action, selection, dimension accent |
+| `blue-soft` | `#DCECF1` | selected backgrounds/guides |
+| `blue-deep` | `#0A5B76` | pressed emphasis |
+| `line` | `rgba(42,61,66,.14)` | borders/dividers |
+| `verified` | `#387461` | confirmed state |
+| `estimated` | `#9A6B32` | uncertainty/attention state |
+| `danger` | `#A84C4C` | errors/destructive actions |
 
-Exact contrast must be automated during implementation. Status is never color-only.
+Core web UI targets WCAG AA contrast.
 
-## 6. Typography
+## 7. Typography
 
-Use **Geist Sans** for application UI if the implementation stack makes it straightforward; use system-native San Francisco on iOS where that produces better native fidelity. Use **Geist Mono / SF Mono** selectively for dimensions, coordinates, and blueprint metadata.
+Use Geist Sans where practical on web and San Francisco/system-native typography on iOS. Use Geist Mono / SF Mono selectively for dimensions, coordinates, and blueprint metadata.
 
-Principles:
+- page title: 24–28, 650–700
+- section: 18–20, 600–650
+- object/proposal card: 15–16, 600
+- body: 15–16, 400–500
+- secondary: 13–14
+- technical label: 11–12, 550–650
+- dimension: 13–15, tabular/mono where useful
 
-- large, calm headings
-- compact technical labels
-- tabular numerals for dimensions/costs
-- avoid oversized marketing typography inside workspaces
-
-Recommended scale:
-
-| Role | Size | Weight |
-|---|---:|---:|
-| Display | 32 | 650–700 |
-| Page/project | 24–28 | 650–700 |
-| Section | 18–20 | 600–650 |
-| Card/proposal | 15–16 | 600 |
-| Body | 15–16 | 400–500 |
-| Secondary | 13–14 | 400–500 |
-| Technical label | 11–12 | 550–650 |
-| Dimension | 13–15 | 600 mono/tabular |
-
-Dynamic Type/accessibility scaling takes precedence.
-
-## 7. Primary mode switch
-
-**Organize / Arrange / Build** is a first-class persistent segmented control within every project.
-
-Rules:
-
-- always visible while in a project except during full-screen capture
-- switching mode preserves camera/viewport when practical
-- selected mode uses restrained blue accent and slight lifted-glass treatment
-- inactive modes remain readable, not disabled-looking
-- each mode may show a small unresolved-task indicator but never a noisy badge count
-
-The mode switch is not equivalent to bottom-level app navigation; it changes the toolset acting on the same spatial state.
+The photo canvas should not be crowded with large marketing text.
 
 ## 8. Project shell
 
 ### Web
 
-- recessed left rail: brand, projects, capture/source, settings
-- top project bar: project title, measurement state, mode switch
-- lifted central spatial canvas
-- contextual right inspector when width permits
-- bottom/inline AI proposal tray only when relevant
+Preferred hierarchy:
+
+- compact/recessed project navigation
+- project title + measurement state + persistent Organize/Arrange/Build switch
+- large lifted photo/scene canvas
+- contextual inspector beside it when width permits
+- technical Plan/blueprint detail below or behind explicit navigation
 
 ### iPhone
 
-- compact top brand/project header
-- persistent 3-mode glass segmented control
-- nearly full-height spatial/image canvas
-- contextual bottom sheets for object/proposal/build details
-- camera/scan flow can go full screen
+- compact project header
+- persistent 3-mode segmented control
+- photo/live camera scene dominates the viewport
+- contextual bottom sheet for selected object/proposal/build details
+- Plan/measurements open as a deliberate secondary surface
 
-## 9. Organize experience
+No permanent sidebar on iPhone.
 
-Entering Organize should feel proactive, not like an empty chat box.
+## 9. Primary mode switch
 
-Initial state after analysis:
+Organize / Arrange / Build remains first-class and persistent while inside a project.
 
-- concise “What I see” summary
-- 2–4 prioritized opportunities
-- one recommended end-state highlighted first
-- visual before/after comparison
-- specific proposed moves
-- explanation tied to access/grouping/clutter/storage/clearance
+Switching modes should preserve the same source scene/camera framing whenever practical so users feel they are changing what they do to one room, not moving between unrelated applications.
 
-Proposal card structure:
+## 10. Organize experience
 
-1. **Result** — what improves
-2. **Moves** — what changes and where
-3. **Why** — concise rationale
-4. **Confidence/assumptions**
-5. **Preview** — geometry-faithful + optional concept image
-6. Accept / Edit / Reject
+Organize is photo-first and proactive.
 
-AI-generated end-state images use an **Illustrative concept** badge.
+Primary result structure:
 
-## 10. Arrange experience
+1. real-room **Before** image
+2. recommended **Augmented** end state in the same room
+3. 2–4 prioritized opportunities
+4. specific moves
+5. concise rationale
+6. confidence/assumptions
+7. Accept / Edit / Reject
+8. optional Plan verification
 
-Arrange is canvas-first.
+A proposal should answer visually: **“What would my actual room look like if I did this?”**
 
-Selected object:
+A rectangle-only layout is not an acceptable primary Organize result.
 
-- clear blue outline/handles
-- live wall/object distances
-- rotate affordance
-- dimensions visible without covering the object
-- fixed/estimated status in inspector
+Where object removal/movement reveals hidden background, reconstructed pixels must be labeled according to confidence. AI inpainting may improve visual continuity but does not establish geometry.
 
-Drag behavior:
+## 11. Arrange experience
 
-- subtle magnetic alignment guides
-- collision/clearance warning before drop
-- no arbitrary object scaling just because perspective changes
-- numeric edit always available
+Arrange should feel like manipulating the real room photograph.
 
-Adding objects:
+Selected visible object:
 
-- `+ Object`
-- choose basic type or describe it
-- enter/confirm dimensions
-- place ghost preview in scene
-- drop, rotate, adjust
+- clear but restrained outline/selection affordance
+- drag/rotate handles appropriate to confidence
+- dimensions available without covering the object
+- live collision/clearance feedback
+- perspective/scale preserved automatically
+- fixed/estimated state visible in inspector
 
-The user can branch/save layout alternatives rather than overwriting the current arrangement.
+The technical Plan view remains available for:
 
-## 11. Build experience
+- exact wall/object distance
+- numeric coordinates
+- collision debugging
+- placements that cannot be reconstructed confidently in the photo
 
-Build begins with a conversational brief field but immediately resolves to structured, visible constraints.
+Single-photo limitation must be handled honestly: large viewpoint/rotation changes may expose unseen surfaces and require illustrative reconstruction.
 
-Primary workspace stages:
+## 12. Build experience
 
-1. **Describe**
-2. **Fit**
-3. **Design**
-4. **Preview**
-5. **Plan**
+Build's main question is **“How will this look and fit in my actual space?”**
 
-The mode itself remains `Build`; these are progress states.
+Flow:
 
-Design result panel shows:
+1. Describe
+2. Confirm critical dimensions
+3. Generate deterministic design
+4. Show **Augmented** object in real room photo
+5. Compare **Before** / **Augmented**
+6. Use **Plan** for exact fit/placement when needed
+7. Accept design
+8. Review Blueprint / Materials / Cost / Effort
 
-- generated object in the space
-- overall dimensions
-- critical clearances
-- assumptions/conflicts
-- difficulty
-- cost range
-- effort range
-- `View Blueprint`
-- `Materials`
-- `Revise design`
+The augmented object should visually communicate its actual construction archetype—not a generic rectangle. For shelving this means visible side panels, shelves, top/bottom, material appearance, and floor contact.
 
-Deck/site-dependent concepts get a clearly visible structural/site-verification banner without turning the entire UI into legal text.
+As scene calibration improves, perspective, scale, contact shadow, occlusion, and lighting should converge toward the real room.
 
-## 12. Measurement states
+Build detail remains secondary to the room scene. Blueprint/BOM panels should not consume the primary visual area until explicitly opened.
 
-### Estimated
+## 13. Photo augmentation controls
 
-- dashed dimension treatment
-- `Estimated` text + source
+Minimum scene control:
 
-### Measured
+**Before | Augmented | Plan**
 
-- solid neutral/blue line
-- `Measured` + source/tolerance
+Rules:
 
-### Confirmed
+- default to Augmented when a source photo and proposal exist
+- default to Before when no proposal exists and the user is reviewing the room
+- default to Plan only when imagery is unavailable or user explicitly requests technical verification
+- switching views must not alter canonical state
+- retain the same proposal/version across views
+- surface augmentation confidence near the selector, not buried in settings
 
-- solid line + confirmation marker
-- `Confirmed`
+## 14. Photo-stage composition
 
-### Conflict
+The real room image should normally occupy the largest single visual region on screen.
 
-- warning icon + text
-- show competing sources/values
+Allow:
 
-Never communicate these states by color alone.
+- compact floating view selector
+- selected-object dimensions
+- confidence badge
+- contextual bottom/side controls
+- subtle alignment/collision cues
 
-## 13. AI presentation
+Avoid:
 
-AI should feel embedded in the product, not bolted on as a chatbot.
+- opaque panels covering large portions of the room
+- decorative overlays that alter perceived wall/floor colors
+- oversized blue bounding boxes
+- CAD grids as the default background
+- always-visible coordinates
 
-Use AI for:
+## 15. Technical Plan view
 
-- proposal strips
-- rationale
-- inferred object/zone labels
-- “Describe what you want” input
-- revision suggestions
-- concept imagery
+Plan remains important but explicitly secondary.
 
-The FormShift logo mark may appear next to generated recommendations. Its subtle offset-layer animation can run while AI is actively composing, then settle when complete.
+Use it for:
 
-## 14. Glass/parallax motion
+- measurement correction
+- exact positioning
+- collision/clearance verification
+- numeric editing
+- diagnostics
+- fallback when photo-scene mapping is uncertain
 
-Use motion to reinforce material/depth, not spectacle:
+Plan design rules:
 
-- 2–4 px maximum inertial offset for major glass layers
-- faint opposing sheen movement
-- sharp text remains optically stable
-- no background motion that makes measuring difficult
-- disable parallax while precision drag/measurement is active
-- reduced-motion preference disables the effect
+- light neutral field
+- restrained geometry
+- blue selected outlines/dimensions
+- clear fixed/movable states
+- estimated/measured/confirmed line treatment
+- no decorative CAD-black theme
 
-## 15. Blueprint visual language
+## 16. Blueprint visual language
 
-Blueprints intentionally become flatter and more technical than the application shell.
+Blueprints are intentionally flatter and technical:
 
 - light neutral paper field
 - dark geometry
 - blue dimensions
 - dashed estimated/unverified lines
 - explicit units
-- title block: project, version, mode, measurement state, date, planning-status note
-- no professional seals/stamps visual language
+- project/version/measurement state/date/title block
+- planning-status note
+- no professional seals/stamps language
 
-## 16. Cost/material/effort UI
+Blueprints derive from retained geometry, not room-image pixels.
 
-Use a compact practical estimate card:
+## 17. AI presentation
 
-**Expected:** $X  
-**Likely range:** $Y–$Z  
-**Materials priced as of:** date/source  
-**Effort:** N–M active hours  
-**Difficulty:** Moderate
+AI should appear as embedded intelligence rather than a chatbot.
 
-Expandable assumptions include waste, excluded tools, finishing, tax/delivery, labor not priced unless explicitly requested, and unknown installation conditions.
+Use AI for:
 
-## 17. Accessibility
+- room interpretation
+- proposal rationale
+- object/zone labels
+- natural-language Build/Arrange input
+- revision suggestions
+- reconstruction/inpainting notices
+- optional illustrative concepts
 
-- WCAG AA contrast target for core web UI
+The FormShift mark may accompany AI-generated recommendations. Avoid chat-heavy chrome where a visual scene + concise action is clearer.
+
+## 18. Motion
+
+Use subtle depth motion only around the scene:
+
+- 2–4 px maximum glass-layer offset
+- faint opposing sheen movement
+- scene/object geometry remains optically stable
+- disable parallax during measurement or precision manipulation
+- reduced-motion preferences disable decorative motion
+
+Never animate the source photo in a way that makes measurement or object placement feel unstable.
+
+## 19. Accessibility
+
+- WCAG AA target for core web UI
 - Dynamic Type on iOS
 - VoiceOver/keyboard labels for object operations
-- keyboard-accessible Arrange on web
+- keyboard-accessible technical Plan editor on web
 - numeric alternative to gestures
-- 44 pt minimum iOS touch targets
+- minimum 44 pt iOS touch targets
 - status text/icons in addition to color
 - reduced-motion respected
-- glass blur reduced/removed where contrast requires it
-
-## 18. Logo/artwork status
-
-The **name, logo concept, motion behavior, palette, typography direction, and Parallax-derived design language are approved as the working FormShift brand baseline.** Final vector logo artwork has not yet been generated or visually approved.
-
-## 19. Revision record
-
-### 0.2 — 2026-08-19
-
-Replaced NestMetric identity with FormShift; translated latest Parallax light-glass, opposing-curve depth, blue `#0D7496`, soft-peach metadata, and subtle clear-ice motion into a mobile-first spatial application; defined mode and logo behavior.
-
-
-## v0.3 spatial-editor implementation rules
-
-The visual design now has an implementation-level canvas contract:
-
-- precision plan editor is canvas-first and rendered independently of DOM/native layout chrome
-- dimension text remains optically stable while decorative parallax affects surrounding glass surfaces
-- canvas parallax may never move canonical geometry or dimension anchors
-- estimated/measured/confirmed states use line treatment + text/icon, never color alone
-- collision/clearance overlays prioritize legibility over decorative glass effects
-- web canvas/3D routes may lazy-load heavy renderers; loading state must preserve the Parallax-derived depth language without imitating a fake room
-- geometry-faithful and illustrative AI views are visually distinguished
-- blueprint sheets use restrained technical styling rather than decorative glass
-
-### Illustrative vs authoritative visual label
-
-Geometry-rendered view:
-**Measured plan** / **Estimated plan** according to source state.
-
-AI-generated image:
-**Illustrative concept — plan dimensions are authoritative.**
-
-### v0.3 revision note
-
-This revision does not change the FormShift brand or Parallax visual lineage. It adds durable renderer/measurement-state presentation requirements needed for implementation.
-
-
-## 18. Milestone 0 visual implementation
-
-The first code baseline implements the approved Parallax-derived direction: recessed warm-neutral navigation, a subtly bowed/lifted workspace, restrained FormShift blue, soft peach metadata, warm beige/green/brown undertones, rounded translucent glass cards, and the persistent Organize / Arrange / Build mode control. The first logo implementation uses two conflicting spatial frames plus a blue datum point. Motion remains optional and must respect reduced-motion settings before production use.
-
+- zoom/pan must not trap keyboard/screen-reader focus
+- Before/Augmented comparison must remain understandable without relying on animation
 
 ## 20. Private access states
 
-The private-product access flow is part of the product experience, not a generic developer login screen. It uses the same restrained glass/depth language but keeps authentication visually quiet and unambiguous.
+Sign-in, pending approval, suspended/revoked, active, and configuration-unavailable states retain the FormShift glass/depth language while keeping authentication quiet and explicit. No private room imagery renders behind an unauthorized access state.
 
-Required states:
+## 21. Revision note — 0.5.0
 
-- **Sign in** — Google only for the current private release. The interface must not imply that Apple authentication is available.
-- **Pending approval** — authenticated identity exists, but no workspace content is rendered.
-- **Suspended/revoked** — explicit access-unavailable message; no project shell is rendered.
-- **Active** — project/workspace shell becomes available.
-- **Configuration unavailable** — development/setup state; never fall through into an insecure demo workspace.
+Revision 0.5.0 makes the source room photo/live scene the explicit primary canvas. Earlier implementation rules overemphasized the Skia plan editor because it was the first precise spatial renderer available. The Plan view remains valuable but is now intentionally secondary to real-photo augmentation in Organize, Arrange, and Build.
 
-The UI may explain access state, but it never implies that visual gating is the security control; server/database authorization remains authoritative.
-
-## 21. Milestone 0 responsive implementation rules
-
-The first implementation preserves the Parallax-derived depth hierarchy across widths rather than shrinking a desktop dashboard.
-
-- desktop/tablet: recessed navigation + lifted workspace + contextual panels
-- compact mobile: navigation collapses; project/mode shelf remains; canvas takes priority
-- precision canvas scales to available viewport width while canonical coordinates/dimensions remain unchanged
-- mode controls retain usable touch targets and cannot force horizontal page overflow
-- auth/access states use a centered bounded glass surface rather than rendering hidden workspace chrome behind it
-
-These rules are durable; exact breakpoints may change after physical-device/browser validation.
+The Parallax-derived brand, palette, typography, accessibility rules, and blueprint technical language are preserved. Prior revisions remain available in Git history.
