@@ -5,6 +5,7 @@ export const OPEN_SHELVING_ARCHETYPE_VERSION = 'open-shelving-1' as const;
 export const PLYWOOD_THICKNESS_MM = 19.05;
 export const PLYWOOD_SHEET_WIDTH_MM = 1219.2;
 export const PLYWOOD_SHEET_LENGTH_MM = 2438.4;
+export const MAX_UNBRACED_SHELF_SPAN_MM = 1219.2;
 export const DEFAULT_WASTE_FACTOR = 0.15;
 
 export interface OpenShelvingDesignInput {
@@ -117,6 +118,10 @@ export function createOpenShelvingPlan(
   if (errors.length === 0) errors.push(...validateBuildObjectPlacement(snapshot, object));
 
   const innerSpan = Math.max(0, input.widthMm - 2 * PLYWOOD_THICKNESS_MM);
+  if (innerSpan > MAX_UNBRACED_SHELF_SPAN_MM + 0.001) {
+    errors.push('clear shelf span exceeds 48 in for the current unbraced archetype; reduce width or use a later center-divider/stiffener design');
+  }
+
   const components = createComponents(input, innerSpan);
   for (const component of components) {
     const { lengthMm, widthMm } = component.dimensionsJson;
@@ -166,6 +171,7 @@ export function createOpenShelvingPlan(
       assumptions: [
         'Freestanding rectangular open shelving.',
         'Nominal 3/4 in plywood construction with no full back panel.',
+        'Unbraced clear shelf spans are limited to 48 in in this first archetype.',
         'Two rear plywood stretchers are included for basic carcass rigidity; this is not structural engineering.',
         'Build geometry is planning geometry until actual stock, site conditions, and as-built dimensions are verified.',
       ],
