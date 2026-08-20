@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.6.5  
+**Revision:** 0.6.6  
 **Date:** 2026-08-20  
-**Milestone:** Photo Arrange room zoom/object gesture separation deployed; iPhone interaction validation pending
+**Milestone:** Photo Arrange room zoom/object gesture separation validated as a moderate iPhone improvement; selection quality is now the primary Arrange bottleneck
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
@@ -33,7 +33,7 @@ Persistence/security evidence:
 - anonymous has no `photo_arrangements` table privileges; authenticated has SELECT + INSERT only
 - authenticated owner-context insert passed in a rollback transaction; zero test arrangement rows remained afterward
 
-## Photo Arrange v1.5.1 — viewport interaction deployed
+## Photo Arrange v1.5.1 — viewport interaction validated as moderate improvement
 
 Runtime baseline: `8ac6636e32ff02e54ed40892170e1e49fa301bd3`
 
@@ -42,6 +42,12 @@ Production evidence:
 - production web deployment `dpl_3Ln2NAmQL5jhrFdRm5SuhL4PpY7m` — READY on the exact runtime baseline and serving the production alias
 - branch regression check showed one commit / one changed runtime file: `apps/client/src/components/PhotoArrangeEditor.web.tsx`
 - API source was unchanged; the Vercel API deployment for this client-only commit was canceled and the prior production API deployment remains READY
+
+Validated on iPhone Safari:
+- room pinch zoom works before object selection
+- zoomed room framing makes small-object targeting materially easier than the previous full-canvas manipulation model
+- room and selected-object gesture targets are now meaningfully separated
+- the interaction is a **moderate improvement**, not yet production-quality
 
 Implemented interaction contract:
 - before selection, two-finger pinch zooms the room up to 5×
@@ -56,6 +62,22 @@ Implemented interaction contract:
 - room zoom/pan is view-only and is never written into object geometry or arrangement persistence
 - existing v1.5 mask cleanup, AI repair, and save behavior are preserved
 
+## Current quality bottleneck — selection refinement
+
+The latest iPhone validation shows the dominant remaining Arrange defect is the segmentation mask, not basic touch routing. In a guitar test, the selected cutout can still include substantial adjacent/background pixels and produce a visibly oversized/incorrect lifted region. The local removed-object preview also remains visibly synthetic.
+
+The next implementation target is **Photo Arrange v1.6 — Selection Refinement**:
+- show a mask preview before the object is lifted
+- support positive **Add** taps/brush strokes to include missing object regions
+- support negative **Remove** taps/brush strokes to exclude wall, furniture, stand, straps, shadows, or other accidentally selected pixels
+- provide an iPhone magnifier/loupe while refining small edges
+- recompute the cutout and repair mask from the refined segmentation before lift
+- preserve zoom/pan while refinement is active
+- keep a one-tap **Use selection** path when the automatic mask is already acceptable
+- compact the mobile control surface so selection/refinement controls do not horizontally overflow the photo workspace
+
+This refinement step should be completed before deeper camera/depth/occlusion work, because perspective and scene intelligence cannot compensate for an incorrect source-object mask.
+
 ## Privacy and accuracy boundaries
 
 - segmentation and mask cleanup run locally in the browser
@@ -68,7 +90,7 @@ Implemented interaction contract:
 
 ## Existing validated baseline
 
-Prior validated phases retain private room-photo capture/storage, canonical geometry and immutable versions, Plan Arrange persistence, Organize Intelligence, Build Intelligence/atomic acceptance, Build-plan restoration, blueprint presentation, and Photo Arrange v1 real-object selection/lift/move.
+Prior validated phases retain private room-photo capture/storage, canonical geometry and immutable versions, Plan Arrange persistence, Organize Intelligence, Build Intelligence/atomic acceptance, Build-plan restoration, blueprint presentation, Photo Arrange v1 real-object selection/lift/move, and the v1.5.1 room zoom/object gesture separation.
 
 Infrastructure:
 - Supabase ref `oomtpnqprxykcjzrlfgc`; private bucket `formshift-private`; 26/26 public app tables RLS-enabled
@@ -77,28 +99,27 @@ Infrastructure:
 
 ## Next validation
 
-On iPhone Safari:
-1. hard refresh and open **Arrange**
-2. before selecting an object, pinch the room photo to zoom in; confirm no object is selected or moved
-3. at 2×–4× zoom, pan the room with one finger
-4. tap a small object only after framing it; selection should occur on tap release
-5. with an object selected, pinch/drag **outside** it and confirm the room view zooms/pans without changing the object's saved scale/position
-6. drag directly **on** the selected object and confirm only the object moves
-7. pinch/twist directly **on** the selected object and confirm it scales/rotates
-8. tap **Fit photo** and confirm the room returns to full view without moving/resetting the selected object
-9. continue the v1.5 persistence test: **Keep placement**, refresh, and confirm the edited scene restores
+After v1.6 implementation, validate on iPhone Safari with the guitar and at least one less isolated object:
+1. zoom/pan to frame the object
+2. tap to create an initial segmentation preview without lifting it
+3. use Remove to exclude an adjacent/background region
+4. use Add to recover any missed object region
+5. confirm the preview mask visibly updates after each refinement
+6. accept the refined selection and lift the object
+7. verify the moved cutout contains substantially less adjacent/background imagery
+8. continue to move/scale/rotate and save/reload the arrangement
 
-## Next implementation after interaction validation
+## Next implementation after selection refinement
 
-Photo Arrange v2 should add scene intelligence rather than further flat 2D control layering: camera/floor/wall calibration, depth, perspective-aware physical scaling, contact constraints, occlusion, lighting/shadow treatment, photo-object to spatial-ID binding, reuse of the same visual pipeline for Organize, and native iOS segmentation/RealityKit where it materially improves fidelity.
+Photo Arrange v2 should then add scene intelligence: camera/floor/wall calibration, depth, perspective-aware physical scaling, contact constraints, occlusion, lighting/shadow treatment, photo-object to spatial-ID binding, reuse of the same visual pipeline for Organize, and native iOS segmentation/RealityKit where it materially improves fidelity.
 
 ## Not yet claimed
 
-Production-quality segmentation or inpainting, successful iPhone validation of the new room zoom/object gesture separation, successful real Storage persistence/reload from an authenticated browser edit, calibrated projection/occlusion/relighting, native iOS photo manipulation, or dedicated persisted blueprint PDF.
+Production-quality segmentation or inpainting, production-quality iPhone object selection/refinement, successful real Storage persistence/reload from every authenticated browser edit path, calibrated projection/occlusion/relighting, native iOS photo manipulation, or dedicated persisted blueprint PDF.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated for the deployed viewport/object gesture release and pending iPhone validation
-- `DESIGN-SYSTEM.md`: updated to make separate room-navigation/object-manipulation targets, tap-on-release selection, and Fit photo durable Arrange interaction requirements
+- `CURRENT-STATE.md`: updated to record the moderate iPhone viewport improvement and prioritize Selection Refinement v1.6
+- `DESIGN-SYSTEM.md`: unchanged in this release; its existing separate viewport/object gesture contract remains authoritative
 - `ARCHITECTURE.md`: unchanged; no data-flow/platform/canonical-state architecture changed
 - `PROJECT-CONSTITUTION.md`: unchanged
