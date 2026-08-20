@@ -35,12 +35,13 @@ export function PhotoArrangeWorkspace() {
             onSnapshotChange={workspace.setWorkingSnapshot}
             projectId={workspace.project?.id}
             spaceId={workspace.space?.id}
+            baseSpatialVersionId={workspace.activeVersionId}
           />
         )}
 
         <View style={styles.note}>
-          <Text style={styles.noteStrong}>Current slice</Text>
-          <Text style={styles.noteText}>Web/iPhone Safari first. Object selection is local/on-device. Background cleanup can use the configured image model. Scene edits are preview-only until the next persistence release.</Text>
+          <Text style={styles.noteStrong}>Photo Arrange v1.5</Text>
+          <Text style={styles.noteText}>Selection and mask cleanup run locally. Drag with one finger; pinch and rotate with two. Background AI repair is explicit and asynchronous. Keep placement saves an immutable derived photo arrangement in private FormShift storage so it restores after refresh.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
