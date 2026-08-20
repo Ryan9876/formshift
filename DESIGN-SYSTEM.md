@@ -1,7 +1,7 @@
 # FormShift Design System
 
 **Status:** Authoritative visual and interaction baseline  
-**Revision:** 0.5.1  
+**Revision:** 0.5.2  
 **Established:** 2026-08-19  
 **Last material design decision:** 2026-08-20  
 **Visual lineage:** Parallax light-glass/depth language adapted for a photo-first spatial augmentation product
@@ -213,6 +213,21 @@ Room navigation and selected-object manipulation are separate interaction target
 - **Fit photo** restores the viewport framing without resetting or moving the selected object
 - numeric/button alternatives remain available for accessibility and precision
 
+### Selection refinement contract
+
+An automatic segmentation result is a **candidate**, not an accepted object cutout.
+
+- the first object tap creates an in-place selection preview over the unchanged room photo; it must not immediately lift or remove pixels
+- the candidate mask is visually distinguishable from the source photo without obscuring object detail
+- users can refine the candidate with explicit **Add** and **Remove** interactions while room zoom/pan remains available
+- Add/Remove changes must update the visible mask before acceptance
+- touch refinement should provide a local magnifier/loupe when precision is useful on a phone
+- **Use selection** is the explicit transition from candidate mask to lifted photographed object
+- **Cancel** discards the candidate and returns to the unchanged source/derived scene
+- background removal/repair begins only after the candidate is accepted for lift
+- AI background reconstruction remains a separate explicit action; selection refinement itself remains local when supported
+- mobile refinement and arrangement controls use a compact wrapping/bottom-tray pattern and must not overflow horizontally
+
 The technical Plan view remains available for:
 
 - exact wall/object distance
@@ -360,8 +375,10 @@ Never animate the source photo in a way that makes measurement or object placeme
 
 Sign-in, pending approval, suspended/revoked, active, and configuration-unavailable states retain the FormShift glass/depth language while keeping authentication quiet and explicit. No private room imagery renders behind an unauthorized access state.
 
-## 21. Revision note — 0.5.1
+## 21. Revision note — 0.5.2
 
-Revision 0.5.1 defines Arrange's room-viewport and object-manipulation gestures as separate targets. This prevents photo navigation from implicitly selecting, moving, scaling, or rotating an object and establishes tap-on-release selection plus a non-destructive Fit photo action as durable interaction requirements.
+Revision 0.5.2 makes selection refinement a required stage before lifting photographed objects in Arrange. Automatic segmentation is treated as a candidate; users can review and locally Add/Remove before explicitly choosing **Use selection**. It also establishes the mobile magnifier and compact refinement tray as durable interaction patterns.
+
+Revision 0.5.1 defined Arrange's room-viewport and object-manipulation gestures as separate targets. This prevents photo navigation from implicitly selecting, moving, scaling, or rotating an object and establishes tap-on-release selection plus a non-destructive Fit photo action as durable interaction requirements.
 
 Revision 0.5.0 made the source room photo/live scene the explicit primary canvas while preserving the Plan view as a secondary technical tool. The Parallax-derived brand, palette, typography, accessibility rules, and blueprint technical language remain unchanged. Prior revisions remain available in Git history.
