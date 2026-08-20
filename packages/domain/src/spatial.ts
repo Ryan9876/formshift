@@ -43,7 +43,7 @@ export function applyActions(snapshot: SpatialSnapshot, actions: LayoutAction[])
       throw new Error(`object is fixed: ${action.objectId}`);
     }
     if (action.type === 'move') objects[index] = { ...current, transform: { ...current.transform, translation: { ...action.to } } };
-    if (action.type === 'rotate') objects[index] = { ...current, transform: { ...current.transform, rotation: { ...action.rotation } } };
+    if (action.type === 'rotate') objects[index] = { ...current, transform: { ...current.transform, rotation: { ...action.rotation } };
     if (action.type === 'remove') objects = objects.filter((x) => x.id !== action.objectId);
   }
   return { ...snapshot, objects };
@@ -134,6 +134,31 @@ export function validateOrganizeActions(snapshot: SpatialSnapshot, actions: Layo
     if (!physicalDimensionsEqual(before, after)) errors.push(`organize changed physical dimensions: ${before.id}`);
   }
 
+  return Array.from(new Set(errors));
+}
+
+export function validateBuildObjectPlacement(snapshot: SpatialSnapshot, object: SpatialObject): string[] {
+  const errors: string[] = [];
+  if (snapshot.objects.some((candidate) => candidate.id === object.id)) errors.push(`duplicate object id: ${object.id}`);
+  if (object.dimensions.width <= 0 || object.dimensions.height <= 0 || object.dimensions.depth <= 0) {
+    errors.push(`invalid dimensions: ${object.id}`);
+    return errors;
+  }
+  if (Math.abs(object.transform.translation.y - object.dimensions.height / 2) > 1) {
+    errors.push(`build object must sit on the floor plane: ${object.id}`);
+  }
+  if (snapshot.boundary.ceilingHeightMm != null
+    && object.transform.translation.y + object.dimensions.height / 2 > snapshot.boundary.ceilingHeightMm + 0.001) {
+    errors.push(`build exceeds room ceiling height: ${object.id}`);
+  }
+  const footprint = footprintCorners(object);
+  if (snapshot.boundary.floorPolygon.length >= 3
+    && footprint.some((point) => !pointInPolygon(point, snapshot.boundary.floorPolygon))) {
+    errors.push(`build leaves room floor polygon: ${object.id}`);
+  }
+  for (const existing of snapshot.objects) {
+    if (polygonsOverlap(footprint, footprintCorners(existing))) errors.push(`build collides with object: ${existing.id}`);
+  }
   return Array.from(new Set(errors));
 }
 
