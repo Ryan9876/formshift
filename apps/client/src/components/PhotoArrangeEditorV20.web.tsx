@@ -15,13 +15,23 @@ type Props = {
   baseSpatialVersionId?: string | null;
 };
 
+type RepairState = 'idle' | 'queued' | 'sending' | 'completed' | 'failed';
+
 export function PhotoArrangeEditorV20(props: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [autoRepair, setAutoRepair] = useState(false);
+  const [repairState, setRepairState] = useState<RepairState>('idle');
   const autoRepairRef = useRef(false);
-  const liftedRef = useRef(false);
+  const repairTriggeredForLiftRef = useRef(false);
+  const pendingTimerRef = useRef<number | null>(null);
 
   useEffect(() => { autoRepairRef.current = autoRepair; }, [autoRepair]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingTimerRef.current !== null) window.clearTimeout(pendingTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
@@ -74,16 +84,48 @@ export function PhotoArrangeEditorV20(props: Props) {
 
       if (aiButton) {
         aiButton.setAttribute('data-formshift-ai-repair', 'true');
-        if ((aiButton.textContent ?? '').trim() === 'AI repair') aiButton.textContent = 'Improve background';
+        aiButton.setAttribute('aria-label', 'Improve background');
       }
 
-      if (isLifted && !liftedRef.current) {
-        liftedRef.current = true;
-        if (autoRepairRef.current && aiButton && !aiButton.hasAttribute('disabled')) {
-          window.setTimeout(() => aiButton.click(), 90);
+      if (text.includes('Background repaired.')) {
+        setRepairState('completed');
+      } else if (text.includes('Background repair failed') || text.includes('AI background repair is unavailable')) {
+        setRepairState('failed');
+      } else if (text.includes('Repairing background…') || text.includes('AI is repairing the old location')) {
+        setRepairState('sending');
+      }
+
+      if (!isLifted) {
+        repairTriggeredForLiftRef.current = false;
+        if (pendingTimerRef.current !== null) {
+          window.clearTimeout(pendingTimerRef.current);
+          pendingTimerRef.current = null;
         }
-      } else if (!isLifted) {
-        liftedRef.current = false;
+        if (!text.includes('Background repaired.')) setRepairState('idle');
+        return;
+      }
+
+      // Important: do not mark this lift as handled until the actual repair
+      // control exists. In v2.0 the status text appeared before the button,
+      // which caused automatic repair to be silently skipped.
+      if (
+        autoRepairRef.current &&
+        !repairTriggeredForLiftRef.current &&
+        aiButton &&
+        !aiButton.hasAttribute('disabled')
+      ) {
+        repairTriggeredForLiftRef.current = true;
+        setRepairState('queued');
+        pendingTimerRef.current = window.setTimeout(() => {
+          pendingTimerRef.current = null;
+          if (!aiButton.isConnected || aiButton.hasAttribute('disabled')) {
+            repairTriggeredForLiftRef.current = false;
+            setRepairState('failed');
+            return;
+          }
+          setRepairState('sending');
+          aiButton.click();
+        }, 140);
       }
     };
 
@@ -93,25 +135,39 @@ export function PhotoArrangeEditorV20(props: Props) {
     return () => observer.disconnect();
   }, []);
 
+  const repairLabel = repairState === 'queued'
+    ? 'AI repair queued'
+    : repairState === 'sending'
+      ? 'Sending for AI repair…'
+      : repairState === 'completed'
+        ? 'AI background repaired'
+        : repairState === 'failed'
+          ? 'AI repair did not complete'
+          : null;
+
   return (
     <div ref={rootRef} data-formshift-arrange-v20="true">
       <View style={styles.renderBar}>
         <View style={styles.renderCopy}>
           <Text style={styles.renderTitle}>Scene rendering</Text>
           <Text style={styles.renderText}>A subtle contact shadow and edge blend are applied locally. Better reconstruction can run automatically after lift if you opt in.</Text>
+          {repairLabel ? <Text style={[styles.repairStatus, repairState === 'failed' && styles.repairStatusFailed]}>{repairLabel}</Text> : null}
         </View>
         <Pressable
           accessibilityRole="switch"
           accessibilityState={{ checked: autoRepair }}
           style={[styles.toggle, autoRepair && styles.toggleOn]}
-          onPress={() => setAutoRepair((value) => !value)}
+          onPress={() => {
+            setAutoRepair((value) => !value);
+            setRepairState('idle');
+          }}
         >
           <Text style={[styles.toggleText, autoRepair && styles.toggleTextOn]}>{autoRepair ? 'AI repair after lift: On' : 'AI repair after lift: Off'}</Text>
         </Pressable>
       </View>
       {autoRepair ? (
         <View style={styles.privacyNote}>
-          <Text style={styles.privacyText}>Opt-in enabled: after you press Lift object, FormShift will send the current scene and accepted repair mask to the configured image provider to reconstruct the old location. Turn this off to keep lift/reconstruction local.</Text>
+          <Text style={styles.privacyText}>Opt-in enabled: after you press Lift object, FormShift will send the current scene and accepted repair mask to the configured image provider to reconstruct the old location. The status above confirms whether that request actually starts and completes. Turn this off to keep lift/reconstruction local.</Text>
         </View>
       ) : null}
       <PhotoArrangeEditorV19 {...props} />
@@ -137,6 +193,8 @@ const styles = {
   renderCopy: { flex: 1, minWidth: 210 },
   renderTitle: { fontSize: 10, fontWeight: '800' as const, color: tokens.color.text },
   renderText: { marginTop: 2, fontSize: 8, lineHeight: 12, color: tokens.color.muted },
+  repairStatus: { marginTop: 5, fontSize: 8, lineHeight: 12, fontWeight: '800' as const, color: tokens.color.blue },
+  repairStatusFailed: { color: '#A84C4C' },
   toggle: {
     minHeight: 38,
     paddingHorizontal: 12,
