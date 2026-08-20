@@ -1,4 +1,4 @@
-import { applyActions, type LayoutAction, type SpatialSnapshot } from '@formshift/domain';
+import { applyActions, validateOrganizeActions, type LayoutAction, type SpatialSnapshot } from '@formshift/domain';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../auth/AuthProvider';
@@ -26,6 +26,7 @@ export function OrganizeIntelligenceCard({
   spaceId,
   activeVersionId,
   snapshot,
+  previewSnapshot,
   busy,
   onAccept,
   onPreviewChange,
@@ -34,6 +35,7 @@ export function OrganizeIntelligenceCard({
   spaceId?: string;
   activeVersionId?: string | null;
   snapshot?: SpatialSnapshot | null;
+  previewSnapshot?: SpatialSnapshot | null;
   busy: boolean;
   onAccept: (basisVersionId: string, actions: LayoutAction[]) => Promise<void>;
   onPreviewChange: (snapshot: SpatialSnapshot | null) => void;
@@ -47,31 +49,50 @@ export function OrganizeIntelligenceCard({
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showingProposal, setShowingProposal] = useState(false);
+  const [hiddenDraft, setHiddenDraft] = useState<SpatialSnapshot | null>(null);
+  const [draftProposalId, setDraftProposalId] = useState<string | null>(null);
 
   const selected = useMemo(
     () => proposals.find((proposal) => proposal.id === selectedId) ?? null,
     [proposals, selectedId],
   );
 
+  const effectiveDraft = useMemo(() => {
+    if (!selected || draftProposalId !== selected.id) return null;
+    return previewSnapshot ?? hiddenDraft;
+  }, [draftProposalId, hiddenDraft, previewSnapshot, selected]);
+
+  const actionsToAccept = useMemo(() => {
+    if (!snapshot || !selected) return [] as LayoutAction[];
+    return effectiveDraft ? moveActionsBetween(snapshot, effectiveDraft) : selected.actions;
+  }, [effectiveDraft, selected, snapshot]);
+
+  const draftValidationErrors = useMemo(() => {
+    if (!snapshot || !selected || !selected.geometryValidation.valid) return [] as string[];
+    return validateOrganizeActions(snapshot, actionsToAccept);
+  }, [actionsToAccept, selected, snapshot]);
+
   useEffect(() => {
     setBasisVersionId(null);
     setProposals([]);
     setSelectedId(null);
     setShowingProposal(false);
+    setHiddenDraft(null);
+    setDraftProposalId(null);
     setError(null);
     onPreviewChange(null);
   }, [activeVersionId, onPreviewChange]);
 
-  const preview = (proposal: Proposal | null) => {
+  const showDraft = (proposal: Proposal) => {
     setError(null);
-    if (!proposal || !snapshot || !proposal.geometryValidation.valid) {
-      setShowingProposal(false);
-      onPreviewChange(null);
-      return;
-    }
+    if (!snapshot || !proposal.geometryValidation.valid) return;
     try {
-      const next = applyActions(snapshot, proposal.actions);
+      const next = draftProposalId === proposal.id && hiddenDraft
+        ? hiddenDraft
+        : applyActions(snapshot, proposal.actions);
       setSelectedId(proposal.id);
+      setDraftProposalId(proposal.id);
+      setHiddenDraft(next);
       setShowingProposal(true);
       onPreviewChange(next);
     } catch (err) {
@@ -79,6 +100,12 @@ export function OrganizeIntelligenceCard({
       setShowingProposal(false);
       onPreviewChange(null);
     }
+  };
+
+  const showCurrent = () => {
+    if (previewSnapshot) setHiddenDraft(previewSnapshot);
+    setShowingProposal(false);
+    onPreviewChange(null);
   };
 
   const generate = async () => {
@@ -107,6 +134,8 @@ export function OrganizeIntelligenceCard({
     setSelectedId(null);
     setBasisVersionId(null);
     setShowingProposal(false);
+    setHiddenDraft(null);
+    setDraftProposalId(null);
     onPreviewChange(null);
 
     try {
@@ -150,21 +179,48 @@ export function OrganizeIntelligenceCard({
   };
 
   const accept = async () => {
-    if (!selected || !basisVersionId || !selected.geometryValidation.valid) return;
+    if (!selected || !basisVersionId || !selected.geometryValidation.valid || !snapshot) return;
+
+    const validationErrors = validateOrganizeActions(snapshot, actionsToAccept);
+    if (validationErrors.length > 0) {
+      setError(`Adjust the draft before accepting: ${validationErrors[0]}`);
+      return;
+    }
+
     setAccepting(true);
     setError(null);
     try {
-      await onAccept(basisVersionId, selected.actions);
+      await onAccept(basisVersionId, actionsToAccept);
       setProposals([]);
       setSelectedId(null);
       setBasisVersionId(null);
       setShowingProposal(false);
+      setHiddenDraft(null);
+      setDraftProposalId(null);
       onPreviewChange(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The proposal could not be accepted.');
     } finally {
       setAccepting(false);
     }
+  };
+
+  const selectProposal = (proposal: Proposal) => {
+    setSelectedId(proposal.id);
+    setShowingProposal(false);
+    setHiddenDraft(null);
+    setDraftProposalId(null);
+    setError(null);
+    onPreviewChange(null);
+  };
+
+  const reject = () => {
+    setSelectedId(null);
+    setShowingProposal(false);
+    setHiddenDraft(null);
+    setDraftProposalId(null);
+    setError(null);
+    onPreviewChange(null);
   };
 
   if (!snapshot) {
@@ -187,11 +243,14 @@ export function OrganizeIntelligenceCard({
     );
   }
 
+  const draftIsValid = draftValidationErrors.length === 0;
+  const hasDraft = !!effectiveDraft;
+
   return (
     <View style={styles.card}>
       <Text style={styles.eyebrow}>ORGANIZE INTELLIGENCE</Text>
       <Text style={styles.title}>Generate validated layouts.</Text>
-      <Text style={styles.body}>AI proposes moves against the exact committed room version. FormShift rejects boundary, collision, dimension, and vertical-placement violations before you can accept a layout.</Text>
+      <Text style={styles.body}>AI proposes moves against the exact committed room version. Preview a validated proposal, then drag its boxes to fine-tune the draft before accepting it.</Text>
 
       <TextInput
         value={goal}
@@ -216,11 +275,7 @@ export function OrganizeIntelligenceCard({
         return (
           <Pressable
             key={proposal.id}
-            onPress={() => {
-              setSelectedId(proposal.id);
-              setShowingProposal(false);
-              onPreviewChange(null);
-            }}
+            onPress={() => selectProposal(proposal)}
             style={[styles.proposal, active && styles.proposalActive]}
           >
             <View style={styles.proposalTop}>
@@ -239,22 +294,55 @@ export function OrganizeIntelligenceCard({
       })}
 
       {selected?.geometryValidation.valid ? (
-        <View style={styles.actions}>
-          <Pressable onPress={() => showingProposal ? preview(null) : preview(selected)} style={styles.secondary}>
-            <Text style={styles.secondaryText}>{showingProposal ? 'Show current' : 'Preview proposal'}</Text>
-          </Pressable>
-          <Pressable disabled={accepting || busy} onPress={() => void accept()} style={[styles.accept, (accepting || busy) && styles.disabled]}>
-            <Text style={styles.acceptText}>{accepting ? 'Accepting…' : 'Accept layout'}</Text>
-          </Pressable>
-          <Pressable onPress={() => { setSelectedId(null); setShowingProposal(false); onPreviewChange(null); }} style={styles.reject}>
-            <Text style={styles.rejectText}>Reject</Text>
-          </Pressable>
-        </View>
+        <>
+          {hasDraft ? (
+            <View style={[styles.draftStatus, draftIsValid ? styles.draftStatusValid : styles.draftStatusInvalid]}>
+              <Text style={[styles.draftStatusText, !draftIsValid && styles.draftStatusTextInvalid]}>
+                {draftIsValid ? 'Editable draft · geometry valid' : 'Editable draft · needs adjustment'}
+              </Text>
+              {showingProposal ? <Text style={styles.editHint}>Drag boxes directly in the room plan. Your changes remain local until you accept the layout.</Text> : <Text style={styles.editHint}>Current layout is shown. Your edited proposal is preserved and can be resumed.</Text>}
+              {!draftIsValid ? draftValidationErrors.slice(0, 2).map((message) => <Text key={message} style={styles.validationError}>{message}</Text>) : null}
+            </View>
+          ) : null}
+
+          <View style={styles.actions}>
+            <Pressable
+              onPress={() => showingProposal ? showCurrent() : showDraft(selected)}
+              style={styles.secondary}
+            >
+              <Text style={styles.secondaryText}>{showingProposal ? 'Show current' : hasDraft ? 'Resume editing' : 'Preview & edit'}</Text>
+            </Pressable>
+            <Pressable
+              disabled={accepting || busy || !draftIsValid}
+              onPress={() => void accept()}
+              style={[styles.accept, (accepting || busy || !draftIsValid) && styles.disabled]}
+            >
+              <Text style={styles.acceptText}>{accepting ? 'Accepting…' : hasDraft ? 'Accept edited layout' : 'Accept layout'}</Text>
+            </Pressable>
+            <Pressable onPress={reject} style={styles.reject}>
+              <Text style={styles.rejectText}>Reject</Text>
+            </Pressable>
+          </View>
+        </>
       ) : null}
 
       {basisVersionId ? <Text style={styles.basis}>Bound to spatial version {basisVersionId.slice(0, 8)}…</Text> : null}
     </View>
   );
+}
+
+function moveActionsBetween(base: SpatialSnapshot, draft: SpatialSnapshot): LayoutAction[] {
+  const actions: LayoutAction[] = [];
+  for (const before of base.objects) {
+    const after = draft.objects.find((candidate) => candidate.id === before.id);
+    if (!after) continue;
+    const a = before.transform.translation;
+    const b = after.transform.translation;
+    if (Math.abs(a.x - b.x) > 0.001 || Math.abs(a.y - b.y) > 0.001 || Math.abs(a.z - b.z) > 0.001) {
+      actions.push({ type: 'move', objectId: before.id, to: { ...b } });
+    }
+  }
+  return actions;
 }
 
 function humanizeError(value?: string) {
@@ -285,6 +373,12 @@ const styles = StyleSheet.create({
   rationale: { marginTop: 5, fontSize: 9, lineHeight: 14, color: tokens.color.muted },
   bullet: { marginTop: 3, fontSize: 9, lineHeight: 13, color: tokens.color.text },
   validationError: { marginTop: 4, fontSize: 8, lineHeight: 12, color: '#A84545' },
+  draftStatus: { marginTop: 10, padding: 10, borderRadius: 12, borderWidth: 1 },
+  draftStatusValid: { borderColor: 'rgba(53,109,89,.18)', backgroundColor: 'rgba(53,109,89,.06)' },
+  draftStatusInvalid: { borderColor: 'rgba(168,69,69,.18)', backgroundColor: 'rgba(168,69,69,.06)' },
+  draftStatusText: { fontSize: 9, fontWeight: '800', color: tokens.color.success },
+  draftStatusTextInvalid: { color: '#A84545' },
+  editHint: { marginTop: 4, fontSize: 8, lineHeight: 12, color: tokens.color.muted },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   secondary: { paddingVertical: 8, paddingHorizontal: 9, borderRadius: 10, borderWidth: 1, borderColor: tokens.color.line, backgroundColor: 'rgba(255,255,255,.72)' },
   secondaryText: { fontSize: 9, fontWeight: '800', color: tokens.color.blue },
