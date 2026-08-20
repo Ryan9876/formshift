@@ -2,17 +2,20 @@
 
 **Revision:** 0.6.0  
 **Date:** 2026-08-20  
-**Milestone:** Photo Arrange v1 candidate ready; production deployment and authenticated interaction validation pending
+**Milestone:** Photo Arrange v1 deployed; authenticated real-object interaction validation pending
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
-## Photo Arrange v1 candidate
+## Photo Arrange v1
 
-Runtime candidate: `08f33120be42173531741809a89cb32df47d870f`
+Runtime baseline: `19e3d7993344c41acdc14ca0690fb1e472afedf7`
 
-Preview evidence:
-- exact web runtime candidate reached READY and exported protected `/arrange`
-- background-repair API compiled successfully at `0ea66353d35cf94bbe12b0abbe0c1534efe3eb2e`; later runtime commits were client-only
+Production evidence:
+- web deployment `dpl_B8nJjj7CrFfX5T5RvZB7HtLknRTK` — READY
+- API deployment `dpl_GJMX5aQKywMaNWyABhtg2h9YZMhH` — READY
+- production `/arrange` route — HTTP 200 smoke-verified
+- exact runtime web candidate exported protected `/arrange` successfully before promotion
+- authenticated background-repair API compiled successfully and production API contains six Node functions
 
 Implemented:
 - **Arrange** routes to `/arrange`
@@ -44,7 +47,7 @@ Infrastructure:
 
 ## Next validation
 
-On iPhone Safari after production promotion: choose **Arrange**, tap a distinct object such as the guitar, confirm it isolates as real pixels, drag/resize/rotate it, test Reset, optionally run AI background repair, then Keep placement.
+On iPhone Safari: hard refresh, choose **Arrange**, tap near the center of a distinct object such as the guitar, confirm the actual photographed pixels isolate, drag/resize/rotate the cutout, test Reset, optionally run **Refine background with AI**, then Keep placement.
 
 ## Next implementation
 
@@ -52,11 +55,11 @@ Photo Arrange v2: persisted derived scenes/masks/transforms, binding to spatial 
 
 ## Not yet claimed
 
-Photo Arrange production interaction, object-specific segmentation quality, persisted scene edits, calibrated projection/occlusion/relighting, native iOS photo manipulation, or dedicated persisted blueprint PDF.
+Photo Arrange real-object selection/rearrangement in the authenticated production browser, object-specific segmentation quality, persisted scene edits, calibrated projection/occlusion/relighting, native iOS photo manipulation, or dedicated persisted blueprint PDF.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated
+- `CURRENT-STATE.md`: updated for deployed Photo Arrange v1
 - `PROJECT-CONSTITUTION.md`: unchanged
 - `ARCHITECTURE.md`: unchanged
 - `DESIGN-SYSTEM.md`: unchanged
