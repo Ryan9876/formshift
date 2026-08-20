@@ -11,10 +11,12 @@ const PAD_RATIO = 44 / DESIGN_W;
 export default function PlanCanvas({
   snapshot = demoSnapshot,
   editable = true,
+  editableObjectIds,
   onSnapshotChange,
 }: {
   snapshot?: SpatialSnapshot;
   editable?: boolean;
+  editableObjectIds?: string[];
   onSnapshotChange?: (snapshot: SpatialSnapshot) => void;
 }) {
   const maxX = Math.max(...snapshot.boundary.floorPolygon.map((p) => p.x), 1);
@@ -84,6 +86,7 @@ export default function PlanCanvas({
             const p = positions[o.id] ?? { x: o.transform.translation.x, z: o.transform.translation.z };
             const w = o.dimensions.width * scale;
             const d = o.dimensions.depth * scale;
+            const canEdit = editable && (!editableObjectIds || editableObjectIds.includes(o.id));
             return (
               <DragHandle
                 key={o.id}
@@ -96,7 +99,7 @@ export default function PlanCanvas({
                 scale={scale}
                 maxX={maxX}
                 maxZ={maxZ}
-                editable={editable}
+                editable={canEdit}
                 selected={o.id === selected}
                 onSelect={selectObject}
                 onMove={moveObject}
