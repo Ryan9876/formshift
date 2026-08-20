@@ -2,7 +2,7 @@
 
 **Revision:** 0.4.2  
 **Date:** 2026-08-19  
-**Milestone:** Phase 3 Build Intelligence and final open-shelving span hardening are deployed; production browser end-to-end validation is next
+**Milestone:** Phase 3 Build Intelligence is production browser end-to-end validated for the first Class A freestanding open-shelving/storage archetype
 
 ## Current implementation
 
@@ -51,10 +51,11 @@ FormShift currently includes:
 - `/api/health`: deployment-verified HTTP 200
 - Organize exact-version API and deterministic proposal validation: deployed
 - Organize cost-aware Luna -> Terra routing: deployed and production-observed
-- Build brief normalization route `/api/ai/build-brief`: deployed
-- Build acceptance route `/api/build/accept`: deployed
+- Build brief normalization route `/api/ai/build-brief`: deployed and production-observed
+- Build acceptance route `/api/build/accept`: deployed and production-observed
 - final Phase 3 guarded code baseline: `95bfdec16bb27417b978965241d17565d6d91c91`
 - production deployment for guarded baseline: `dpl_AZdKYuqTVBsZSXQeN9zK8ecixX4j` — READY
+- docs-aligned production deployment after state record update: `dpl_2PKNznYFx4HQsmrow5nxPNPuM1pa` — READY
 
 ### Vercel Web
 
@@ -62,9 +63,10 @@ FormShift currently includes:
 - production alias: `https://formshift-web.vercel.app`
 - Phase 2 Organize Intelligence UI: deployed
 - editable Organize proposal drafts: deployed; direct proposal-box dragging browser-confirmed by user
-- Phase 3 Build Intelligence UI: deployed
+- Phase 3 Build Intelligence UI: deployed and production browser end-to-end validated
 - final Phase 3 guarded code baseline: `95bfdec16bb27417b978965241d17565d6d91c91`
 - production deployment for guarded baseline: `dpl_e8te5dwpysR9vPdT7cpNYvzkGYPP` — READY
+- docs-aligned production deployment after state record update: `dpl_5w4VsJu7T1LwweBAar6fcBmqpXX5` — READY
 
 ## Organize Intelligence routing policy
 
@@ -83,14 +85,12 @@ Behavior:
 
 Latest observed production Organize run:
 
-- run ID: `1ff57016-81a3-47cf-a21f-2d9f0bce46f8`
+- run ID: `f5e6b6da-b43f-4c55-9fcb-486693e4a541`
 - status: completed
 - model: `openai/gpt-5.6-luna`
 - fallback used: no
-- valid proposals: 2
-- latency: 12,813 ms
-- input tokens: 947
-- output tokens: 1,043
+- valid proposals: 3
+- latency: 26,897 ms
 
 ## Phase 1 validation
 
@@ -127,7 +127,7 @@ Supabase persistence evidence at Phase 1 close:
 - stale-version guard: deployed
 - deterministic boundary/collision/dimension/fixed-object/vertical-movement checks: deployed
 - production AI generation: browser-observed working
-- Luna production run: observed with 2 valid proposals and no fallback
+- Luna production runs: observed with valid proposals and no fallback
 - editable proposal draft production deployment: READY
 - direct dragging of proposal boxes in Organize preview: browser-confirmed by user
 
@@ -189,7 +189,44 @@ This slice does **not** claim support for:
 
 Even when the room itself is measured, an accepted shelving plan is stored as `planning`, and Build-derived dimensions remain `estimated` evidence until actual stock/site/as-built conditions are verified.
 
-## Phase 3 validation completed so far
+## Phase 3 validation
+
+Phase 3 is now production browser end-to-end validated for the first supported Build archetype.
+
+Validated path:
+
+- user entered `Build a freestanding shelving unit 48 inches wide, 72 inches tall, 16 inches deep with 3 interior shelves.`
+- Build brief normalization succeeded in production
+- deterministic plan generation/preview succeeded
+- Build footprint direct manipulation succeeded
+- user accepted the valid Build plan
+- browser refresh persistence was confirmed by the user
+- accepted Build request: `641e4258-7b21-4b24-8a37-9f9ac36a7c84`
+- accepted Build plan: `5348faa8-0de9-4acd-a12f-4a03cac6ea20`
+- committed `build-placement` spatial version: `c71f44da-1722-4f62-a736-6a2409434a61`
+- parent/source spatial version: `2223a418-d84c-413f-a3b6-d30211ff602c`
+- `spaces.active_spatial_version_id` advanced to `c71f44da-1722-4f62-a736-6a2409434a61`
+- prior Desk and Chest objects were byte-equivalent between parent and child snapshot: **0 existing objects changed**
+- inherited measurement completeness: **0 inherited measurement IDs missing**
+- parent measurement links: **9**
+- accepted Build version measurement links: **12**
+- exactly **3** new `build_derived` dimension observations were appended
+- persisted plan dimensions: 1219.2 mm wide x 1828.8 mm high x 406.4 mm deep
+- interior clear span: 1181.1 mm
+- interior shelves: 3
+- planning sheet quantity: 2 sheets of nominal 3/4 in 4 x 8 ft plywood
+- component groups persisted: side panels, top/bottom panels, interior shelves, rear stretchers
+- material rows persisted: plywood, cabinet screws, wood glue
+- planning material allowance persisted: **$110 low / $165 expected / $250 high USD**
+- effort estimate persisted: **3.75-7 active hours**, moderate difficulty, intermediate assumed skill
+- Build AI run: `14583f70-f182-4a81-8ba4-d641c2939e7d`
+- Build AI model: `openai/gpt-5.6-luna`
+- Build AI status: completed
+- Build AI latency: 4,887 ms
+- Build AI usage: 416 input tokens / 362 output tokens / 778 total tokens
+- Terra fallback was not required
+
+Pre-production and persistence validation also completed:
 
 - consolidated Phase 3 API preview: READY
 - consolidated Phase 3 web Expo preview: READY
@@ -205,17 +242,13 @@ Even when the room itself is measured, an accepted shelving plan is stored as `p
 - unauthenticated Build-acceptance RPC rejected
 - owner-context atomic acceptance transaction executed successfully under explicit rollback
 - rollback integrity verified: zero synthetic test measurements, spatial versions, or build requests remained
-- Build acceptance preserves inherited `spatial_version_measurements` lineage and appends the three Build-derived dimension observations
 - Build domain regression tests were added for valid shelving generation, collision rejection, and rejection of unsupported spans over 48 inches
 - standalone `domain:test` execution for the Phase 3 additions was not available from the connected execution environment because it cannot clone external GitHub hosts and the repository has no GitHub Actions workflow; TypeScript compilation of the included test source is covered by the domain package build configuration
 
 ## Not yet validated / not claimed
 
-- production browser Build flow: describe -> normalize -> dimension edit -> preview -> drag -> accept -> refresh
-- production Build AI brief-normalization telemetry/model result
-- accepted real Build request/plan/component/material/cost/effort rows from browser use
-- accepted real `build-placement` spatial-version lineage and persistence after refresh
 - standalone Phase 3 domain-test runner result
+- explicit browser test of an over-48-inch unsupported clear span being blocked
 - blueprint/PDF generation
 - optimized sheet nesting/cut-layout generation
 - live retailer pricing/inventory
@@ -230,6 +263,7 @@ Even when the room itself is measured, an accepted shelving plan is stored as `p
 - project/asset deletion and recovery flow
 - multi-project / multi-room selection UX
 - full production verification across AI + native iOS + recovery flows
+- two historical pre-hotfix Organize `ai_runs` remain marked `running`; this is an observability cleanup item and does not represent active work
 
 ## Release status
 
@@ -246,30 +280,20 @@ Even when the room itself is measured, an accepted shelving plan is stored as `p
 - **Phase 3 Build code deployed:** yes
 - **Phase 3 Build database transaction deployed/preflight-verified:** yes
 - **Phase 3 48-inch unsupported-span guard deployed at app and database boundaries:** yes
-- **Phase 3 Build browser end-to-end verified:** no
+- **Phase 3 Build browser end-to-end verified:** yes
+- **Phase 3 Build persistence/lineage backend-verified:** yes
 - **Physical-device validated:** no
 - **Full product deployment-verified:** no
 
-## Next validation target
+## Next implementation target
 
-Validate the production Phase 3 Build slice:
+Proceed from the validated Build foundation to the next rollout slice. The architecture sequence now points to **blueprint/BOM/cost/effort presentation/export hardening** before native RoomPlan capture. The current Build data is sufficient to generate authoritative retained-vector plan/elevation/component views and a PDF package without using AI-generated drawing pixels as geometry.
 
-1. switch to **Build**
-2. enter: `Build a freestanding shelving unit 48 inches wide, 72 inches tall, 16 inches deep with 3 interior shelves.`
-3. run **Start build plan** and confirm the normalized brief/dimensions are sensible
-4. generate the deterministic plan and preview
-5. confirm the cut list, material allowance, effort range, and fit status appear
-6. drag the Build footprint to a valid location; confirm existing room objects do not move
-7. intentionally create a collision and confirm the plan becomes invalid / acceptance is blocked
-8. move it back to a valid location and accept the Build plan
-9. refresh and confirm the new shelving object remains in the room
-10. inspect Supabase to verify the Build request/plan/BOM/material/cost/effort rows, Build-derived measurements, atomic spatial-version parent lineage, and active-version advancement
-
-After the primary path passes, separately try a width that creates a clear span over 48 inches and confirm FormShift blocks it with the unsupported-span message.
+A separate robustness task should also close historical observability debt by repairing stale pre-hotfix `ai_runs` rows and adding automated stale-run finalization.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated for the final deployed Phase 3 guarded release, exact production SHA/deployments, and enforced 48-inch unsupported-span limit
-- `ARCHITECTURE.md`: no change required; Phase 3 implements the existing deterministic Build, immutable versioning, provenance, and no-partial-mutation architecture
+- `CURRENT-STATE.md`: updated to record the production browser-validated Phase 3 Build flow plus exact persistence, lineage, BOM, cost, effort, and AI telemetry evidence
+- `ARCHITECTURE.md`: no change required; Phase 3 validated the existing deterministic Build, immutable versioning, provenance, and no-partial-mutation architecture
 - `DESIGN-SYSTEM.md`: no change
 - `PROJECT-CONSTITUTION.md`: no change
