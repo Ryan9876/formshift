@@ -1,6 +1,6 @@
 import type { SpatialSnapshot } from '@formshift/domain';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../auth/AuthProvider';
 import {
   loadLatestPhotoArrangement,
@@ -30,6 +30,20 @@ type GestureBase = {
   centroid: Point;
   distance: number;
   angle: number;
+};
+
+type ViewportGestureBase = {
+  scale: number;
+  offset: Point;
+  centroid: Point;
+  distance: number;
+};
+
+type TapCandidate = {
+  pointerId: number;
+  start: Point;
+  moved: boolean;
+  startedAt: number;
 };
 
 const MEDIAPIPE_BUNDLE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs';
@@ -62,6 +76,9 @@ export function PhotoArrangeEditor({
   const segmenterRef = useRef<any>(null);
   const pointerMapRef = useRef(new Map<number, Point>());
   const gestureBaseRef = useRef<GestureBase | null>(null);
+  const viewportPointerMapRef = useRef(new Map<number, Point>());
+  const viewportGestureBaseRef = useRef<ViewportGestureBase | null>(null);
+  const tapCandidateRef = useRef<TapCandidate | null>(null);
 
   const [sceneUrl, setSceneUrl] = useState<string | null>(photoUrl ?? null);
   const [persistedSceneUrl, setPersistedSceneUrl] = useState<string | null>(photoUrl ?? null);
@@ -71,19 +88,25 @@ export function PhotoArrangeEditor({
   const [position, setPosition] = useState({ x: 0.5, y: 0.5 });
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
+  const [viewScale, setViewScale] = useState(1);
+  const [viewOffset, setViewOffset] = useState<Point>({ x: 0, y: 0 });
   const [selecting, setSelecting] = useState(false);
   const [repairing, setRepairing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [backgroundDataUrl, setBackgroundDataUrl] = useState<string | null>(null);
-  const [status, setStatus] = useState('Tap an object in the photo to select it.');
+  const [status, setStatus] = useState('Pinch to zoom the room, then tap an object to select it.');
   const [error, setError] = useState<string | null>(null);
 
   const positionRef = useRef(position);
   const scaleRef = useRef(scale);
   const rotationRef = useRef(rotation);
+  const viewScaleRef = useRef(viewScale);
+  const viewOffsetRef = useRef(viewOffset);
   useEffect(() => { positionRef.current = position; }, [position]);
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { rotationRef.current = rotation; }, [rotation]);
+  useEffect(() => { viewScaleRef.current = viewScale; }, [viewScale]);
+  useEffect(() => { viewOffsetRef.current = viewOffset; }, [viewOffset]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +115,11 @@ export function PhotoArrangeEditor({
     sourceBeforeLiftRef.current = null;
     pointerMapRef.current.clear();
     gestureBaseRef.current = null;
+    viewportPointerMapRef.current.clear();
+    viewportGestureBaseRef.current = null;
+    tapCandidateRef.current = null;
+    setViewScale(1);
+    setViewOffset({ x: 0, y: 0 });
     setError(null);
 
     const restore = async () => {
@@ -108,7 +136,7 @@ export function PhotoArrangeEditor({
         if (!cancelled) {
           setSceneUrl(photoUrl);
           setPersistedSceneUrl(photoUrl);
-          setStatus('Tap an object in the photo to select it.');
+          setStatus('Pinch to zoom the room, then tap an object to select it.');
         }
         return;
       }
@@ -119,11 +147,11 @@ export function PhotoArrangeEditor({
         if (saved) {
           setSceneUrl(saved.sceneUrl);
           setPersistedSceneUrl(saved.sceneUrl);
-          setStatus('Saved arrangement restored. Tap another object to move it.');
+          setStatus('Saved arrangement restored. Pinch to zoom, then tap an object to move it.');
         } else {
           setSceneUrl(photoUrl);
           setPersistedSceneUrl(photoUrl);
-          setStatus('Tap an object in the photo to select it.');
+          setStatus('Pinch to zoom the room, then tap an object to select it.');
         }
       } catch (err) {
         if (cancelled) return;
@@ -160,6 +188,16 @@ export function PhotoArrangeEditor({
     };
   }, [selection, imageSize, stageSize, scale]);
 
+  const screenCutout = useMemo(() => {
+    if (!selection || !displayCutout) return null;
+    return {
+      width: displayCutout.width * viewScale,
+      height: displayCutout.height * viewScale,
+      left: viewOffset.x + (position.x * stageSize.width - displayCutout.width / 2) * viewScale,
+      top: viewOffset.y + (position.y * stageSize.height - displayCutout.height / 2) * viewScale,
+    };
+  }, [selection, displayCutout, viewScale, viewOffset, position, stageSize]);
+
   const handleSelectAt = async (x: number, y: number) => {
     const source = sourceCanvasRef.current;
     if (selection || selecting || !source) return;
@@ -184,7 +222,7 @@ export function PhotoArrangeEditor({
       setRotation(0);
       setBackgroundDataUrl(null);
       setSceneUrl(localBackground);
-      setStatus('Object lifted. Drag it with one finger; pinch and twist with two fingers.');
+      setStatus('Object lifted. Drag the object; pinch outside it to zoom the room.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Object selection failed.');
       setStatus('Tap another point and try again.');
@@ -193,15 +231,115 @@ export function PhotoArrangeEditor({
     }
   };
 
-  const handleSelectionPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+  const resetViewportGestureBase = () => {
+    const points = [...viewportPointerMapRef.current.values()];
+    if (!points.length) {
+      viewportGestureBaseRef.current = null;
+      return;
+    }
+    viewportGestureBaseRef.current = {
+      scale: viewScaleRef.current,
+      offset: viewOffsetRef.current,
+      centroid: pointCentroid(points),
+      distance: points.length >= 2 ? pointDistance(points[0]!, points[1]!) : 0,
+    };
+  };
+
+  const beginViewportGesture = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (selection || selecting) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-    const x = clamp((event.clientX - rect.left) / rect.width, 0, 1);
-    const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
-    void handleSelectAt(x, y);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const point = pointerPointInElement(event.currentTarget, event.clientX, event.clientY);
+    viewportPointerMapRef.current.set(event.pointerId, point);
+
+    if (viewportPointerMapRef.current.size === 1) {
+      tapCandidateRef.current = {
+        pointerId: event.pointerId,
+        start: point,
+        moved: false,
+        startedAt: Date.now(),
+      };
+    } else {
+      tapCandidateRef.current = null;
+    }
+    resetViewportGestureBase();
+  };
+
+  const moveViewportGesture = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!viewportPointerMapRef.current.has(event.pointerId)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const point = pointerPointInElement(event.currentTarget, event.clientX, event.clientY);
+    viewportPointerMapRef.current.set(event.pointerId, point);
+
+    const candidate = tapCandidateRef.current;
+    if (candidate && candidate.pointerId === event.pointerId && pointDistance(candidate.start, point) > 7) {
+      candidate.moved = true;
+    }
+
+    const points = [...viewportPointerMapRef.current.values()];
+    const base = viewportGestureBaseRef.current;
+    if (!base || !points.length) return;
+    const centroid = pointCentroid(points);
+
+    if (points.length >= 2 && base.distance > 4) {
+      tapCandidateRef.current = null;
+      const distance = pointDistance(points[0]!, points[1]!);
+      const nextScale = clamp(base.scale * (distance / base.distance), 1, 5);
+      const anchorX = (base.centroid.x - base.offset.x) / Math.max(base.scale, 0.001);
+      const anchorY = (base.centroid.y - base.offset.y) / Math.max(base.scale, 0.001);
+      const nextOffset = clampViewportOffset({
+        x: centroid.x - anchorX * nextScale,
+        y: centroid.y - anchorY * nextScale,
+      }, nextScale, stageSize);
+      setViewScale(nextScale);
+      setViewOffset(nextOffset);
+      return;
+    }
+
+    if (points.length === 1 && base.scale > 1.001) {
+      const nextOffset = clampViewportOffset({
+        x: base.offset.x + centroid.x - base.centroid.x,
+        y: base.offset.y + centroid.y - base.centroid.y,
+      }, base.scale, stageSize);
+      setViewOffset(nextOffset);
+    }
+  };
+
+  const endViewportGesture = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!viewportPointerMapRef.current.has(event.pointerId)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const point = pointerPointInElement(event.currentTarget, event.clientX, event.clientY);
+    const wasOnlyPointer = viewportPointerMapRef.current.size === 1;
+    const candidate = tapCandidateRef.current;
+    viewportPointerMapRef.current.delete(event.pointerId);
+
+    if (viewportPointerMapRef.current.size) resetViewportGestureBase();
+    else viewportGestureBaseRef.current = null;
+
+    if (
+      !selection
+      && !selecting
+      && wasOnlyPointer
+      && candidate
+      && candidate.pointerId === event.pointerId
+      && !candidate.moved
+      && Date.now() - candidate.startedAt < 650
+    ) {
+      const imagePoint = stagePointToImagePoint(point, viewScaleRef.current, viewOffsetRef.current, stageSize);
+      if (imagePoint) void handleSelectAt(imagePoint.x, imagePoint.y);
+    }
+
+    if (candidate?.pointerId === event.pointerId) tapCandidateRef.current = null;
+  };
+
+  const fitPhoto = () => {
+    viewportPointerMapRef.current.clear();
+    viewportGestureBaseRef.current = null;
+    tapCandidateRef.current = null;
+    setViewScale(1);
+    setViewOffset({ x: 0, y: 0 });
   };
 
   const beginTransformGesture = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -223,8 +361,8 @@ export function PhotoArrangeEditor({
     if (!base || points.length === 0) return;
 
     const centroid = pointCentroid(points);
-    const dx = (centroid.x - base.centroid.x) / Math.max(stageSize.width, 1);
-    const dy = (centroid.y - base.centroid.y) / Math.max(stageSize.height, 1);
+    const dx = (centroid.x - base.centroid.x) / Math.max(stageSize.width * viewScaleRef.current, 1);
+    const dy = (centroid.y - base.centroid.y) / Math.max(stageSize.height * viewScaleRef.current, 1);
     const nextPosition = {
       x: clamp(base.position.x + dx, 0.02, 0.98),
       y: clamp(base.position.y + dy, 0.02, 0.98),
@@ -285,7 +423,7 @@ export function PhotoArrangeEditor({
       if (!repaired) throw new Error('AI background repair is unavailable. The local preview is still usable.');
       setBackgroundDataUrl(repaired);
       setSceneUrl(repaired);
-      setStatus('Background repaired. Keep dragging, pinching, or rotating the object.');
+      setStatus('Background repaired. Keep arranging; pinch outside the object to zoom the room.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Background repair failed.');
       setStatus('The object is still movable using the local background preview.');
@@ -357,11 +495,16 @@ export function PhotoArrangeEditor({
     sourceBeforeLiftRef.current = null;
     pointerMapRef.current.clear();
     gestureBaseRef.current = null;
+    viewportPointerMapRef.current.clear();
+    viewportGestureBaseRef.current = null;
+    tapCandidateRef.current = null;
     setScale(1);
     setRotation(0);
+    setViewScale(1);
+    setViewOffset({ x: 0, y: 0 });
     setStatus(persistedSceneUrl && persistedSceneUrl !== photoUrl
-      ? 'Last saved arrangement restored.'
-      : 'Source photo restored. Tap an object to select it.');
+      ? 'Last saved arrangement restored. Pinch to zoom, then tap an object.'
+      : 'Source photo restored. Pinch to zoom, then tap an object to select it.');
     setError(null);
   };
 
@@ -384,14 +527,25 @@ export function PhotoArrangeEditor({
         </View>
 
         <View style={styles.actions}>
+          <View style={styles.gestureHint}>
+            <Text style={styles.gestureHintStrong}>{viewScale > 1.01 ? `${viewScale.toFixed(1)}×` : '2 fingers'}</Text>
+            <Text style={styles.gestureHintText}>{viewScale > 1.01 ? 'room zoom' : 'pinch room to zoom'}</Text>
+          </View>
+          <Pressable
+            disabled={viewScale <= 1.01}
+            style={[styles.toolButton, viewScale <= 1.01 && styles.disabled]}
+            onPress={fitPhoto}
+          >
+            <Text style={styles.toolText}>Fit photo</Text>
+          </Pressable>
           {selection ? (
             <>
               <View style={styles.gestureHint}>
-                <Text style={styles.gestureHintStrong}>1 finger</Text>
-                <Text style={styles.gestureHintText}>move</Text>
+                <Text style={styles.gestureHintStrong}>On object</Text>
+                <Text style={styles.gestureHintText}>drag · pinch · rotate</Text>
                 <Text style={styles.gestureHintDot}>•</Text>
-                <Text style={styles.gestureHintStrong}>2 fingers</Text>
-                <Text style={styles.gestureHintText}>pinch + rotate</Text>
+                <Text style={styles.gestureHintStrong}>Outside</Text>
+                <Text style={styles.gestureHintText}>pan · zoom room</Text>
               </View>
               <Pressable style={styles.toolButton} onPress={() => setScale((value) => clamp(value - 0.1, 0.35, 2.2))}>
                 <Text style={styles.toolText}>−</Text>
@@ -432,35 +586,50 @@ export function PhotoArrangeEditor({
         onLayout={(event) => setStageSize(event.nativeEvent.layout)}
       >
         {sceneUrl ? (
-          <Image
-            pointerEvents="none"
-            source={{ uri: sceneUrl }}
-            resizeMode="contain"
-            style={StyleSheet.absoluteFillObject}
-          />
-        ) : null}
-
-        {!selection ? (
           <div
-            aria-label="Tap an object in the room photo to select it"
-            role="button"
-            onPointerDown={handleSelectionPointerDown}
-            onContextMenu={(event) => event.preventDefault()}
-            onDragStart={(event) => event.preventDefault()}
+            aria-hidden="true"
             style={{
               position: 'absolute',
               inset: 0,
-              zIndex: 4,
-              cursor: 'crosshair',
-              ...WEB_GESTURE_SHIELD,
+              zIndex: 1,
+              pointerEvents: 'none',
+              transform: `matrix(${viewScale}, 0, 0, ${viewScale}, ${viewOffset.x}, ${viewOffset.y})`,
+              transformOrigin: '0 0',
             }}
-          />
+          >
+            <img
+              src={sceneUrl}
+              alt=""
+              draggable={false}
+              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+            />
+          </div>
         ) : null}
 
-        {selection && displayCutout ? (
+        <div
+          aria-label={selection
+            ? 'Room view. Pinch to zoom or drag outside the selected object to pan.'
+            : 'Room view. Pinch to zoom, drag to pan when zoomed, or tap an object to select it.'}
+          role="application"
+          onPointerDown={beginViewportGesture}
+          onPointerMove={moveViewportGesture}
+          onPointerUp={endViewportGesture}
+          onPointerCancel={endViewportGesture}
+          onContextMenu={(event) => event.preventDefault()}
+          onDragStart={(event) => event.preventDefault()}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 4,
+            cursor: viewScale > 1.01 ? 'grab' : selection ? 'default' : 'crosshair',
+            ...WEB_GESTURE_SHIELD,
+          }}
+        />
+
+        {selection && screenCutout ? (
           <>
             <div
-              aria-label="Move selected object. Pinch and rotate with two fingers."
+              aria-label="Move selected object. Pinch and rotate on the object."
               role="slider"
               onPointerDown={beginTransformGesture}
               onPointerMove={moveTransformGesture}
@@ -469,9 +638,13 @@ export function PhotoArrangeEditor({
               onContextMenu={(event) => event.preventDefault()}
               style={{
                 position: 'absolute',
-                inset: 0,
                 zIndex: 7,
                 cursor: 'grab',
+                left: screenCutout.left - 12,
+                top: screenCutout.top - 12,
+                width: screenCutout.width + 24,
+                height: screenCutout.height + 24,
+                borderRadius: 12,
                 ...WEB_GESTURE_SHIELD,
               }}
             />
@@ -480,10 +653,10 @@ export function PhotoArrangeEditor({
                 position: 'absolute',
                 zIndex: 6,
                 pointerEvents: 'none',
-                width: displayCutout.width,
-                height: displayCutout.height,
-                left: position.x * stageSize.width - displayCutout.width / 2,
-                top: position.y * stageSize.height - displayCutout.height / 2,
+                width: screenCutout.width,
+                height: screenCutout.height,
+                left: screenCutout.left,
+                top: screenCutout.top,
                 transform: `rotate(${rotation}deg)`,
                 transformOrigin: 'center center',
                 borderRadius: 7,
@@ -526,7 +699,7 @@ export function PhotoArrangeEditor({
       <View style={styles.footer}>
         <Text style={styles.footerStrong}>Actual photographed pixels are moved.</Text>
         <Text style={styles.footerText}>
-          Selection and mask cleanup run locally in your browser. AI background repair remains explicit and sends only the current scene plus selection mask to the configured image provider. Saved placements are derived photo versions; the source room photo is never overwritten.
+          Pinch/zoom changes only your view of the room; it never changes object geometry or the saved scene. Selection and mask cleanup run locally in your browser. AI background repair remains explicit and sends only the current scene plus selection mask to the configured image provider. Saved placements are derived photo versions; the source room photo is never overwritten.
         </Text>
       </View>
     </View>
@@ -1016,6 +1189,38 @@ function loadImage(url: string) {
     image.onerror = () => reject(new Error('The room photo could not be loaded for pixel editing.'));
     image.src = url;
   });
+}
+
+function pointerPointInElement(element: HTMLElement, clientX: number, clientY: number): Point {
+  const rect = element.getBoundingClientRect();
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
+function stagePointToImagePoint(
+  point: Point,
+  scale: number,
+  offset: Point,
+  stageSize: { width: number; height: number },
+): Point | null {
+  const x = (point.x - offset.x) / Math.max(scale, 0.001);
+  const y = (point.y - offset.y) / Math.max(scale, 0.001);
+  if (x < 0 || y < 0 || x > stageSize.width || y > stageSize.height) return null;
+  return {
+    x: clamp(x / Math.max(stageSize.width, 1), 0, 1),
+    y: clamp(y / Math.max(stageSize.height, 1), 0, 1),
+  };
+}
+
+function clampViewportOffset(
+  offset: Point,
+  scale: number,
+  stageSize: { width: number; height: number },
+): Point {
+  if (scale <= 1.001) return { x: 0, y: 0 };
+  return {
+    x: clamp(offset.x, stageSize.width * (1 - scale), 0),
+    y: clamp(offset.y, stageSize.height * (1 - scale), 0),
+  };
 }
 
 function pointCentroid(points: Point[]) {
