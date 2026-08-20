@@ -1,5 +1,5 @@
 import { type OpenShelvingPlanDraft, type SpatialSnapshot } from '@formshift/domain';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PlanCanvas } from './PlanCanvas';
 import { tokens } from '../theme/tokens';
@@ -22,8 +22,15 @@ export function AugmentedRoomCanvas({
   onSnapshotChange?: (snapshot: SpatialSnapshot) => void;
 }) {
   const [view, setView] = useState<SceneView>(photoUrl ? 'augmented' : 'plan');
-  const [frame, setFrame] = useState({ width: 0, height: 0 });
-  const projection = useMemo(() => plan ? projectBuild(snapshot, plan, frame.width, frame.height) : null, [snapshot, plan, frame]);
+  const autoSelected = useRef(false);
+  const projection = useMemo(() => plan ? projectBuild(snapshot, plan) : null, [snapshot, plan]);
+
+  useEffect(() => {
+    if (photoUrl && plan && !autoSelected.current) {
+      autoSelected.current = true;
+      setView('augmented');
+    }
+  }, [photoUrl, plan]);
 
   return (
     <View style={styles.shell}>
@@ -49,32 +56,44 @@ export function AugmentedRoomCanvas({
           />
         </View>
       ) : photoUrl ? (
-        <View style={styles.photoStage} onLayout={(event) => setFrame(event.nativeEvent.layout)}>
+        <View style={styles.photoStage}>
           <Image source={{ uri: photoUrl }} resizeMode="cover" style={styles.photo} />
+
           {view === 'augmented' && projection && plan ? (
             <View
               pointerEvents="none"
               style={[
                 styles.overlay,
                 {
-                  left: projection.left,
-                  top: projection.top,
-                  width: projection.width,
-                  height: projection.height,
+                  left: `${projection.leftPct}%`,
+                  top: `${projection.topPct}%`,
+                  width: `${projection.widthPct}%`,
+                  height: `${projection.heightPct}%`,
                   transform: [{ perspective: 900 }, { rotateY: `${projection.rotateY}deg` }],
                 },
               ]}
             >
+              <View style={styles.augmentationTag}><Text style={styles.augmentationTagText}>PROPOSED BUILD</Text></View>
               <ShelvingRender plan={plan} />
               <View style={styles.contactShadow} />
             </View>
           ) : null}
+
+          {view === 'augmented' && !plan ? (
+            <View style={styles.noPlanBanner}>
+              <Text style={styles.noPlanTitle}>No build is available to augment yet.</Text>
+              <Text style={styles.noPlanText}>Generate a Build plan or load a previously accepted one.</Text>
+            </View>
+          ) : null}
+
           <View style={styles.photoLegend}>
             <Text style={styles.photoLegendTitle}>{view === 'before' ? 'Source capture' : 'Estimated augmentation'}</Text>
             <Text style={styles.photoLegendText}>
               {view === 'before'
                 ? 'Original private room photo.'
-                : 'Visual projection from validated dimensions and placement. Use Plan for exact fit and clearance.'}
+                : plan
+                  ? `${plan.object.label} is projected from its validated dimensions and room placement. Use Plan for exact fit and clearance.`
+                  : 'The source room is ready. Generate or restore a Build plan to add the augmented object.'}
             </Text>
           </View>
         </View>
@@ -105,6 +124,7 @@ function SceneButton({ label, selected, disabled, onPress }: { label: string; se
 function ShelvingRender({ plan }: { plan: OpenShelvingPlanDraft }) {
   const shelfCount = Math.max(0, plan.geometry.interiorShelves);
   const shelfThicknessPct = Math.max(2, Math.min(4.5, (plan.geometry.panelThicknessMm / plan.geometry.heightMm) * 100 * 4));
+
   return (
     <View style={styles.shelfOuter}>
       <View style={styles.shelfBack} />
@@ -123,10 +143,10 @@ function ShelvingRender({ plan }: { plan: OpenShelvingPlanDraft }) {
   );
 }
 
-function projectBuild(snapshot: SpatialSnapshot, plan: OpenShelvingPlanDraft, frameWidth: number, frameHeight: number) {
-  if (!frameWidth || !frameHeight) return null;
+function projectBuild(snapshot: SpatialSnapshot, plan: OpenShelvingPlanDraft) {
   const polygon = snapshot.boundary.floorPolygon;
   if (!polygon.length) return null;
+
   const xs = polygon.map((point) => point.x);
   const zs = polygon.map((point) => point.z);
   const minX = Math.min(...xs);
@@ -136,18 +156,20 @@ function projectBuild(snapshot: SpatialSnapshot, plan: OpenShelvingPlanDraft, fr
   const roomWidth = Math.max(1, maxX - minX);
   const roomDepth = Math.max(1, maxZ - minZ);
   const ceiling = snapshot.boundary.ceilingHeightMm ?? 2438.4;
+
   const xNorm = clamp((plan.object.transform.translation.x - minX) / roomWidth, 0, 1);
   const zNorm = clamp((plan.object.transform.translation.z - minZ) / roomDepth, 0, 1);
-  const perspectiveScale = 1 - zNorm * 0.28;
-  const width = clamp((plan.geometry.widthMm / roomWidth) * frameWidth * 1.45 * perspectiveScale, 90, frameWidth * 0.72);
-  const height = clamp((plan.geometry.heightMm / ceiling) * frameHeight * 0.74 * perspectiveScale, 120, frameHeight * 0.78);
-  const centerX = frameWidth * (0.12 + xNorm * 0.76);
-  const floorY = frameHeight * (0.9 - zNorm * 0.24);
+  const perspectiveScale = 1 - zNorm * 0.24;
+  const widthPct = clamp((plan.geometry.widthMm / roomWidth) * 100 * 1.38 * perspectiveScale, 18, 66);
+  const heightPct = clamp((plan.geometry.heightMm / ceiling) * 100 * 0.9 * perspectiveScale, 30, 82);
+  const centerXPct = 12 + xNorm * 76;
+  const floorYPct = 92 - zNorm * 25;
+
   return {
-    width,
-    height,
-    left: clamp(centerX - width / 2, 8, frameWidth - width - 8),
-    top: clamp(floorY - height, 8, frameHeight - height - 8),
+    widthPct,
+    heightPct,
+    leftPct: clamp(centerXPct - widthPct / 2, 2, 98 - widthPct),
+    topPct: clamp(floorYPct - heightPct, 2, 96 - heightPct),
     rotateY: (xNorm - 0.5) * -8,
   };
 }
@@ -167,22 +189,27 @@ const styles = StyleSheet.create({
   sceneButtonText: { fontSize: 9, fontWeight: '700', color: tokens.color.muted },
   sceneButtonTextActive: { color: tokens.color.blue },
   photoStage: { minHeight: 480, position: 'relative', overflow: 'hidden', backgroundColor: '#D8D5CD' },
-  photo: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, width: '100%', height: '100%' },
-  overlay: { position: 'absolute', zIndex: 4 },
-  shelfOuter: { flex: 1, position: 'relative', shadowColor: '#1A1712', shadowOpacity: .36, shadowRadius: 15, shadowOffset: { width: 7, height: 10 } },
-  shelfBack: { position: 'absolute', left: '7%', right: '7%', top: '4%', bottom: '4%', backgroundColor: 'rgba(168,125,78,.50)', borderRadius: 2 },
-  woodPanel: { position: 'absolute', backgroundColor: '#B9824D', borderColor: '#8F6037', borderWidth: 1 },
+  photo: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, width: '100%', height: '100%', zIndex: 1 },
+  overlay: { position: 'absolute', zIndex: 10 },
+  augmentationTag: { position: 'absolute', top: -24, left: 0, zIndex: 20, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4, backgroundColor: 'rgba(13,116,150,.92)' },
+  augmentationTagText: { color: '#fff', fontSize: 7, fontWeight: '800', letterSpacing: .7 },
+  shelfOuter: { flex: 1, position: 'relative', shadowColor: '#1A1712', shadowOpacity: .4, shadowRadius: 16, shadowOffset: { width: 7, height: 10 } },
+  shelfBack: { position: 'absolute', left: '7%', right: '7%', top: '4%', bottom: '4%', backgroundColor: 'rgba(168,125,78,.58)', borderRadius: 2 },
+  woodPanel: { position: 'absolute', backgroundColor: '#B9824D', borderColor: '#75451F', borderWidth: 1.5 },
   sideLeft: { left: 0, top: 0, bottom: 0, width: '8%' },
   sideRight: { right: 0, top: 0, bottom: 0, width: '8%', backgroundColor: '#9D6D40' },
   topPanel: { left: 0, right: 0, top: 0, height: '4.8%' },
   bottomPanel: { left: 0, right: 0, bottom: 0, height: '5.2%', backgroundColor: '#A97243' },
-  woodShelf: { position: 'absolute', left: '7%', right: '7%', backgroundColor: '#BC8753', borderTopWidth: 1, borderTopColor: '#D7AD7A', borderBottomWidth: 1, borderBottomColor: '#84562F', zIndex: 3 },
-  edgeHighlight: { position: 'absolute', left: '8%', top: '5%', bottom: '5%', width: 1, backgroundColor: 'rgba(255,235,205,.55)' },
-  contactShadow: { position: 'absolute', left: '7%', right: '-8%', bottom: '-4%', height: '7%', borderRadius: 999, backgroundColor: 'rgba(30,24,18,.22)', transform: [{ scaleX: 1.12 }] },
-  dimensionWidth: { position: 'absolute', bottom: -23, alignSelf: 'center', backgroundColor: 'rgba(255,255,255,.94)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(13,116,150,.35)' },
-  dimensionHeight: { position: 'absolute', right: -42, top: '44%', backgroundColor: 'rgba(255,255,255,.94)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(13,116,150,.35)' },
+  woodShelf: { position: 'absolute', left: '7%', right: '7%', backgroundColor: '#BC8753', borderTopWidth: 1, borderTopColor: '#F0C99A', borderBottomWidth: 1, borderBottomColor: '#70451F', zIndex: 3 },
+  edgeHighlight: { position: 'absolute', left: '8%', top: '5%', bottom: '5%', width: 2, backgroundColor: 'rgba(255,235,205,.7)' },
+  contactShadow: { position: 'absolute', left: '7%', right: '-8%', bottom: '-4%', height: '7%', borderRadius: 999, backgroundColor: 'rgba(30,24,18,.28)', transform: [{ scaleX: 1.12 }] },
+  dimensionWidth: { position: 'absolute', bottom: -23, alignSelf: 'center', backgroundColor: 'rgba(255,255,255,.96)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(13,116,150,.45)' },
+  dimensionHeight: { position: 'absolute', right: -42, top: '44%', backgroundColor: 'rgba(255,255,255,.96)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(13,116,150,.45)' },
   dimensionText: { color: tokens.color.blue, fontSize: 8, fontWeight: '800' },
-  photoLegend: { position: 'absolute', left: 14, bottom: 14, maxWidth: 340, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 13, backgroundColor: 'rgba(250,249,246,.88)', borderWidth: 1, borderColor: 'rgba(255,255,255,.7)' },
+  noPlanBanner: { position: 'absolute', zIndex: 12, top: 18, left: 18, right: 18, padding: 12, borderRadius: 12, backgroundColor: 'rgba(250,249,246,.94)', borderWidth: 1, borderColor: tokens.color.line },
+  noPlanTitle: { fontSize: 10, fontWeight: '800', color: tokens.color.text },
+  noPlanText: { marginTop: 3, fontSize: 8, lineHeight: 12, color: tokens.color.muted },
+  photoLegend: { position: 'absolute', zIndex: 12, left: 14, bottom: 14, maxWidth: 360, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 13, backgroundColor: 'rgba(250,249,246,.9)', borderWidth: 1, borderColor: 'rgba(255,255,255,.75)' },
   photoLegendTitle: { fontSize: 9, fontWeight: '800', color: tokens.color.text },
   photoLegendText: { marginTop: 3, fontSize: 8, lineHeight: 12, color: tokens.color.muted },
   planWrap: { minHeight: 480, backgroundColor: '#F7F6F2' },
