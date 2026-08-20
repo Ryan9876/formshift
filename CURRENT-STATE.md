@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.8.0  
+**Revision:** 0.8.1  
 **Date:** 2026-08-20  
-**Milestone:** Photo Arrange v2.0 scene-rendering layer deployed; real-device visual validation pending
+**Milestone:** Photo Arrange v2.0.1 automatic AI-repair trigger fix deployed; first real AI-repair visual validation pending
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
@@ -16,8 +16,9 @@ Authenticated browser/iPhone testing has established that:
 - candidate review/refinement and lifted-object manipulation are meaningfully separated
 - immutable source room imagery remains preserved in private FormShift storage
 - persisted derived photo arrangements restore after refresh
+- object-centered local inference materially improved guitar isolation enough to shift the primary bottleneck from gesture design to rendering quality
 
-The experience remains prototype-quality. Selection has improved materially, while removed-object reconstruction and scene realism remain the dominant quality constraints.
+The experience remains prototype-quality. Removed-object reconstruction, edge realism, contact, occlusion, perspective, and lighting remain the dominant quality constraints.
 
 ## Retained Arrange foundations
 
@@ -41,78 +42,94 @@ Persistence/security baseline remains:
 - anonymous has no `photo_arrangements` table privileges; authenticated has SELECT + INSERT only
 - pixel edits never overwrite the immutable source photo
 
-## Latest user evidence
-
-The latest iPhone screenshot after v1.9 showed the guitar substantially cleaner and the user described the result as **getting closer**. That is sufficient to stop spending the next cycle on more threshold/crop tuning.
-
-The visible remaining defects are now primarily rendering defects:
-- the removed-object location can still look synthetic
-- the moved object can still read as composited rather than naturally grounded in the room
-- contact, lighting, occlusion, perspective-aware scale, and depth are not calibrated
-
 ## Photo Arrange v2.0 — scene-rendering layer
 
 Functional runtime baseline: `1a5c609f5bbebd17c1177974f6cbe8dd8c887ef9`
 
 Implemented:
-- new web-only `PhotoArrangeEditorV20` wraps the validated v1.9 selector rather than rebuilding selection
-- lifted cutouts receive a restrained local edge/contrast treatment intended to reduce the sticker-like appearance
-- a subtle contact-shadow treatment is rendered beneath lifted objects to visually ground them
-- the existing AI background repair action is elevated to **Improve background** after lift
-- a new explicit **AI repair after lift** switch can automatically trigger the existing authenticated inpainting path after the user accepts a selection
-- that switch is **off by default**
+- web-only `PhotoArrangeEditorV20` wraps the validated v1.9 selector
+- lifted cutouts receive a restrained local edge/contrast treatment
+- a subtle illustrative contact-shadow treatment is rendered beneath lifted objects
+- the existing authenticated background-repair action is surfaced as the higher-quality reconstruction path
+- an explicit **AI repair after lift** switch is available and remains **off by default**
 - enabling it displays an explicit privacy notice that the current scene and accepted repair mask will be sent to the configured image provider
-- when disabled, lift/reconstruction remains on the existing local preview path until the user explicitly chooses Improve background
 - v1.9 selection, refinement, movement, scale/rotation, persistence, and source-photo integrity remain unchanged
-- native/non-web resolution continues to use the established fallback
-- no database schema, RLS, persistence contract, canonical geometry, or API route changed
+
+## User A/B evidence and v2.0 diagnosis
+
+The user compared two production screenshots:
+- **AI repair Off**
+- **AI repair On**
+
+The two outputs were nearly identical and the large synthetic removed-object artifact remained.
+
+Production diagnosis showed this was **not a weak AI inpainting result**. The automatic AI-repair request never executed:
+- production Vercel API logs contained no matching repair request for the test
+- `public.ai_runs` contained **zero** rows with `task_name = 'photo-background-repair'`
+- the v2.0 wrapper set its per-lift handled flag as soon as lifted-state text appeared, before the rendered AI-repair button necessarily existed
+- when the button appeared in a later DOM update, the wrapper believed that lift had already been handled and skipped the automatic request
+
+Therefore the first v2.0 A/B comparison does **not** validate or invalidate `openai/gpt-image-2` reconstruction quality. It compared local reconstruction against another local reconstruction while the UI incorrectly implied automatic AI repair was enabled.
+
+## Photo Arrange v2.0.1 — repair-trigger observability hotfix
+
+Functional runtime baseline: `c1ddc2cbda44d9a5d5b1eedfc1fc2069a4a750f9`
+
+Implemented:
+- automatic repair no longer marks a lift as handled until the actual enabled repair control exists
+- after an opted-in lift, the wrapper waits for the repair action to be rendered and only then schedules the request
+- removed the fragile mutation of the repair button's visible React text; accessibility labeling is applied without rewriting the rendered control contents
+- added explicit visible repair states:
+  - **AI repair queued**
+  - **Sending for AI repair…**
+  - **AI background repaired**
+  - **AI repair did not complete**
+- pointer/UI rendering, segmentation, persistence, database schema, and API endpoint contract are unchanged
+- automatic repair remains explicit opt-in and off by default
 
 ### Deployment evidence
 
-- isolated branch: `photo-arrange-v2-scene-rendering`
-- exact branch preview `dpl_HU1kR91rdtQWajCUjuDkuXKBx3ho` — READY on `1a5c609f5bbebd17c1177974f6cbe8dd8c887ef9`
-- branch comparison against then-current `main` was a clean three-commit fast-forward containing only:
-  - `apps/client/src/components/PhotoArrangeEditorV20.web.tsx`
-  - `apps/client/src/components/PhotoArrangeEditorV20.tsx`
-  - `apps/client/src/screens/PhotoArrangeWorkspace.tsx`
-- production web deployment `dpl_UMGW1eoLmpHg1hXXwaEABaXViWZt` — READY on the exact runtime baseline and serving `formshift-web.vercel.app`
-- live production `/arrange` — HTTP 200 smoke-verified after deployment
+- isolated branch: `repair-v201`
+- exact preview deployment `dpl_2RoTrnXT4RXAvZAir6S5KVzSySgs` — READY on `c1ddc2cbda44d9a5d5b1eedfc1fc2069a4a750f9`
+- preview Expo export completed successfully and included `/arrange`
+- branch comparison against `main` was a clean one-commit fast-forward changing only `apps/client/src/components/PhotoArrangeEditorV20.web.tsx`
+- production deployment `dpl_E8YpNCYg4uBD8GADLdPPhbZNLqEv` — READY on the exact runtime baseline and serving `formshift-web.vercel.app`
+- live production `/arrange` — HTTP 200 smoke-verified
 
 ## Accuracy and privacy boundaries
 
 - segmentation/refinement remain local in the browser
-- contact shadow and edge treatment are **illustrative rendering aids**, not measured floor contact or calibrated lighting
-- automatic AI repair occurs only after the user explicitly enables the switch; it is disabled by default
+- contact shadow and edge treatment are illustrative rendering aids, not measured floor contact or calibrated lighting
+- automatic AI repair occurs only after explicit user opt-in and remains disabled by default
 - the configured image-edit provider path is not claimed to be zero-data-retention
-- the existing deterministic local removed-object preview is still not claimed to be photorealistic
+- deterministic local removed-object reconstruction is not claimed to be photorealistic
 - pixel movement does not implicitly alter canonical physical dimensions, room geometry, or measurement provenance
 - perspective, depth, floor/wall contact, occlusion, relighting, and physical scale remain uncalibrated for free-form photographed-object movement
 
 ## Next validation
 
-In the production browser/iPhone Safari:
+In production:
 1. hard refresh and open **Arrange**
-2. select the guitar using the v1.9 focused selector
-3. leave **AI repair after lift** off and lift the object; inspect whether the new contact/edge treatment makes the moved guitar look less like a sticker
-4. move the guitar and inspect the local removed-object preview
-5. reset/reselect, explicitly enable **AI repair after lift**, then lift the guitar
-6. confirm the repair starts automatically only after that explicit opt-in
-7. compare the AI-repaired old location with the local preview
-8. confirm object drag/scale/rotation and Keep placement still work
+2. enable **AI repair after lift** before selecting/lifting the guitar
+3. select and choose **Lift object**
+4. confirm the scene-rendering bar visibly progresses through **AI repair queued** and **Sending for AI repair…**
+5. wait for **AI background repaired** or a visible failure state
+6. after completion, confirm Supabase receives a `photo-background-repair` `ai_runs` row and compare the reconstructed old location against the local preview
+7. only after a confirmed completed run judge whether the current image model/prompt/mask produces materially better reconstruction
 
 ## Next implementation decision
 
-If the contact/edge treatment is useful and AI reconstruction materially improves the old location, retain this scene-rendering layer and proceed to **scene intelligence**: camera/floor/wall calibration, depth assistance, perspective-aware scale, contact constraints, occlusion and lighting treatment.
+If a confirmed AI run materially improves the old location, keep the authenticated provider path and then proceed toward scene intelligence: floor/wall understanding, depth assistance, occlusion, perspective-aware scale, and lighting/contact treatment.
 
-If AI repair still produces visibly poor old-location reconstruction, improve or replace the image-reconstruction provider/prompt before investing deeply in scene calibration. A depth model cannot compensate for obviously synthetic missing-background pixels.
+If a confirmed completed AI run still leaves the removed-object area visibly synthetic, stop tuning the wrapper and improve the reconstruction pipeline itself: repair-mask construction, model/prompt/provider strategy, and result compositing. Depth work should not precede acceptable background reconstruction.
 
 ## Not yet claimed
 
-Photorealistic local inpainting, validated v2.0 visual improvement on the user's device, calibrated contact shadow, depth-aware occlusion, perspective-aware physical scaling, calibrated relighting, native iOS continuous photo manipulation, or dedicated persisted blueprint PDF.
+A successful production `photo-background-repair` run after the v2.0.1 trigger fix, materially improved AI inpainting quality on the user's room, photorealistic local reconstruction, calibrated contact shadow, depth-aware occlusion, perspective-aware physical scaling, calibrated relighting, native iOS continuous photo manipulation, or dedicated persisted blueprint PDF.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated for the deployed Photo Arrange v2.0 scene-rendering release and pending real-device visual validation
-- `DESIGN-SYSTEM.md`: unchanged; contact shadow, photo-first composition, restrained object treatment, and explicit AI reconstruction were already part of the durable design contract
-- `ARCHITECTURE.md`: unchanged; v2.0 layers rendering and explicit user-controlled invocation over the existing local-selection / authenticated-repair architecture without changing persistence or service boundaries
+- `CURRENT-STATE.md`: updated for the diagnosed v2.0 false A/B result and deployed v2.0.1 automatic-repair trigger/observability fix
+- `DESIGN-SYSTEM.md`: unchanged; no durable interaction rule changed
+- `ARCHITECTURE.md`: unchanged; the intended authenticated repair boundary remains the same and this patch fixes invocation reliability rather than architecture
 - `PROJECT-CONSTITUTION.md`: unchanged; existing source-integrity, privacy, and photo-first rules continue to govern the release
