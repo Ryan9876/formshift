@@ -165,6 +165,23 @@ export function PhotoArrangeEditorV18(props: {
           box-shadow: 0 5px 15px rgba(0,0,0,.16), 0 0 0 2px rgba(255,255,255,.9) !important;
         }
         [data-formshift-arrange-18] { padding-bottom: calc(108px + env(safe-area-inset-bottom)); }
+        [data-formshift-arrange-18][data-selection-review="true"]::before {
+          content: 'Selection ready — review the mask, then choose Lift object to move it. Use Add or Remove only when the mask needs correction.';
+          display: block;
+          margin: 0;
+          padding: 10px 12px;
+          border-bottom: 1px solid rgba(42,61,66,.14);
+          background: rgba(220,236,241,.72);
+          color: #253034;
+          font: 700 12px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        }
+        [data-formshift-arrange-18] [aria-label="Lift object"] > * { display: none !important; }
+        [data-formshift-arrange-18] [aria-label="Lift object"]::after {
+          content: 'Lift object';
+          color: #fff;
+          font-size: 9px;
+          font-weight: 800;
+        }
       `;
       document.head.appendChild(style);
     }
@@ -177,6 +194,7 @@ export function PhotoArrangeEditorV18(props: {
     const makeReviewModeDefault = () => {
       const text = root.textContent ?? '';
       const candidateVisible = text.includes('Refine selection');
+      root.setAttribute('data-selection-review', candidateVisible ? 'true' : 'false');
       if (candidateVisible && !candidateVisibleRef.current) {
         candidateVisibleRef.current = true;
         const buttons = Array.from(root.querySelectorAll('[role="button"],button')) as HTMLElement[];
@@ -203,6 +221,7 @@ export function PhotoArrangeEditorV18(props: {
     document.addEventListener('visibilitychange', settlePointer);
     return () => {
       observer.disconnect();
+      root.removeAttribute('data-selection-review');
       window.removeEventListener('blur', settlePointer);
       document.removeEventListener('visibilitychange', settlePointer);
     };
