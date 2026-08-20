@@ -2,7 +2,7 @@
 
 **Revision:** 0.6.0  
 **Date:** 2026-08-20  
-**Milestone:** Photo Arrange v1 candidate validated in preview; production promotion pending
+**Milestone:** Photo Arrange v1 implementation complete; production promotion in progress and authenticated interaction validation pending
 
 ## Product direction
 
@@ -37,15 +37,15 @@ Validated prior capabilities:
 - photo-first Build workspace with Before / Augmented / Plan hierarchy
 - deterministic saved Build augmentation renderer
 
-## Photo Arrange v1 candidate
+## Photo Arrange v1
 
-Candidate branch head: `08f33120be42173531741809a89cb32df47d870f`
+Validated runtime candidate: `08f33120be42173531741809a89cb32df47d870f`
 
 Preview validation:
 
 - web preview exported successfully with `/arrange` as a static protected route
-- latest exact web preview was READY
-- background-repair API compiled successfully at introducing commit `0ea66353d35cf94bbe12b0abbe0c1534efe3eb2e`; later candidate commits only changed client files
+- runtime candidate web preview was READY
+- background-repair API compiled successfully at introducing commit `0ea66353d35cf94bbe12b0abbe0c1534efe3eb2e`; later runtime candidate commits only changed client files
 
 Implemented behavior:
 
@@ -151,7 +151,7 @@ API:
 
 ## Next validation target
 
-After candidate promotion, authenticated browser validation of **Photo Arrange v1** on iPhone Safari:
+After production deployment, authenticated browser validation of **Photo Arrange v1** on iPhone Safari:
 
 1. hard refresh FormShift and choose **Arrange**
 2. confirm `/arrange` opens with the real room photo as the main workspace
@@ -194,7 +194,7 @@ Priority capabilities:
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated for the Photo Arrange v1 candidate and explicit AI background-repair privacy boundary
+- `CURRENT-STATE.md`: updated for Photo Arrange v1 and the explicit AI background-repair privacy boundary
 - `PROJECT-CONSTITUTION.md`: unchanged; photo-first hierarchy already requires this interaction model
 - `ARCHITECTURE.md`: unchanged; existing photo-scene pipeline already covers segmentation, derived scenes, AI pixel repair, and geometry authority
 - `DESIGN-SYSTEM.md`: unchanged; real scene already defined as the primary canvas
