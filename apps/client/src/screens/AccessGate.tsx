@@ -5,7 +5,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { tokens } from '../theme/tokens';
 import { FormShiftHome } from './FormShiftHome';
 
-export function AccessGate() {
+export function AccessGate({ children }: { children?: React.ReactNode }) {
   const auth = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 720;
@@ -30,7 +30,7 @@ export function AccessGate() {
   if (auth.access !== 'active') {
     return <GateCard compact={compact} eyebrow="ACCESS UNAVAILABLE" title="This account cannot open FormShift." body={`Current access state: ${auth.access}. Contact the FormShift owner if this should be changed.`}><Pressable onPress={() => void auth.signOut()} style={styles.secondary}><Text style={styles.secondaryText}>Sign out</Text></Pressable></GateCard>;
   }
-  return <FormShiftHome />;
+  return <>{children ?? <FormShiftHome />}</>;
 }
 
 function GateCard({ eyebrow, title, body, loading = false, children, compact = false }: { eyebrow: string; title: string; body: string; loading?: boolean; children?: React.ReactNode; compact?: boolean }) {
