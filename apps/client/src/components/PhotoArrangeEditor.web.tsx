@@ -11,15 +11,19 @@ import { tokens } from '../theme/tokens';
 type Selection = {
   cutoutUrl: string;
   maskUrl: string;
+  previewUrl: string;
   bbox: { x: number; y: number; width: number; height: number };
   centerX: number;
   centerY: number;
 };
 
+type RefinementMode = 'add' | 'remove';
+type RefinementPoint = Point & { mode: RefinementMode };
+
 type SegmenterModule = {
   FilesetResolver: { forVisionTasks(path: string): Promise<unknown> };
   InteractiveSegmenter: { createFromOptions(fileset: unknown, options: unknown): Promise<any> };
-  BrushMode?: { POSITIVE: unknown };
+  BrushMode?: { POSITIVE?: unknown; NEGATIVE?: unknown; BACKGROUND?: unknown };
 };
 
 type Point = { x: number; y: number };
@@ -84,7 +88,11 @@ export function PhotoArrangeEditor({
   const [persistedSceneUrl, setPersistedSceneUrl] = useState<string | null>(photoUrl ?? null);
   const [imageSize, setImageSize] = useState({ width: 4, height: 3 });
   const [stageSize, setStageSize] = useState({ width: 1, height: 1 });
+  const [candidateSelection, setCandidateSelection] = useState<Selection | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [refinementMode, setRefinementMode] = useState<RefinementMode>('add');
+  const [refinementPoints, setRefinementPoints] = useState<RefinementPoint[]>([]);
+  const [loupePoint, setLoupePoint] = useState<Point | null>(null);
   const [position, setPosition] = useState({ x: 0.5, y: 0.5 });
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -102,22 +110,19 @@ export function PhotoArrangeEditor({
   const rotationRef = useRef(rotation);
   const viewScaleRef = useRef(viewScale);
   const viewOffsetRef = useRef(viewOffset);
+  const refinementPointsRef = useRef(refinementPoints);
+  const refinementModeRef = useRef(refinementMode);
   useEffect(() => { positionRef.current = position; }, [position]);
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { rotationRef.current = rotation; }, [rotation]);
   useEffect(() => { viewScaleRef.current = viewScale; }, [viewScale]);
   useEffect(() => { viewOffsetRef.current = viewOffset; }, [viewOffset]);
+  useEffect(() => { refinementPointsRef.current = refinementPoints; }, [refinementPoints]);
+  useEffect(() => { refinementModeRef.current = refinementMode; }, [refinementMode]);
 
   useEffect(() => {
     let cancelled = false;
-    setSelection(null);
-    setBackgroundDataUrl(null);
-    sourceBeforeLiftRef.current = null;
-    pointerMapRef.current.clear();
-    gestureBaseRef.current = null;
-    viewportPointerMapRef.current.clear();
-    viewportGestureBaseRef.current = null;
-    tapCandidateRef.current = null;
+    clearTransientSelection();
     setViewScale(1);
     setViewOffset({ x: 0, y: 0 });
     setError(null);
@@ -147,7 +152,7 @@ export function PhotoArrangeEditor({
         if (saved) {
           setSceneUrl(saved.sceneUrl);
           setPersistedSceneUrl(saved.sceneUrl);
-          setStatus('Saved arrangement restored. Pinch to zoom, then tap an object to move it.');
+          setStatus('Saved arrangement restored. Zoom in, then tap an object to select it.');
         } else {
           setSceneUrl(photoUrl);
           setPersistedSceneUrl(photoUrl);
@@ -198,37 +203,127 @@ export function PhotoArrangeEditor({
     };
   }, [selection, displayCutout, viewScale, viewOffset, position, stageSize]);
 
+  const candidateScreenBox = useMemo(() => {
+    if (!candidateSelection) return null;
+    const left = viewOffset.x + (candidateSelection.bbox.x / imageSize.width) * stageSize.width * viewScale;
+    const top = viewOffset.y + (candidateSelection.bbox.y / imageSize.height) * stageSize.height * viewScale;
+    return {
+      left,
+      top,
+      width: (candidateSelection.bbox.width / imageSize.width) * stageSize.width * viewScale,
+      height: (candidateSelection.bbox.height / imageSize.height) * stageSize.height * viewScale,
+    };
+  }, [candidateSelection, imageSize, stageSize, viewScale, viewOffset]);
+
+  function clearTransientSelection() {
+    setCandidateSelection(null);
+    setSelection(null);
+    setRefinementMode('add');
+    setRefinementPoints([]);
+    setLoupePoint(null);
+    setBackgroundDataUrl(null);
+    sourceBeforeLiftRef.current = null;
+    pointerMapRef.current.clear();
+    gestureBaseRef.current = null;
+    viewportPointerMapRef.current.clear();
+    viewportGestureBaseRef.current = null;
+    tapCandidateRef.current = null;
+  }
+
   const handleSelectAt = async (x: number, y: number) => {
     const source = sourceCanvasRef.current;
-    if (selection || selecting || !source) return;
+    if (selection || candidateSelection || selecting || !source) return;
     setSelecting(true);
     setError(null);
     setStatus('Finding object edges…');
 
     try {
       const segmenter = await getSegmenter(segmenterRef);
-      const mask = runSegmenter(segmenter, source, x, y);
-      const next = createSelection(source, mask, x, y);
+      const points: RefinementPoint[] = [{ x, y, mode: 'add' }];
+      const mask = runSegmenter(segmenter, source, points);
+      const next = createSelection(source, mask, points);
       mask?.close?.();
       if (!next) {
         throw new Error('FormShift could not isolate a distinct object there. Try tapping near the center of the object.');
       }
 
-      sourceBeforeLiftRef.current = source;
-      const localBackground = await createLocalRepair(source, next.maskUrl);
-      setSelection(next);
-      setPosition({ x: next.centerX, y: next.centerY });
-      setScale(1);
-      setRotation(0);
-      setBackgroundDataUrl(null);
-      setSceneUrl(localBackground);
-      setStatus('Object lifted. Drag the object; pinch outside it to zoom the room.');
+      setCandidateSelection(next);
+      setRefinementPoints(points);
+      setRefinementMode('add');
+      setStatus('Check the highlighted selection. Use Add or Remove, then choose Use selection.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Object selection failed.');
       setStatus('Tap another point and try again.');
     } finally {
       setSelecting(false);
     }
+  };
+
+  const refineCandidateAt = async (x: number, y: number) => {
+    const source = sourceCanvasRef.current;
+    if (!candidateSelection || selecting || !source) return;
+    const mode = refinementModeRef.current;
+    const points = [...refinementPointsRef.current, { x, y, mode }];
+    setSelecting(true);
+    setError(null);
+    setStatus(mode === 'add' ? 'Adding that area to the selection…' : 'Removing that area from the selection…');
+
+    try {
+      const segmenter = await getSegmenter(segmenterRef);
+      const mask = runSegmenter(segmenter, source, points);
+      const next = createSelection(source, mask, points);
+      mask?.close?.();
+      if (!next) {
+        throw new Error('That refinement removed too much of the object. The previous selection is unchanged.');
+      }
+      setCandidateSelection(next);
+      setRefinementPoints(points);
+      setStatus('Selection updated. Keep refining or choose Use selection.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Selection refinement failed.');
+      setStatus('The previous selection is still available.');
+    } finally {
+      setSelecting(false);
+    }
+  };
+
+  const useCandidateSelection = async () => {
+    const source = sourceCanvasRef.current;
+    const next = candidateSelection;
+    if (!next || !source || selecting) return;
+    setSelecting(true);
+    setError(null);
+    setStatus('Lifting the refined object…');
+
+    try {
+      sourceBeforeLiftRef.current = source;
+      const localBackground = await createLocalRepair(source, next.maskUrl);
+      setSelection(next);
+      setCandidateSelection(null);
+      setRefinementPoints([]);
+      setLoupePoint(null);
+      setPosition({ x: next.centerX, y: next.centerY });
+      setScale(1);
+      setRotation(0);
+      setBackgroundDataUrl(null);
+      setSceneUrl(localBackground);
+      setStatus('Object lifted. Drag on it to move; pinch outside it to zoom the room.');
+    } catch (err) {
+      sourceBeforeLiftRef.current = null;
+      setError(err instanceof Error ? err.message : 'Could not lift this selection.');
+      setStatus('The refined selection is still available.');
+    } finally {
+      setSelecting(false);
+    }
+  };
+
+  const cancelCandidateSelection = () => {
+    setCandidateSelection(null);
+    setRefinementPoints([]);
+    setRefinementMode('add');
+    setLoupePoint(null);
+    setError(null);
+    setStatus('Selection canceled. Zoom or pan, then tap another object.');
   };
 
   const resetViewportGestureBase = () => {
@@ -259,8 +354,10 @@ export function PhotoArrangeEditor({
         moved: false,
         startedAt: Date.now(),
       };
+      if (candidateSelection) setLoupePoint(point);
     } else {
       tapCandidateRef.current = null;
+      setLoupePoint(null);
     }
     resetViewportGestureBase();
   };
@@ -275,6 +372,9 @@ export function PhotoArrangeEditor({
     const candidate = tapCandidateRef.current;
     if (candidate && candidate.pointerId === event.pointerId && pointDistance(candidate.start, point) > 7) {
       candidate.moved = true;
+      setLoupePoint(null);
+    } else if (candidateSelection && candidate && candidate.pointerId === event.pointerId) {
+      setLoupePoint(point);
     }
 
     const points = [...viewportPointerMapRef.current.values()];
@@ -284,6 +384,7 @@ export function PhotoArrangeEditor({
 
     if (points.length >= 2 && base.distance > 4) {
       tapCandidateRef.current = null;
+      setLoupePoint(null);
       const distance = pointDistance(points[0]!, points[1]!);
       const nextScale = clamp(base.scale * (distance / base.distance), 1, 5);
       const anchorX = (base.centroid.x - base.offset.x) / Math.max(base.scale, 0.001);
@@ -297,7 +398,7 @@ export function PhotoArrangeEditor({
       return;
     }
 
-    if (points.length === 1 && base.scale > 1.001) {
+    if (points.length === 1 && base.scale > 1.001 && candidate?.moved) {
       const nextOffset = clampViewportOffset({
         x: base.offset.x + centroid.x - base.centroid.x,
         y: base.offset.y + centroid.y - base.centroid.y,
@@ -314,6 +415,7 @@ export function PhotoArrangeEditor({
     const wasOnlyPointer = viewportPointerMapRef.current.size === 1;
     const candidate = tapCandidateRef.current;
     viewportPointerMapRef.current.delete(event.pointerId);
+    setLoupePoint(null);
 
     if (viewportPointerMapRef.current.size) resetViewportGestureBase();
     else viewportGestureBaseRef.current = null;
@@ -328,7 +430,10 @@ export function PhotoArrangeEditor({
       && Date.now() - candidate.startedAt < 650
     ) {
       const imagePoint = stagePointToImagePoint(point, viewScaleRef.current, viewOffsetRef.current, stageSize);
-      if (imagePoint) void handleSelectAt(imagePoint.x, imagePoint.y);
+      if (imagePoint) {
+        if (candidateSelection) void refineCandidateAt(imagePoint.x, imagePoint.y);
+        else void handleSelectAt(imagePoint.x, imagePoint.y);
+      }
     }
 
     if (candidate?.pointerId === event.pointerId) tapCandidateRef.current = null;
@@ -338,6 +443,7 @@ export function PhotoArrangeEditor({
     viewportPointerMapRef.current.clear();
     viewportGestureBaseRef.current = null;
     tapCandidateRef.current = null;
+    setLoupePoint(null);
     setViewScale(1);
     setViewOffset({ x: 0, y: 0 });
   };
@@ -363,19 +469,16 @@ export function PhotoArrangeEditor({
     const centroid = pointCentroid(points);
     const dx = (centroid.x - base.centroid.x) / Math.max(stageSize.width * viewScaleRef.current, 1);
     const dy = (centroid.y - base.centroid.y) / Math.max(stageSize.height * viewScaleRef.current, 1);
-    const nextPosition = {
+    setPosition({
       x: clamp(base.position.x + dx, 0.02, 0.98),
       y: clamp(base.position.y + dy, 0.02, 0.98),
-    };
-    setPosition(nextPosition);
+    });
 
     if (points.length >= 2) {
       const [a, b] = points;
       const distance = pointDistance(a!, b!);
       const angle = pointAngle(a!, b!);
-      if (base.distance > 4) {
-        setScale(clamp(base.scale * (distance / base.distance), 0.35, 2.2));
-      }
+      if (base.distance > 4) setScale(clamp(base.scale * (distance / base.distance), 0.35, 2.2));
       setRotation(base.rotation + normalizeAngle(angle - base.angle));
     }
   };
@@ -444,15 +547,7 @@ export function PhotoArrangeEditor({
     setStatus('Saving this photo arrangement…');
 
     try {
-      const composite = await compositeScene({
-        sceneUrl,
-        selection,
-        position,
-        scale,
-        rotation,
-        imageSize,
-      });
-
+      const composite = await compositeScene({ sceneUrl, selection, position, scale, rotation, imageSize });
       const saved = await persistPhotoArrangement({
         projectId,
         spaceId,
@@ -468,7 +563,7 @@ export function PhotoArrangeEditor({
           scale,
           rotationDeg: rotation,
           bbox: selection.bbox,
-          rendererVersion: 'photo-arrange-1.5',
+          rendererVersion: 'photo-arrange-1.6',
         },
       });
 
@@ -490,20 +585,13 @@ export function PhotoArrangeEditor({
 
   const resetScene = () => {
     setSceneUrl(persistedSceneUrl ?? photoUrl ?? null);
-    setSelection(null);
-    setBackgroundDataUrl(null);
-    sourceBeforeLiftRef.current = null;
-    pointerMapRef.current.clear();
-    gestureBaseRef.current = null;
-    viewportPointerMapRef.current.clear();
-    viewportGestureBaseRef.current = null;
-    tapCandidateRef.current = null;
+    clearTransientSelection();
     setScale(1);
     setRotation(0);
     setViewScale(1);
     setViewOffset({ x: 0, y: 0 });
     setStatus(persistedSceneUrl && persistedSceneUrl !== photoUrl
-      ? 'Last saved arrangement restored. Pinch to zoom, then tap an object.'
+      ? 'Last saved arrangement restored. Zoom in, then tap an object.'
       : 'Source photo restored. Pinch to zoom, then tap an object to select it.');
     setError(null);
   };
@@ -522,61 +610,16 @@ export function PhotoArrangeEditor({
       <View style={styles.toolbar}>
         <View style={styles.toolbarCopy}>
           <Text style={styles.kicker}>PHOTO ARRANGE</Text>
-          <Text style={styles.title}>Tap it. Lift it. Move it.</Text>
+          <Text style={styles.title}>{candidateSelection ? 'Refine it before you lift it.' : 'Tap it. Lift it. Move it.'}</Text>
           <Text style={styles.body}>{status}</Text>
         </View>
-
-        <View style={styles.actions}>
-          <View style={styles.gestureHint}>
-            <Text style={styles.gestureHintStrong}>{viewScale > 1.01 ? `${viewScale.toFixed(1)}×` : '2 fingers'}</Text>
-            <Text style={styles.gestureHintText}>{viewScale > 1.01 ? 'room zoom' : 'pinch room to zoom'}</Text>
+        <View style={styles.topActions}>
+          <View style={styles.zoomPill}>
+            <Text style={styles.zoomPillStrong}>{viewScale.toFixed(1)}×</Text>
+            <Text style={styles.zoomPillText}>view</Text>
           </View>
-          <Pressable
-            disabled={viewScale <= 1.01}
-            style={[styles.toolButton, viewScale <= 1.01 && styles.disabled]}
-            onPress={fitPhoto}
-          >
-            <Text style={styles.toolText}>Fit photo</Text>
-          </Pressable>
-          {selection ? (
-            <>
-              <View style={styles.gestureHint}>
-                <Text style={styles.gestureHintStrong}>On object</Text>
-                <Text style={styles.gestureHintText}>drag · pinch · rotate</Text>
-                <Text style={styles.gestureHintDot}>•</Text>
-                <Text style={styles.gestureHintStrong}>Outside</Text>
-                <Text style={styles.gestureHintText}>pan · zoom room</Text>
-              </View>
-              <Pressable style={styles.toolButton} onPress={() => setScale((value) => clamp(value - 0.1, 0.35, 2.2))}>
-                <Text style={styles.toolText}>−</Text>
-              </Pressable>
-              <Pressable style={styles.toolButton} onPress={() => setScale((value) => clamp(value + 0.1, 0.35, 2.2))}>
-                <Text style={styles.toolText}>+</Text>
-              </Pressable>
-              <Pressable style={styles.toolButton} onPress={() => setRotation((value) => value - 5)}>
-                <Text style={styles.toolText}>↺</Text>
-              </Pressable>
-              <Pressable style={styles.toolButton} onPress={() => setRotation((value) => value + 5)}>
-                <Text style={styles.toolText}>↻</Text>
-              </Pressable>
-              <Pressable
-                disabled={repairing}
-                style={[styles.aiButton, repairing && styles.disabled]}
-                onPress={() => void refineBackground()}
-              >
-                <Text style={styles.aiText}>{repairing ? 'Repairing…' : 'Refine background with AI'}</Text>
-              </Pressable>
-              <Pressable
-                disabled={saving}
-                style={[styles.primaryButton, saving && styles.disabled]}
-                onPress={() => void keepPlacement()}
-              >
-                <Text style={styles.primaryText}>{saving ? 'Saving…' : 'Keep placement'}</Text>
-              </Pressable>
-            </>
-          ) : null}
-          <Pressable style={styles.toolButton} onPress={resetScene}>
-            <Text style={styles.toolText}>Reset</Text>
+          <Pressable disabled={viewScale <= 1.01} style={[styles.compactButton, viewScale <= 1.01 && styles.disabled]} onPress={fitPhoto}>
+            <Text style={styles.compactButtonText}>Fit photo</Text>
           </Pressable>
         </View>
       </View>
@@ -589,27 +632,29 @@ export function PhotoArrangeEditor({
           <div
             aria-hidden="true"
             style={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: 1,
-              pointerEvents: 'none',
+              position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none',
               transform: `matrix(${viewScale}, 0, 0, ${viewScale}, ${viewOffset.x}, ${viewOffset.y})`,
               transformOrigin: '0 0',
             }}
           >
-            <img
-              src={sceneUrl}
-              alt=""
-              draggable={false}
-              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-            />
+            <img src={sceneUrl} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+            {candidateSelection ? (
+              <img
+                src={candidateSelection.previewUrl}
+                alt=""
+                draggable={false}
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: 'block', opacity: 0.9 }}
+              />
+            ) : null}
           </div>
         ) : null}
 
         <div
-          aria-label={selection
-            ? 'Room view. Pinch to zoom or drag outside the selected object to pan.'
-            : 'Room view. Pinch to zoom, drag to pan when zoomed, or tap an object to select it.'}
+          aria-label={candidateSelection
+            ? `Refine selection. ${refinementMode === 'add' ? 'Tap areas to add.' : 'Tap areas to remove.'}`
+            : selection
+              ? 'Room view. Pinch to zoom or drag outside the selected object to pan.'
+              : 'Room view. Pinch to zoom, drag to pan when zoomed, or tap an object to select it.'}
           role="application"
           onPointerDown={beginViewportGesture}
           onPointerMove={moveViewportGesture}
@@ -618,13 +663,24 @@ export function PhotoArrangeEditor({
           onContextMenu={(event) => event.preventDefault()}
           onDragStart={(event) => event.preventDefault()}
           style={{
-            position: 'absolute',
-            inset: 0,
-            zIndex: 4,
-            cursor: viewScale > 1.01 ? 'grab' : selection ? 'default' : 'crosshair',
+            position: 'absolute', inset: 0, zIndex: 4,
+            cursor: candidateSelection ? 'crosshair' : viewScale > 1.01 ? 'grab' : selection ? 'default' : 'crosshair',
             ...WEB_GESTURE_SHIELD,
           }}
         />
+
+        {candidateSelection && candidateScreenBox ? (
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute', zIndex: 5, pointerEvents: 'none',
+              left: candidateScreenBox.left, top: candidateScreenBox.top,
+              width: candidateScreenBox.width, height: candidateScreenBox.height,
+              border: '2px dashed rgba(13,116,150,.95)', borderRadius: 8,
+              boxShadow: '0 0 0 1px rgba(255,255,255,.7)',
+            }}
+          />
+        ) : null}
 
         {selection && screenCutout ? (
           <>
@@ -637,52 +693,42 @@ export function PhotoArrangeEditor({
               onPointerCancel={endTransformGesture}
               onContextMenu={(event) => event.preventDefault()}
               style={{
-                position: 'absolute',
-                zIndex: 7,
-                cursor: 'grab',
-                left: screenCutout.left - 12,
-                top: screenCutout.top - 12,
-                width: screenCutout.width + 24,
-                height: screenCutout.height + 24,
-                borderRadius: 12,
-                ...WEB_GESTURE_SHIELD,
+                position: 'absolute', zIndex: 7, cursor: 'grab',
+                left: screenCutout.left - 12, top: screenCutout.top - 12,
+                width: screenCutout.width + 24, height: screenCutout.height + 24,
+                borderRadius: 12, ...WEB_GESTURE_SHIELD,
               }}
             />
             <div
               style={{
-                position: 'absolute',
-                zIndex: 6,
-                pointerEvents: 'none',
-                width: screenCutout.width,
-                height: screenCutout.height,
-                left: screenCutout.left,
-                top: screenCutout.top,
-                transform: `rotate(${rotation}deg)`,
-                transformOrigin: 'center center',
+                position: 'absolute', zIndex: 6, pointerEvents: 'none',
+                width: screenCutout.width, height: screenCutout.height,
+                left: screenCutout.left, top: screenCutout.top,
+                transform: `rotate(${rotation}deg)`, transformOrigin: 'center center',
                 borderRadius: 7,
                 boxShadow: '0 0 0 2px rgba(40,199,232,.9), 0 12px 24px rgba(0,0,0,.12)',
               }}
             >
-              <img
-                src={selection.cutoutUrl}
-                alt=""
-                draggable={false}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain',
-                  display: 'block',
-                  ...WEB_GESTURE_SHIELD,
-                }}
-              />
+              <img src={selection.cutoutUrl} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', ...WEB_GESTURE_SHIELD }} />
             </div>
           </>
+        ) : null}
+
+        {candidateSelection && loupePoint && sceneUrl ? (
+          <SelectionLoupe
+            sceneUrl={sceneUrl}
+            point={loupePoint}
+            stageSize={stageSize}
+            viewScale={viewScale}
+            viewOffset={viewOffset}
+            mode={refinementMode}
+          />
         ) : null}
 
         {selecting ? (
           <View pointerEvents="none" style={styles.busyOverlay}>
             <ActivityIndicator color="#fff" />
-            <Text style={styles.busyText}>Selecting object…</Text>
+            <Text style={styles.busyText}>{candidateSelection ? 'Updating selection…' : 'Selecting object…'}</Text>
           </View>
         ) : null}
 
@@ -694,15 +740,120 @@ export function PhotoArrangeEditor({
         ) : null}
       </View>
 
+      <View style={styles.controlTray}>
+        {candidateSelection ? (
+          <>
+            <View style={styles.trayHeader}>
+              <View style={styles.trayHeaderCopy}>
+                <Text style={styles.trayTitle}>Refine selection</Text>
+                <Text style={styles.trayHint}>Zoom as needed. Tap the photo to {refinementMode === 'add' ? 'add missing object areas' : 'remove unwanted background'}.</Text>
+              </View>
+              <Text style={styles.pointCount}>{Math.max(0, refinementPoints.length - 1)} edits</Text>
+            </View>
+            <View style={styles.refineRow}>
+              <Pressable style={[styles.modeButton, refinementMode === 'add' && styles.modeButtonActive]} onPress={() => setRefinementMode('add')}>
+                <Text style={[styles.modeButtonText, refinementMode === 'add' && styles.modeButtonTextActive]}>＋ Add</Text>
+              </Pressable>
+              <Pressable style={[styles.modeButton, refinementMode === 'remove' && styles.removeButtonActive]} onPress={() => setRefinementMode('remove')}>
+                <Text style={[styles.modeButtonText, refinementMode === 'remove' && styles.removeButtonTextActive]}>− Remove</Text>
+              </Pressable>
+              <Pressable style={styles.primaryButton} onPress={() => void useCandidateSelection()} disabled={selecting}>
+                <Text style={styles.primaryText}>Use selection</Text>
+              </Pressable>
+              <Pressable style={styles.cancelButton} onPress={cancelCandidateSelection}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : selection ? (
+          <>
+            <View style={styles.trayHeader}>
+              <View style={styles.trayHeaderCopy}>
+                <Text style={styles.trayTitle}>Arrange object</Text>
+                <Text style={styles.trayHint}>Drag directly on the object. Pinch or twist on it to resize/rotate; outside gestures navigate the room.</Text>
+              </View>
+            </View>
+            <View style={styles.refineRow}>
+              <Pressable style={styles.squareButton} onPress={() => setScale((value) => clamp(value - 0.1, 0.35, 2.2))}><Text style={styles.squareButtonText}>−</Text></Pressable>
+              <Pressable style={styles.squareButton} onPress={() => setScale((value) => clamp(value + 0.1, 0.35, 2.2))}><Text style={styles.squareButtonText}>＋</Text></Pressable>
+              <Pressable style={styles.squareButton} onPress={() => setRotation((value) => value - 5)}><Text style={styles.squareButtonText}>↺</Text></Pressable>
+              <Pressable style={styles.squareButton} onPress={() => setRotation((value) => value + 5)}><Text style={styles.squareButtonText}>↻</Text></Pressable>
+              <Pressable disabled={repairing} style={[styles.aiButton, repairing && styles.disabled]} onPress={() => void refineBackground()}>
+                <Text style={styles.aiText}>{repairing ? 'Repairing…' : 'AI repair'}</Text>
+              </Pressable>
+              <Pressable disabled={saving} style={[styles.primaryButton, saving && styles.disabled]} onPress={() => void keepPlacement()}>
+                <Text style={styles.primaryText}>{saving ? 'Saving…' : 'Keep placement'}</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <View style={styles.idleTray}>
+            <Text style={styles.trayHint}>2 fingers zoom · 1 finger pans when zoomed · short tap selects</Text>
+            <Pressable style={styles.cancelButton} onPress={resetScene}><Text style={styles.cancelText}>Reset scene</Text></Pressable>
+          </View>
+        )}
+      </View>
+
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <View style={styles.footer}>
-        <Text style={styles.footerStrong}>Actual photographed pixels are moved.</Text>
+        <Text style={styles.footerStrong}>Selection is reviewed before pixels move.</Text>
         <Text style={styles.footerText}>
-          Pinch/zoom changes only your view of the room; it never changes object geometry or the saved scene. Selection and mask cleanup run locally in your browser. AI background repair remains explicit and sends only the current scene plus selection mask to the configured image provider. Saved placements are derived photo versions; the source room photo is never overwritten.
+          Initial segmentation and Add/Remove refinement run locally in your browser. The source photo is unchanged until you choose Use selection. AI background repair remains explicit and sends only the current scene plus refined mask to the configured image provider. Saved placements are derived photo versions; the source room photo is never overwritten.
         </Text>
       </View>
     </View>
+  );
+}
+
+function SelectionLoupe({
+  sceneUrl,
+  point,
+  stageSize,
+  viewScale,
+  viewOffset,
+  mode,
+}: {
+  sceneUrl: string;
+  point: Point;
+  stageSize: { width: number; height: number };
+  viewScale: number;
+  viewOffset: Point;
+  mode: RefinementMode;
+}) {
+  const size = 88;
+  const magnification = 2.2;
+  const left = clamp(point.x + 18, 8, Math.max(8, stageSize.width - size - 8));
+  const preferredTop = point.y - size - 22;
+  const top = clamp(preferredTop, 8, Math.max(8, stageSize.height - size - 8));
+  const innerScale = viewScale * magnification;
+  const offsetX = size / 2 - point.x * magnification + viewOffset.x * magnification;
+  const offsetY = size / 2 - point.y * magnification + viewOffset.y * magnification;
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: 'absolute', zIndex: 20, left, top, width: size, height: size,
+        borderRadius: size / 2, overflow: 'hidden', pointerEvents: 'none',
+        border: `3px solid ${mode === 'add' ? 'rgba(13,116,150,.95)' : 'rgba(168,76,76,.95)'}`,
+        boxShadow: '0 8px 24px rgba(0,0,0,.24), 0 0 0 2px rgba(255,255,255,.9)',
+        backgroundColor: '#fff',
+      }}
+    >
+      <img
+        src={sceneUrl}
+        alt=""
+        draggable={false}
+        style={{
+          position: 'absolute', left: 0, top: 0,
+          width: stageSize.width, height: stageSize.height, objectFit: 'contain',
+          transform: `matrix(${innerScale}, 0, 0, ${innerScale}, ${offsetX}, ${offsetY})`,
+          transformOrigin: '0 0', maxWidth: 'none',
+        }}
+      />
+      <div style={{ position: 'absolute', left: size / 2 - 8, top: size / 2 - 1, width: 16, height: 2, background: mode === 'add' ? '#0D7496' : '#A84C4C' }} />
+      <div style={{ position: 'absolute', left: size / 2 - 1, top: size / 2 - 8, width: 2, height: 16, background: mode === 'add' ? '#0D7496' : '#A84C4C' }} />
+    </div>
   );
 }
 
@@ -720,35 +871,46 @@ async function getSegmenter(ref: { current: any }) {
   return ref.current;
 }
 
-function runSegmenter(segmenter: any, image: HTMLCanvasElement, x: number, y: number) {
+function runSegmenter(segmenter: any, image: HTMLCanvasElement, points: RefinementPoint[]) {
+  const firstPositive = points.find((point) => point.mode === 'add') ?? points[0];
+  if (!firstPositive) return null;
+
   if (typeof segmenter.setImage === 'function') {
     segmenter.setImage(image);
     const positiveBrushMode = segmenter.__formshiftBrushMode?.POSITIVE ?? 1;
-    const result = segmenter.segment([
-      { brushMode: positiveBrushMode, point: [{ x, y }], isCompleted: true },
-    ]);
+    const negativeBrushMode = segmenter.__formshiftBrushMode?.NEGATIVE
+      ?? segmenter.__formshiftBrushMode?.BACKGROUND
+      ?? 0;
+    const result = segmenter.segment(points.map((point) => ({
+      brushMode: point.mode === 'add' ? positiveBrushMode : negativeBrushMode,
+      point: [{ x: point.x, y: point.y }],
+      isCompleted: true,
+    })));
     return result?.confidenceMasks?.[0] ?? result;
   }
-  const result = segmenter.segment(image, { keypoint: { x, y } });
+
+  const result = segmenter.segment(image, { keypoint: { x: firstPositive.x, y: firstPositive.y } });
   return result?.confidenceMasks?.[0] ?? result;
 }
 
 function createSelection(
   canvas: HTMLCanvasElement,
   mask: any,
-  seedX: number,
-  seedY: number,
+  refinementPoints: RefinementPoint[],
 ): Selection | null {
   if (!mask?.getAsFloat32Array) return null;
+  const seed = refinementPoints.find((point) => point.mode === 'add');
+  if (!seed) return null;
 
   const values = mask.getAsFloat32Array() as Float32Array;
   const mw = mask.width as number;
   const mh = mask.height as number;
-  const cleaned = isolateSeededComponent(values, mw, mh, seedX, seedY);
+  const cleaned = isolateSeededComponent(values, mw, mh, seed.x, seed.y);
   if (!cleaned) return null;
 
-  const closed = erodeMask(dilateMask(cleaned, mw, mh), mw, mh);
-  const feather = featherMask(closed, mw, mh);
+  let edited = erodeMask(dilateMask(cleaned, mw, mh), mw, mh);
+  edited = applyRefinementBrushes(edited, mw, mh, refinementPoints.slice(1));
+  const feather = featherMask(edited, mw, mh);
 
   let minX = mw;
   let minY = mh;
@@ -756,7 +918,7 @@ function createSelection(
   let maxY = -1;
   for (let y = 0; y < mh; y += 1) {
     for (let x = 0; x < mw; x += 1) {
-      if (closed[y * mw + x]) {
+      if (edited[y * mw + x]) {
         minX = Math.min(minX, x);
         minY = Math.min(minY, y);
         maxX = Math.max(maxX, x);
@@ -776,10 +938,7 @@ function createSelection(
   const width = x1 - x0;
   const height = y1 - y0;
 
-  const source = canvas
-    .getContext('2d', { willReadFrequently: true })!
-    .getImageData(x0, y0, width, height);
-
+  const source = canvas.getContext('2d', { willReadFrequently: true })!.getImageData(x0, y0, width, height);
   const cutoutCanvas = document.createElement('canvas');
   cutoutCanvas.width = width;
   cutoutCanvas.height = height;
@@ -800,42 +959,64 @@ function createSelection(
   }
   cutoutContext.putImageData(cutout, 0, 0);
 
-  const repairMask = dilateMask(dilateMask(closed, mw, mh), mw, mh);
+  const repairMask = dilateMask(dilateMask(edited, mw, mh), mw, mh);
   const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = canvas.width;
-  maskCanvas.height = canvas.height;
-  const maskImage = maskCanvas.getContext('2d')!.createImageData(canvas.width, canvas.height);
+  const previewCanvas = document.createElement('canvas');
+  maskCanvas.width = previewCanvas.width = canvas.width;
+  maskCanvas.height = previewCanvas.height = canvas.height;
+  const maskContext = maskCanvas.getContext('2d')!;
+  const previewContext = previewCanvas.getContext('2d')!;
+  const maskImage = maskContext.createImageData(canvas.width, canvas.height);
+  const previewImage = previewContext.createImageData(canvas.width, canvas.height);
 
   for (let y = 0; y < canvas.height; y += 1) {
     for (let x = 0; x < canvas.width; x += 1) {
       const mx = clamp(Math.floor(x / sx), 0, mw - 1);
       const my = clamp(Math.floor(y / sy), 0, mh - 1);
-      const value = repairMask[my * mw + mx] ? 255 : 0;
+      const repairValue = repairMask[my * mw + mx] ? 255 : 0;
+      const selected = edited[my * mw + mx] ? 1 : 0;
       const i = (y * canvas.width + x) * 4;
-      maskImage.data[i] = value;
-      maskImage.data[i + 1] = value;
-      maskImage.data[i + 2] = value;
+      maskImage.data[i] = repairValue;
+      maskImage.data[i + 1] = repairValue;
+      maskImage.data[i + 2] = repairValue;
       maskImage.data[i + 3] = 255;
+      previewImage.data[i] = 13;
+      previewImage.data[i + 1] = 116;
+      previewImage.data[i + 2] = 150;
+      previewImage.data[i + 3] = selected ? 92 : 0;
     }
   }
-  maskCanvas.getContext('2d')!.putImageData(maskImage, 0, 0);
+  maskContext.putImageData(maskImage, 0, 0);
+  previewContext.putImageData(previewImage, 0, 0);
 
   return {
     cutoutUrl: cutoutCanvas.toDataURL('image/png'),
     maskUrl: maskCanvas.toDataURL('image/png'),
+    previewUrl: previewCanvas.toDataURL('image/png'),
     bbox: { x: x0, y: y0, width, height },
     centerX: (x0 + width / 2) / canvas.width,
     centerY: (y0 + height / 2) / canvas.height,
   };
 }
 
-function isolateSeededComponent(
-  values: Float32Array,
-  width: number,
-  height: number,
-  seedX: number,
-  seedY: number,
-) {
+function applyRefinementBrushes(mask: Uint8Array, width: number, height: number, points: RefinementPoint[]) {
+  const out = new Uint8Array(mask);
+  const radius = Math.max(4, Math.round(Math.min(width, height) * 0.018));
+  for (const point of points) {
+    const cx = clamp(Math.round(point.x * (width - 1)), 0, width - 1);
+    const cy = clamp(Math.round(point.y * (height - 1)), 0, height - 1);
+    for (let y = Math.max(0, cy - radius); y <= Math.min(height - 1, cy + radius); y += 1) {
+      for (let x = Math.max(0, cx - radius); x <= Math.min(width - 1, cx + radius); x += 1) {
+        const dx = x - cx;
+        const dy = y - cy;
+        if (dx * dx + dy * dy <= radius * radius) out[y * width + x] = point.mode === 'add' ? 1 : 0;
+      }
+    }
+  }
+  return out;
+}
+
+function isolateSeededComponent(values: Float32Array, width: number, height: number, seedX: number, seedY: number) {
   const threshold = 0.34;
   let sx = clamp(Math.round(seedX * (width - 1)), 0, width - 1);
   let sy = clamp(Math.round(seedY * (height - 1)), 0, height - 1);
@@ -848,11 +1029,7 @@ function isolateSeededComponent(
       for (let y = Math.max(0, sy - radius); y <= Math.min(height - 1, sy + radius); y += 1) {
         for (let x = Math.max(0, sx - radius); x <= Math.min(width - 1, sx + radius); x += 1) {
           const score = values[y * width + x]!;
-          if (score > bestScore) {
-            bestScore = score;
-            bestX = x;
-            bestY = y;
-          }
+          if (score > bestScore) { bestScore = score; bestX = x; bestY = y; }
         }
       }
       if (bestScore >= threshold) break;
@@ -871,13 +1048,12 @@ function isolateSeededComponent(
   queueY[tail] = sy;
   tail += 1;
   selected[sy * width + sx] = 1;
-
   const neighbors = [-1, 0, 1];
+
   while (head < tail) {
     const cx = queueX[head]!;
     const cy = queueY[head]!;
     head += 1;
-
     for (const dy of neighbors) {
       for (const dx of neighbors) {
         if (dx === 0 && dy === 0) continue;
@@ -893,7 +1069,6 @@ function isolateSeededComponent(
       }
     }
   }
-
   return tail >= 8 ? selected : null;
 }
 
@@ -906,10 +1081,7 @@ function dilateMask(mask: Uint8Array, width: number, height: number) {
         for (let dx = -1; dx <= 1; dx += 1) {
           const nx = x + dx;
           const ny = y + dy;
-          if (nx >= 0 && nx < width && ny >= 0 && ny < height && mask[ny * width + nx]) {
-            value = 1;
-            break;
-          }
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height && mask[ny * width + nx]) { value = 1; break; }
         }
       }
       out[y * width + x] = value;
@@ -927,10 +1099,7 @@ function erodeMask(mask: Uint8Array, width: number, height: number) {
         for (let dx = -1; dx <= 1; dx += 1) {
           const nx = x + dx;
           const ny = y + dy;
-          if (nx < 0 || nx >= width || ny < 0 || ny >= height || !mask[ny * width + nx]) {
-            keep = 0;
-            break;
-          }
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height || !mask[ny * width + nx]) { keep = 0; break; }
         }
       }
       out[y * width + x] = keep;
@@ -958,9 +1127,7 @@ function featherMask(mask: Uint8Array, width: number, height: number) {
       const index = y * width + x;
       out[index] = mask[index]
         ? clamp(0.72 + average * 0.28, 0, 1)
-        : average >= 0.45
-          ? clamp((average - 0.45) * 0.42, 0, 0.22)
-          : 0;
+        : average >= 0.45 ? clamp((average - 0.45) * 0.42, 0, 0.22) : 0;
     }
   }
   return out;
@@ -992,15 +1159,9 @@ async function createLocalRepair(sourceCanvas: HTMLCanvasElement, maskUrl: strin
     for (let x = 0; x < canvas.width; x += 1) {
       const selected = maskData[(y * canvas.width + x) * 4]! >= 128;
       known[y * canvas.width + x] = selected ? 0 : 1;
-      if (selected) {
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
-      }
+      if (selected) { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); }
     }
   }
-
   if (maxX < minX || maxY < minY) return canvas.toDataURL('image/jpeg', 0.9);
 
   const left = Math.max(1, minX - 2);
@@ -1010,52 +1171,30 @@ async function createLocalRepair(sourceCanvas: HTMLCanvasElement, maskUrl: strin
 
   for (let pass = 0; pass < 96; pass += 1) {
     const fills: Array<{ index: number; r: number; g: number; b: number }> = [];
-
     for (let y = top; y <= bottom; y += 1) {
       for (let x = left; x <= right; x += 1) {
         const pixelIndex = y * canvas.width + x;
         if (known[pixelIndex]) continue;
-
-        let r = 0;
-        let g = 0;
-        let b = 0;
-        let count = 0;
+        let r = 0; let g = 0; let b = 0; let count = 0;
         for (let dy = -1; dy <= 1; dy += 1) {
           for (let dx = -1; dx <= 1; dx += 1) {
             if (dx === 0 && dy === 0) continue;
-            const nx = x + dx;
-            const ny = y + dy;
-            const neighbor = ny * canvas.width + nx;
+            const neighbor = (y + dy) * canvas.width + (x + dx);
             if (!known[neighbor]) continue;
             const i = neighbor * 4;
-            r += image.data[i]!;
-            g += image.data[i + 1]!;
-            b += image.data[i + 2]!;
-            count += 1;
+            r += image.data[i]!; g += image.data[i + 1]!; b += image.data[i + 2]!; count += 1;
           }
         }
-        if (count >= 2) {
-          fills.push({
-            index: pixelIndex,
-            r: Math.round(r / count),
-            g: Math.round(g / count),
-            b: Math.round(b / count),
-          });
-        }
+        if (count >= 2) fills.push({ index: pixelIndex, r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) });
       }
     }
-
     if (!fills.length) break;
     for (const fill of fills) {
       const i = fill.index * 4;
-      image.data[i] = fill.r;
-      image.data[i + 1] = fill.g;
-      image.data[i + 2] = fill.b;
-      image.data[i + 3] = 255;
+      image.data[i] = fill.r; image.data[i + 1] = fill.g; image.data[i + 2] = fill.b; image.data[i + 3] = 255;
       known[fill.index] = 1;
     }
   }
-
   ctx.putImageData(image, 0, 0);
 
   const blurredCanvas = document.createElement('canvas');
@@ -1078,18 +1217,11 @@ async function createLocalRepair(sourceCanvas: HTMLCanvasElement, maskUrl: strin
       finalImage.data[i + 3] = 255;
     }
   }
-
   ctx.putImageData(finalImage, 0, 0);
   return canvas.toDataURL('image/jpeg', 0.9);
 }
 
-async function repairBackground({
-  projectId,
-  spaceId,
-  token,
-  sourceCanvas,
-  maskUrl,
-}: {
+async function repairBackground({ projectId, spaceId, token, sourceCanvas, maskUrl }: {
   projectId?: string;
   spaceId?: string;
   token?: string;
@@ -1099,19 +1231,10 @@ async function repairBackground({
   if (!projectId || !spaceId || !token) return null;
   const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '');
   if (!apiBase) return null;
-  const sourceDataUrl = resizedDataUrl(sourceCanvas, 1100);
   const response = await fetch(`${apiBase}/api/ai/repair-background`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      projectId,
-      spaceId,
-      sourceDataUrl,
-      maskDataUrl: maskUrl,
-    }),
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, spaceId, sourceDataUrl: resizedDataUrl(sourceCanvas, 1100), maskDataUrl: maskUrl }),
   });
   if (!response.ok) return null;
   const data = await response.json() as { imageDataUrl?: string };
@@ -1127,14 +1250,7 @@ function resizedDataUrl(source: HTMLCanvasElement, maxDimension: number) {
   return canvas.toDataURL('image/jpeg', 0.88);
 }
 
-async function compositeScene({
-  sceneUrl,
-  selection,
-  position,
-  scale,
-  rotation,
-  imageSize,
-}: {
+async function compositeScene({ sceneUrl, selection, position, scale, rotation, imageSize }: {
   sceneUrl: string;
   selection: Selection;
   position: Point;
@@ -1153,31 +1269,24 @@ async function compositeScene({
   const height = selection.bbox.height * scale;
   const centerX = position.x * canvas.width;
   const centerY = position.y * canvas.height;
-
   ctx.save();
   ctx.translate(centerX, centerY);
   ctx.rotate(rotation * Math.PI / 180);
   ctx.drawImage(cutout, -width / 2, -height / 2, width, height);
   ctx.restore();
-
   return canvas.toDataURL('image/jpeg', 0.92);
 }
 
 async function loadSceneIntoCanvas(url: string) {
   const image = await loadImage(url);
   const max = 1400;
-  const resizeScale = Math.min(
-    1,
-    max / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height),
-  );
+  const resizeScale = Math.min(1, max / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
   const width = Math.max(1, Math.round((image.naturalWidth || image.width) * resizeScale));
   const height = Math.max(1, Math.round((image.naturalHeight || image.height) * resizeScale));
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  canvas
-    .getContext('2d', { willReadFrequently: true })!
-    .drawImage(image, 0, 0, width, height);
+  canvas.getContext('2d', { willReadFrequently: true })!.drawImage(image, 0, 0, width, height);
   return { canvas, width, height };
 }
 
@@ -1196,26 +1305,14 @@ function pointerPointInElement(element: HTMLElement, clientX: number, clientY: n
   return { x: clientX - rect.left, y: clientY - rect.top };
 }
 
-function stagePointToImagePoint(
-  point: Point,
-  scale: number,
-  offset: Point,
-  stageSize: { width: number; height: number },
-): Point | null {
+function stagePointToImagePoint(point: Point, scale: number, offset: Point, stageSize: { width: number; height: number }): Point | null {
   const x = (point.x - offset.x) / Math.max(scale, 0.001);
   const y = (point.y - offset.y) / Math.max(scale, 0.001);
   if (x < 0 || y < 0 || x > stageSize.width || y > stageSize.height) return null;
-  return {
-    x: clamp(x / Math.max(stageSize.width, 1), 0, 1),
-    y: clamp(y / Math.max(stageSize.height, 1), 0, 1),
-  };
+  return { x: clamp(x / Math.max(stageSize.width, 1), 0, 1), y: clamp(y / Math.max(stageSize.height, 1), 0, 1) };
 }
 
-function clampViewportOffset(
-  offset: Point,
-  scale: number,
-  stageSize: { width: number; height: number },
-): Point {
+function clampViewportOffset(offset: Point, scale: number, stageSize: { width: number; height: number }): Point {
   if (scale <= 1.001) return { x: 0, y: 0 };
   return {
     x: clamp(offset.x, stageSize.width * (1 - scale), 0),
@@ -1224,174 +1321,57 @@ function clampViewportOffset(
 }
 
 function pointCentroid(points: Point[]) {
-  return {
-    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-    y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
-  };
+  return { x: points.reduce((sum, point) => sum + point.x, 0) / points.length, y: points.reduce((sum, point) => sum + point.y, 0) / points.length };
 }
-
-function pointDistance(a: Point, b: Point) {
-  return Math.hypot(b.x - a.x, b.y - a.y);
-}
-
-function pointAngle(a: Point, b: Point) {
-  return Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
-}
-
-function normalizeAngle(value: number) {
-  let next = value;
-  while (next > 180) next -= 360;
-  while (next < -180) next += 360;
-  return next;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
+function pointDistance(a: Point, b: Point) { return Math.hypot(b.x - a.x, b.y - a.y); }
+function pointAngle(a: Point, b: Point) { return Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI; }
+function normalizeAngle(value: number) { let next = value; while (next > 180) next -= 360; while (next < -180) next += 360; return next; }
+function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
 
 const styles = StyleSheet.create({
-  shell: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,.72)',
-    borderWidth: 1,
-    borderColor: tokens.color.line,
-  },
-  toolbar: {
-    padding: 14,
-    gap: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    backgroundColor: 'rgba(250,249,246,.96)',
-  },
-  toolbarCopy: { flex: 1, minWidth: 230 },
-  kicker: {
-    fontSize: 8,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: tokens.color.peach,
-  },
-  title: {
-    marginTop: 3,
-    fontSize: 16,
-    fontWeight: '800',
-    color: tokens.color.text,
-  },
-  body: {
-    marginTop: 3,
-    fontSize: 9,
-    lineHeight: 14,
-    color: tokens.color.muted,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 6,
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  gestureHint: {
-    minHeight: 34,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    flexDirection: 'row',
-    gap: 4,
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,.62)',
-    borderWidth: 1,
-    borderColor: tokens.color.line,
-  },
-  gestureHintStrong: { fontSize: 8, fontWeight: '800', color: tokens.color.text },
-  gestureHintText: { fontSize: 8, color: tokens.color.muted },
-  gestureHintDot: { fontSize: 8, color: tokens.color.muted },
-  toolButton: {
-    minWidth: 34,
-    minHeight: 34,
-    paddingHorizontal: 9,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: tokens.color.line,
-  },
-  toolText: { fontSize: 9, fontWeight: '800', color: tokens.color.text },
-  aiButton: {
-    minHeight: 34,
-    paddingHorizontal: 11,
-    borderRadius: 10,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(207,229,236,.72)',
-    borderWidth: 1,
-    borderColor: 'rgba(13,116,150,.18)',
-  },
-  aiText: { fontSize: 9, fontWeight: '800', color: tokens.color.blue },
-  primaryButton: {
-    minHeight: 34,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    justifyContent: 'center',
-    backgroundColor: tokens.color.blue,
-  },
-  primaryText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  shell: { borderRadius: 24, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,.72)', borderWidth: 1, borderColor: tokens.color.line },
+  toolbar: { padding: 14, gap: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', backgroundColor: 'rgba(250,249,246,.96)' },
+  toolbarCopy: { flex: 1, minWidth: 210 },
+  kicker: { fontSize: 8, fontWeight: '800', letterSpacing: 1.2, color: tokens.color.peach },
+  title: { marginTop: 3, fontSize: 17, fontWeight: '800', color: tokens.color.text },
+  body: { marginTop: 3, fontSize: 10, lineHeight: 15, color: tokens.color.muted },
+  topActions: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  zoomPill: { minHeight: 34, paddingHorizontal: 10, borderRadius: 10, flexDirection: 'row', gap: 4, alignItems: 'center', backgroundColor: 'rgba(255,255,255,.62)', borderWidth: 1, borderColor: tokens.color.line },
+  zoomPillStrong: { fontSize: 9, fontWeight: '800', color: tokens.color.text },
+  zoomPillText: { fontSize: 8, color: tokens.color.muted },
+  compactButton: { minHeight: 34, paddingHorizontal: 10, borderRadius: 10, justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: tokens.color.line },
+  compactButtonText: { fontSize: 9, fontWeight: '800', color: tokens.color.text },
   disabled: { opacity: 0.45 },
-  stage: {
-    width: '100%',
-    position: 'relative',
-    overflow: 'hidden',
-    backgroundColor: '#D8D5CD',
-  },
-  busyOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(20,24,25,.24)',
-    zIndex: 10,
-  },
+  stage: { width: '100%', position: 'relative', overflow: 'hidden', backgroundColor: '#D8D5CD' },
+  busyOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: 'rgba(20,24,25,.20)', zIndex: 30 },
   busyText: { color: '#fff', fontSize: 10, fontWeight: '800' },
-  repairBadge: {
-    position: 'absolute',
-    right: 10,
-    top: 10,
-    zIndex: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: 'rgba(250,249,246,.94)',
-    borderWidth: 1,
-    borderColor: tokens.color.line,
-  },
+  repairBadge: { position: 'absolute', right: 10, top: 10, zIndex: 12, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: 'rgba(250,249,246,.94)', borderWidth: 1, borderColor: tokens.color.line },
   repairBadgeText: { fontSize: 8, fontWeight: '800', color: tokens.color.text },
-  error: {
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    fontSize: 9,
-    lineHeight: 13,
-    color: '#A84C4C',
-  },
-  footer: {
-    padding: 12,
-    borderTopWidth: 1,
-    borderTopColor: tokens.color.line,
-    backgroundColor: 'rgba(250,249,246,.94)',
-  },
+  controlTray: { padding: 11, gap: 8, borderTopWidth: 1, borderTopColor: tokens.color.line, backgroundColor: 'rgba(250,249,246,.98)' },
+  trayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  trayHeaderCopy: { flex: 1 },
+  trayTitle: { fontSize: 11, fontWeight: '800', color: tokens.color.text },
+  trayHint: { marginTop: 2, fontSize: 8, lineHeight: 12, color: tokens.color.muted },
+  pointCount: { fontSize: 8, fontWeight: '800', color: tokens.color.blue, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(207,229,236,.55)' },
+  refineRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, alignItems: 'stretch' },
+  modeButton: { minHeight: 40, minWidth: 82, paddingHorizontal: 12, borderRadius: 11, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: tokens.color.line },
+  modeButtonActive: { backgroundColor: 'rgba(207,229,236,.72)', borderColor: 'rgba(13,116,150,.45)' },
+  removeButtonActive: { backgroundColor: 'rgba(168,76,76,.08)', borderColor: 'rgba(168,76,76,.38)' },
+  modeButtonText: { fontSize: 9, fontWeight: '800', color: tokens.color.text },
+  modeButtonTextActive: { color: tokens.color.blue },
+  removeButtonTextActive: { color: '#A84C4C' },
+  squareButton: { width: 42, minHeight: 40, borderRadius: 11, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: tokens.color.line },
+  squareButtonText: { fontSize: 13, fontWeight: '800', color: tokens.color.text },
+  aiButton: { minHeight: 40, flexGrow: 1, minWidth: 100, paddingHorizontal: 12, borderRadius: 11, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(207,229,236,.72)', borderWidth: 1, borderColor: 'rgba(13,116,150,.18)' },
+  aiText: { fontSize: 9, fontWeight: '800', color: tokens.color.blue },
+  primaryButton: { minHeight: 40, flexGrow: 1, minWidth: 110, paddingHorizontal: 13, borderRadius: 11, justifyContent: 'center', alignItems: 'center', backgroundColor: tokens.color.blue },
+  primaryText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  cancelButton: { minHeight: 40, minWidth: 78, paddingHorizontal: 12, borderRadius: 11, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: tokens.color.line },
+  cancelText: { fontSize: 9, fontWeight: '800', color: tokens.color.text },
+  idleTray: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' },
+  error: { paddingHorizontal: 14, paddingTop: 10, fontSize: 9, lineHeight: 13, color: '#A84C4C' },
+  footer: { padding: 12, borderTopWidth: 1, borderTopColor: tokens.color.line, backgroundColor: 'rgba(250,249,246,.94)' },
   footerStrong: { fontSize: 9, fontWeight: '800', color: tokens.color.text },
-  footerText: {
-    marginTop: 3,
-    fontSize: 8,
-    lineHeight: 12,
-    color: tokens.color.muted,
-  },
-  empty: {
-    minHeight: 360,
-    padding: 28,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,.72)',
-    borderRadius: 24,
-  },
+  footerText: { marginTop: 3, fontSize: 8, lineHeight: 12, color: tokens.color.muted },
+  empty: { minHeight: 360, padding: 28, justifyContent: 'center', backgroundColor: 'rgba(255,255,255,.72)', borderRadius: 24 },
 });
