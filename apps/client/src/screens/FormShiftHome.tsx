@@ -74,8 +74,8 @@ export function FormShiftHome() {
               {!workspace.loading && workspace.workingSnapshot ? (
                 <PlanCanvas
                   snapshot={mode === 'organize' && organizePreview ? organizePreview : workspace.workingSnapshot}
-                  editable={mode === 'arrange'}
-                  onSnapshotChange={workspace.setWorkingSnapshot}
+                  editable={mode === 'arrange' || (mode === 'organize' && !!organizePreview)}
+                  onSnapshotChange={mode === 'organize' && organizePreview ? setOrganizePreview : workspace.setWorkingSnapshot}
                 />
               ) : null}
             </View>
@@ -88,6 +88,7 @@ export function FormShiftHome() {
                   spaceId={workspace.space?.id}
                   activeVersionId={workspace.activeVersionId}
                   snapshot={workspace.workingSnapshot}
+                  previewSnapshot={organizePreview}
                   busy={workspace.busy}
                   onAccept={workspace.acceptOrganizeProposal}
                   onPreviewChange={setOrganizePreview}
@@ -149,7 +150,7 @@ function measurementLabel(summary: 'needs_dimensions' | 'estimated' | 'measured'
 
 function copyFor(mode: Mode, hasPlan: boolean, objectCount: number) {
   if (!hasPlan) return 'Capture the room, then enter dimensions. FormShift will not infer authoritative geometry from a photo alone.';
-  if (mode === 'organize') return objectCount > 0 ? 'Ask FormShift for practical layout options. Every proposal is checked against the committed room geometry before you can accept it.' : 'Add the furniture and storage you want FormShift to reason about.';
+  if (mode === 'organize') return objectCount > 0 ? 'Ask FormShift for practical layout options, then preview and drag the proposed boxes to fine-tune a validated draft before accepting it.' : 'Add the furniture and storage you want FormShift to reason about.';
   if (mode === 'arrange') return 'Move real objects directly, then save the layout as a new immutable spatial version.';
   return 'Build planning now binds to the captured room and its measurement state rather than the original demo fixture.';
 }
