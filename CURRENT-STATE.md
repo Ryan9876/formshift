@@ -2,7 +2,7 @@
 
 **Revision:** 0.6.0  
 **Date:** 2026-08-20  
-**Milestone:** Photo Arrange v1 implementation complete; production promotion in progress and authenticated interaction validation pending
+**Milestone:** Photo Arrange v1 ready for production promotion; authenticated interaction validation pending
 
 ## Product direction
 
