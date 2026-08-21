@@ -13,7 +13,11 @@
   "scripts": {
     "domain:build": "npm run build -w @formshift/domain",
     "domain:test": "npm run test -w @formshift/domain",
-    "verify": "node scripts/verify-repo.mjs && node scripts/verify-security.mjs && npm run domain:test",
+    "verify:arrange": "node scripts/verify-arrange-contract.mjs",
+    "verify:scene": "node scripts/verify-scene-boundaries.mjs",
+    "verify": "node scripts/verify-repo.mjs && node scripts/verify-security.mjs && npm run domain:test && npm run verify:arrange && npm run verify:scene",
+    "client:typecheck": "npm run typecheck -w @formshift/client",
+    "api:typecheck": "npm run typecheck -w @formshift/api",
     "client:start": "npm run start -w @formshift/client",
     "client:web": "npm run web -w @formshift/client",
     "client:export": "npm run export:web -w @formshift/client",
