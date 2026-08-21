@@ -21,9 +21,12 @@ export type PersistPhotoArrangementInput = {
     x: number;
     y: number;
     scale: number;
+    manualScale?: number;
+    perspectiveFactor?: number;
+    placementAssist?: boolean;
     rotationDeg: number;
     bbox: { x: number; y: number; width: number; height: number };
-    rendererVersion: 'photo-arrange-1.5';
+    rendererVersion: string;
   };
 };
 
@@ -218,49 +221,48 @@ async function uploadDataUrlAsset({
   kind: string;
   path: string;
   dataUrl: string;
-}): Promise<AssetRow> {
+}) {
   if (!supabase) throw new Error('Photo arrangement persistence is unavailable.');
+  const parsed = parseDataUrl(dataUrl);
 
-  const blob = await dataUrlToBlob(dataUrl);
-  const upload = await supabase.storage
+  const uploaded = await supabase.storage
     .from(BUCKET)
-    .upload(path, blob, {
-      contentType: blob.type || mimeTypeForPath(path),
+    .upload(path, parsed.blob, {
+      contentType: parsed.contentType,
       upsert: false,
     });
+  if (uploaded.error) throw uploaded.error;
 
-  if (upload.error) throw upload.error;
-
-  const inserted = await supabase
+  const asset = await supabase
     .from('assets')
     .insert({
       project_id: projectId,
       space_id: spaceId,
       kind,
-      storage_bucket: BUCKET,
-      storage_path: path,
-      mime_type: blob.type || mimeTypeForPath(path),
-      byte_size: blob.size,
-      privacy_class: 'private_household',
+      storage_path: uploaded.data.path,
+      content_type: parsed.contentType,
+      byte_size: parsed.blob.size,
       created_by: userId,
     })
     .select('id, storage_path')
     .single();
 
-  if (inserted.error) {
-    await supabase.storage.from(BUCKET).remove([path]);
-    throw inserted.error;
+  if (asset.error) {
+    await supabase.storage.from(BUCKET).remove([uploaded.data.path]);
+    throw asset.error;
   }
 
-  return inserted.data as AssetRow;
+  return asset.data as AssetRow;
 }
 
-async function dataUrlToBlob(dataUrl: string) {
-  const response = await fetch(dataUrl);
-  if (!response.ok) throw new Error('Could not prepare the edited photo for storage.');
-  return response.blob();
-}
-
-function mimeTypeForPath(path: string) {
-  return path.endsWith('.png') ? 'image/png' : 'image/jpeg';
+function parseDataUrl(value: string) {
+  const match = /^data:([^;,]+);base64,(.+)$/s.exec(value);
+  if (!match) throw new Error('Expected an encoded image.');
+  const binary = atob(match[2]!);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return {
+    contentType: match[1]!,
+    blob: new Blob([bytes], { type: match[1]! }),
+  };
 }
