@@ -93,8 +93,33 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
       try {
         const saved = await loadLatestPhotoArrangement(projectId, spaceId);
         if (cancelled) return;
+
+        if (saved?.backgroundUrl && saved.cutoutUrl && saved.maskUrl && saved.transform) {
+          const prepared = await loadSceneIntoCanvas(saved.backgroundUrl);
+          if (cancelled) return;
+          sourceCanvasRef.current = prepared.canvas;
+          setImageSize({ width: prepared.width, height: prepared.height });
+          setSceneUrl(saved.backgroundUrl);
+          setPersistedSceneUrl(saved.sceneUrl);
+          setBackgroundDataUrl(saved.backgroundUrl);
+          sourceBeforeLiftRef.current = null;
+          setSelection({
+            cutoutUrl: saved.cutoutUrl,
+            maskUrl: saved.maskUrl,
+            previewUrl: saved.maskUrl,
+            bbox: saved.transform.bbox,
+            centerX: saved.transform.x,
+            centerY: saved.transform.y,
+          });
+          setPosition({ x: clamp(saved.transform.x, .02, .98), y: clamp(saved.transform.y, .02, .98) });
+          setScale(clamp(saved.transform.scale, .35, 2.2));
+          setRotation(saved.transform.rotationDeg);
+          setStatus('Saved object restored and editable. Drag it directly to reposition it.');
+          return;
+        }
+
         setSceneUrl(saved?.sceneUrl ?? photoUrl); setPersistedSceneUrl(saved?.sceneUrl ?? photoUrl);
-        setStatus(saved ? 'Saved arrangement restored. Zoom in, then tap an object.' : 'Pinch to zoom the room, then tap an object to select it.');
+        setStatus(saved ? 'Saved arrangement restored as a flattened scene. Tap an object to select it again.' : 'Pinch to zoom the room, then tap an object to select it.');
       } catch (err) {
         if (!cancelled) { setSceneUrl(photoUrl); setPersistedSceneUrl(photoUrl); setError(message(err, 'Could not restore the latest arrangement.')); }
       }
@@ -169,7 +194,7 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
       sourceBeforeLiftRef.current = source;
       const localBackground = await createLocalRepair(source, next.maskUrl);
       setSelection(next); setCandidate(null); setStrokes([]); setRedoStrokes([]); setLiveStroke(null); setLoupePoint(null);
-      setPosition({ x: next.centerX, y: next.centerY }); setScale(1); setRotation(0); setBackgroundDataUrl(null); setSceneUrl(localBackground);
+      setPosition({ x: next.centerX, y: next.centerY }); setScale(1); setRotation(0); setBackgroundDataUrl(localBackground); setSceneUrl(localBackground);
       setStatus('Object lifted. Drag it directly; use outside gestures to navigate the room.');
     } catch (err) { sourceBeforeLiftRef.current = null; setError(message(err, 'Could not lift the selection.')); }
     finally { setBusy(false); }
@@ -287,8 +312,9 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
     setSaving(true); setError(null); setStatus('Saving this photo arrangement…');
     try {
       const composite = await compositeScene({ sceneUrl, selection, position, scale, rotation, imageSize });
-      const saved = await persistPhotoArrangement({ projectId, spaceId, userId: auth.session.user.id, baseSpatialVersionId, resultDataUrl: composite, maskDataUrl: selection.maskUrl, cutoutDataUrl: selection.cutoutUrl, backgroundDataUrl, transform: { x: position.x, y: position.y, scale, rotationDeg: rotation, bbox: selection.bbox, rendererVersion: 'photo-arrange-1.7' } });
-      setSceneUrl(saved.sceneUrl); setPersistedSceneUrl(saved.sceneUrl); setSelection(null); setBackgroundDataUrl(null); sourceBeforeLiftRef.current = null; setStatus('Placement saved. It will restore after refresh.');
+      const backgroundForPersistence = backgroundDataUrl ?? sceneUrl;
+      const saved = await persistPhotoArrangement({ projectId, spaceId, userId: auth.session.user.id, baseSpatialVersionId, resultDataUrl: composite, maskDataUrl: selection.maskUrl, cutoutDataUrl: selection.cutoutUrl, backgroundDataUrl: backgroundForPersistence, transform: { x: position.x, y: position.y, scale, rotationDeg: rotation, bbox: selection.bbox, rendererVersion: 'photo-arrange-2.2' } });
+      setPersistedSceneUrl(saved.sceneUrl); setBackgroundDataUrl(backgroundForPersistence); setStatus('Placement saved. The object stays editable—drag it again or leave Arrange.');
     } catch (err) { setError(message(err, 'Could not save this placement.')); }
     finally { setSaving(false); }
   }
@@ -297,9 +323,11 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
 
   if (!photoUrl) return <View style={styles.empty}><Text style={styles.title}>Capture a room photo first.</Text><Text style={styles.body}>Arrange works directly on the real room image.</Text></View>;
 
+  const canRepairBackground = !!sourceBeforeLiftRef.current;
+
   return <View style={styles.shell}>
     <View style={styles.toolbar}>
-      <View style={styles.toolbarCopy}><Text style={styles.kicker}>PHOTO ARRANGE</Text><Text style={styles.title}>{candidate ? 'Paint the selection before you lift it.' : 'Tap it. Lift it. Move it.'}</Text><Text style={styles.body}>{status}</Text></View>
+      <View style={styles.toolbarCopy}><Text style={styles.kicker}>PHOTO ARRANGE</Text><Text style={styles.title}>{candidate ? 'Paint the selection before you lift it.' : selection ? 'Drag it. Save it. Keep editing.' : 'Tap it. Lift it. Move it.'}</Text><Text style={styles.body}>{status}</Text></View>
       <View style={styles.topActions}><View style={styles.zoomPill}><Text style={styles.zoomPillStrong}>{viewScale.toFixed(1)}×</Text><Text style={styles.zoomPillText}>view</Text></View><Pressable disabled={viewScale <= 1.01} style={[styles.compactButton, viewScale <= 1.01 && styles.disabled]} onPress={fitPhoto}><Text style={styles.compactButtonText}>Fit photo</Text></Pressable></View>
     </View>
 
@@ -336,16 +364,16 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
           <Pressable style={styles.cancelButton} onPress={cancelCandidate}><Text style={styles.cancelText}>Cancel</Text></Pressable>
         </View>
       </> : selection ? <>
-        <View style={styles.trayHeader}><View style={styles.trayHeaderCopy}><Text style={styles.trayTitle}>Arrange object</Text><Text style={styles.trayHint}>Drag the object. Pinch/twist on it to resize/rotate; gestures outside navigate the room.</Text></View></View>
+        <View style={styles.trayHeader}><View style={styles.trayHeaderCopy}><Text style={styles.trayTitle}>Arrange object</Text><Text style={styles.trayHint}>Drag the object anywhere in the photo. Pinch/twist on it to resize/rotate; gestures outside navigate the room.</Text></View></View>
         <View style={styles.refineRow}>
           <Pressable style={styles.squareButton} onPress={()=>setScale(v=>clamp(v-.1,.35,2.2))}><Text style={styles.squareButtonText}>−</Text></Pressable><Pressable style={styles.squareButton} onPress={()=>setScale(v=>clamp(v+.1,.35,2.2))}><Text style={styles.squareButtonText}>＋</Text></Pressable><Pressable style={styles.squareButton} onPress={()=>setRotation(v=>v-5)}><Text style={styles.squareButtonText}>↺</Text></Pressable><Pressable style={styles.squareButton} onPress={()=>setRotation(v=>v+5)}><Text style={styles.squareButtonText}>↻</Text></Pressable>
-          <Pressable disabled={repairing} style={[styles.aiButton,repairing&&styles.disabled]} onPress={()=>void refineBackground()}><Text style={styles.aiText}>{repairing?'Repairing…':'AI repair'}</Text></Pressable><Pressable disabled={saving} style={[styles.primaryButton,saving&&styles.disabled]} onPress={()=>void keepPlacement()}><Text style={styles.primaryText}>{saving?'Saving…':'Keep placement'}</Text></Pressable>
+          <Pressable disabled={repairing || !canRepairBackground} style={[styles.aiButton,(repairing||!canRepairBackground)&&styles.disabled]} onPress={()=>void refineBackground()}><Text style={styles.aiText}>{!canRepairBackground?'Background ready':repairing?'Repairing…':'AI repair'}</Text></Pressable><Pressable disabled={saving} style={[styles.primaryButton,saving&&styles.disabled]} onPress={()=>void keepPlacement()}><Text style={styles.primaryText}>{saving?'Saving…':'Keep placement'}</Text></Pressable>
         </View>
       </> : <View style={styles.idleTray}><Text style={styles.trayHint}>2 fingers zoom · 1 finger pans when zoomed · short tap selects</Text><Pressable style={styles.cancelButton} onPress={resetScene}><Text style={styles.cancelText}>Reset scene</Text></Pressable></View>}
     </View>
 
     {error ? <Text style={styles.error}>{error}</Text> : null}
-    <View style={styles.footer}><Text style={styles.footerStrong}>Paint the mask before pixels move.</Text><Text style={styles.footerText}>Continuous Add/Remove refinement, mask preview, undo/redo, and the loupe run locally in your browser. AI background repair remains explicit. Saved placements are derived photo versions; the source room photo is never overwritten.</Text></View>
+    <View style={styles.footer}><Text style={styles.footerStrong}>Saved objects stay editable.</Text><Text style={styles.footerText}>The object-free background, mask, cutout, and transform are retained with each saved placement. AI background repair remains explicit. Saved placements are derived photo versions; the source room photo is never overwritten.</Text></View>
   </View>;
 }
 
