@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.9.5  
+**Revision:** 0.9.6  
 **Date:** 2026-08-21  
-**Milestone:** Scene Foundation v1 candidate implemented; Safari object-drag handoff fix and CI hardening added; production promotion pending full CI and real-device acceptance
+**Milestone:** Scene Foundation v1 candidate passes complete CI and preview export; production promotion pending real-device Safari gesture acceptance
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
@@ -42,7 +42,7 @@ The active candidate Arrange route uses one canonical `PhotoArrangeEditor` bound
 - explicit AI background repair remains available in the v2.2 core
 - former V19/V20 source files remain temporarily as rollback/comparison artifacts until device acceptance
 
-This refactor is preview-build validated but **not yet fully real-device interaction validated**.
+This refactor is preview-build and CI validated but **not yet fully real-device interaction validated**.
 
 ## Real-device finding — object drag hands off to page scrolling
 
@@ -141,7 +141,7 @@ The verified-claims path now fails closed when the SDK returns an error, missing
 
 ## CI/release hardening
 
-The candidate CI now exercises:
+The candidate CI exercises:
 - repository/source validation
 - security validation
 - canonical domain tests
@@ -159,7 +159,7 @@ The first complete typecheck exposure found and corrected three previously maske
 
 The subsequent API typecheck exposed and corrected nullable `getClaims()` data handling.
 
-A final complete CI run is required after these corrections. Vercel preview export success alone is not treated as sufficient release evidence.
+GitHub Actions run `32499563718` completed successfully on candidate head `e91df864dcf805387218dc0ff57581c0b22c54d7`. Repository/security/domain/Arrange/scene guards, client typecheck, API typecheck, and production web export all passed. Matching Vercel web preview deployment `dpl_4n9awo7joipaP9mzuwmyEJy6EuKk` reached READY on that exact commit. The remaining release gate is physical-iPhone interaction acceptance; CI/build success is not treated as proof that Safari gesture handoff is resolved.
 
 ## Current accuracy boundaries
 
@@ -209,7 +209,7 @@ Do not reintroduce image-space placement heuristics on top of uncalibrated depth
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision 0.9.5 records the failed CSS workaround, the explicit Safari gesture bridge, the CI/type-contract corrections, and pending device/CI acceptance.
+- `CURRENT-STATE.md`: revision 0.9.6 records the complete CI pass and exact READY preview while preserving the pending physical-iPhone acceptance boundary.
 - `ARCHITECTURE.md`: unchanged in this correction; durable SceneAnalysis/provider/persistence and canonical Arrange decisions remain revision 0.5.2.
 - `DESIGN-SYSTEM.md`: unchanged; no durable visual-language or interaction-policy change was required.
 - `PROJECT-CONSTITUTION.md`: unchanged; source integrity, privacy, reversibility, deterministic spatial truth, and measurement-provenance rules continue to govern the implementation.
