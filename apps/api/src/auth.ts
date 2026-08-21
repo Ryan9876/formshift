@@ -18,7 +18,7 @@ export async function requireVerifiedIdentity(request: Request) {
   const client = userClient(token);
   const { data, error } = await client.auth.getClaims();
   const userId = typeof data?.claims?.sub === 'string' ? data.claims.sub : null;
-  if (error || !userId) throw new Response('Unauthorized', { status: 401 });
+  if (error || !data?.claims || !userId) throw new Response('Unauthorized', { status: 401 });
 
   const email = typeof data.claims.email === 'string' ? data.claims.email : null;
   return { userId, email, client };
