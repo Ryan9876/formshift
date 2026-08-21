@@ -1,11 +1,12 @@
 import type { SpatialSnapshot } from '@formshift/domain';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { prepareObjectCenteredSelectionEngine } from '../vision/MediaPipeObjectSegmenter.web';
 import { tokens } from '../theme/tokens';
 import { PhotoArrangeEditorV17 } from './PhotoArrangeEditorV17';
 
 const STYLE_ID = 'formshift-photo-arrange-canonical';
+const MOVE_HANDLE_SELECTOR = "[aria-label='Move selected object']";
 
 type Props = {
   photoUrl?: string | null;
@@ -24,6 +25,9 @@ type Props = {
  * There is no MutationObserver, UI-text scraping, or programmatic button click.
  */
 export function PhotoArrangeEditor(props: Props) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const activeMoveHandleRef = useRef<HTMLElement | null>(null);
+  const activeMovePointersRef = useRef(new Set<number>());
   const [ready, setReady] = useState(false);
   const [engineError, setEngineError] = useState<string | null>(null);
 
@@ -67,25 +71,86 @@ export function PhotoArrangeEditor(props: Props) {
           filter: blur(7px);
           opacity: .68;
         }
-
-        /*
-         * Mobile Safari can drop pointer capture when the transparent object
-         * handle is repositioned every frame. While the drag is active, expand
-         * that same handle over the complete photo stage. The pointer therefore
-         * remains on the original React target even if Safari releases capture,
-         * while outside-stage gestures remain unchanged because expansion only
-         * begins after the user starts directly on the selected object.
-         */
-        [data-formshift-photo-arrange='canonical'] [aria-label='Move selected object']:active {
-          inset: 0 !important;
-          width: auto !important;
-          height: auto !important;
-          z-index: 9 !important;
-        }
       `;
       document.head.appendChild(style);
     }
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const root = rootRef.current;
+    if (!root) return;
+
+    const moveHandleFor = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return null;
+      return target.closest(MOVE_HANDLE_SELECTOR) as HTMLElement | null;
+    };
+
+    const beginObjectDrag = (event: PointerEvent) => {
+      if (!event.isTrusted) return;
+      const handle = moveHandleFor(event.target);
+      if (!handle || !root.contains(handle)) return;
+      activeMoveHandleRef.current = handle;
+      activeMovePointersRef.current.add(event.pointerId);
+    };
+
+    const forwardPointer = (event: PointerEvent) => {
+      if (!event.isTrusted || !activeMovePointersRef.current.has(event.pointerId)) return;
+      const handle = activeMoveHandleRef.current;
+      if (!handle?.isConnected) return;
+      if (event.cancelable) event.preventDefault();
+      if (event.target === handle) return;
+
+      handle.dispatchEvent(new PointerEvent(event.type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        isPrimary: event.isPrimary,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        screenX: event.screenX,
+        screenY: event.screenY,
+        button: event.button,
+        buttons: event.buttons,
+        pressure: event.pressure,
+        width: event.width,
+        height: event.height,
+        tiltX: event.tiltX,
+        tiltY: event.tiltY,
+        twist: event.twist,
+      }));
+    };
+
+    const finishObjectDrag = (event: PointerEvent) => {
+      if (!event.isTrusted || !activeMovePointersRef.current.has(event.pointerId)) return;
+      forwardPointer(event);
+      activeMovePointersRef.current.delete(event.pointerId);
+      if (!activeMovePointersRef.current.size) activeMoveHandleRef.current = null;
+    };
+
+    const blockPageScrollDuringObjectDrag = (event: TouchEvent) => {
+      if (!activeMovePointersRef.current.size) return;
+      if (event.cancelable) event.preventDefault();
+    };
+
+    root.addEventListener('pointerdown', beginObjectDrag, true);
+    window.addEventListener('pointermove', forwardPointer, true);
+    window.addEventListener('pointerup', finishObjectDrag, true);
+    window.addEventListener('pointercancel', finishObjectDrag, true);
+    document.addEventListener('touchmove', blockPageScrollDuringObjectDrag, { capture: true, passive: false });
+
+    return () => {
+      root.removeEventListener('pointerdown', beginObjectDrag, true);
+      window.removeEventListener('pointermove', forwardPointer, true);
+      window.removeEventListener('pointerup', finishObjectDrag, true);
+      window.removeEventListener('pointercancel', finishObjectDrag, true);
+      document.removeEventListener('touchmove', blockPageScrollDuringObjectDrag, true);
+      activeMovePointersRef.current.clear();
+      activeMoveHandleRef.current = null;
+    };
+  }, [ready]);
 
   if (!ready) {
     return (
@@ -98,7 +163,7 @@ export function PhotoArrangeEditor(props: Props) {
   }
 
   return (
-    <div data-formshift-photo-arrange="canonical">
+    <div ref={rootRef} data-formshift-photo-arrange="canonical">
       {engineError ? (
         <div style={{ padding: '9px 12px', fontSize: 11, lineHeight: '16px', color: '#A84C4C', background: 'rgba(168,76,76,.06)' }}>
           Precision selection could not preload. The standard local selector remains available. {engineError}
