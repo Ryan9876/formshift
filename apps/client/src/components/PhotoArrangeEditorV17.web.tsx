@@ -31,14 +31,13 @@ const MEDIAPIPE_WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0
 const MAGIC_TOUCH_MODEL = 'https://storage.googleapis.com/mediapipe-models/interactive_segmenter_v2/magic_touch/int8/1/interactive_segmentation.task';
 const SHIELD = { touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' } as any;
 
-export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, baseSpatialVersionId, placementAssist = true }: {
+export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, baseSpatialVersionId }: {
   photoUrl?: string | null;
   snapshot: SpatialSnapshot;
   onSnapshotChange?: (snapshot: SpatialSnapshot) => void;
   projectId?: string;
   spaceId?: string;
   baseSpatialVersionId?: string | null;
-  placementAssist?: boolean;
 }) {
   const auth = useAuth();
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -50,7 +49,6 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
   const transformBaseRef = useRef<TransformBase | null>(null);
   const tapRef = useRef<TapCandidate | null>(null);
   const activeStrokeRef = useRef<{ pointerId: number; mode: StrokeMode; points: Point[] } | null>(null);
-  const depthAnchorYRef = useRef(0.5);
 
   const [sceneUrl, setSceneUrl] = useState<string | null>(photoUrl ?? null);
   const [persistedSceneUrl, setPersistedSceneUrl] = useState<string | null>(photoUrl ?? null);
@@ -74,8 +72,6 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
   const [backgroundDataUrl, setBackgroundDataUrl] = useState<string | null>(null);
   const [status, setStatus] = useState('Pinch to zoom the room, then tap an object to select it.');
   const [error, setError] = useState<string | null>(null);
-  const [placementAssistEnabled, setPlacementAssistEnabled] = useState(placementAssist);
-  const [transformActive, setTransformActive] = useState(false);
 
   const positionRef = useRef(position); const scaleRef = useRef(scale); const rotationRef = useRef(rotation);
   const viewScaleRef = useRef(viewScale); const viewOffsetRef = useRef(viewOffset); const strokesRef = useRef(strokes); const refineModeRef = useRef(refineMode);
@@ -86,7 +82,6 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
   useEffect(() => { viewOffsetRef.current = viewOffset; }, [viewOffset]);
   useEffect(() => { strokesRef.current = strokes; }, [strokes]);
   useEffect(() => { refineModeRef.current = refineMode; }, [refineMode]);
-  useEffect(() => { setPlacementAssistEnabled(placementAssist); }, [placementAssist]);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,28 +113,19 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
 
   function clearTransient() {
     setCandidate(null); setSelection(null); setRefineMode('add'); setStrokes([]); setRedoStrokes([]); setLiveStroke(null); setLoupePoint(null);
-    setBackgroundDataUrl(null); setTransformActive(false); sourceBeforeLiftRef.current = null; viewportPointers.current.clear(); transformPointers.current.clear();
+    setBackgroundDataUrl(null); sourceBeforeLiftRef.current = null; viewportPointers.current.clear(); transformPointers.current.clear();
     viewBaseRef.current = null; transformBaseRef.current = null; tapRef.current = null; activeStrokeRef.current = null;
   }
 
-  const perspectiveFactor = selection && placementAssistEnabled ? perspectiveScale(position.y, depthAnchorYRef.current) : 1;
-  const renderScale = scale * perspectiveFactor;
   const displayCutout = useMemo(() => selection ? {
-    width: (selection.bbox.width / imageSize.width) * stageSize.width * renderScale,
-    height: (selection.bbox.height / imageSize.height) * stageSize.height * renderScale,
-  } : null, [selection, imageSize, stageSize, renderScale]);
+    width: (selection.bbox.width / imageSize.width) * stageSize.width * scale,
+    height: (selection.bbox.height / imageSize.height) * stageSize.height * scale,
+  } : null, [selection, imageSize, stageSize, scale]);
   const screenCutout = useMemo(() => selection && displayCutout ? {
     width: displayCutout.width * viewScale, height: displayCutout.height * viewScale,
     left: viewOffset.x + (position.x * stageSize.width - displayCutout.width / 2) * viewScale,
     top: viewOffset.y + (position.y * stageSize.height - displayCutout.height / 2) * viewScale,
   } : null, [selection, displayCutout, viewScale, viewOffset, position, stageSize]);
-  const contact = useMemo(() => screenCutout ? {
-    x: screenCutout.left + screenCutout.width / 2,
-    y: screenCutout.top + screenCutout.height,
-    width: Math.max(18, screenCutout.width * clamp(0.48 + perspectiveFactor * 0.08, 0.48, 0.62)),
-    height: Math.max(4, Math.min(14, screenCutout.height * 0.045)),
-    opacity: clamp(0.15 + perspectiveFactor * 0.07, 0.18, 0.27),
-  } : null, [screenCutout, perspectiveFactor]);
 
   async function selectAt(x: number, y: number) {
     const source = sourceCanvasRef.current; if (!source || busy || candidate || selection) return;
@@ -182,10 +168,9 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
     try {
       sourceBeforeLiftRef.current = source;
       const localBackground = await createLocalRepair(source, next.maskUrl);
-      depthAnchorYRef.current = next.centerY;
       setSelection(next); setCandidate(null); setStrokes([]); setRedoStrokes([]); setLiveStroke(null); setLoupePoint(null);
       setPosition({ x: next.centerX, y: next.centerY }); setScale(1); setRotation(0); setBackgroundDataUrl(null); setSceneUrl(localBackground);
-      setStatus(placementAssistEnabled ? 'Object lifted. Perspective assist is on; drag vertically to preview depth scale.' : 'Object lifted. Drag it directly; use outside gestures to navigate the room.');
+      setStatus('Object lifted. Drag it directly; use outside gestures to navigate the room.');
     } catch (err) { sourceBeforeLiftRef.current = null; setError(message(err, 'Could not lift the selection.')); }
     finally { setBusy(false); }
   }
@@ -276,19 +261,14 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
     const points = [...transformPointers.current.values()]; if (!points.length) { transformBaseRef.current = null; return; }
     transformBaseRef.current = { position: positionRef.current, scale: scaleRef.current, rotation: rotationRef.current, centroid: centroid(points), distance: points.length >= 2 ? distance(points[0]!, points[1]!) : 0, angle: points.length >= 2 ? angle(points[0]!, points[1]!) : 0 };
   }
-  function beginTransform(event: React.PointerEvent<HTMLDivElement>) { event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture?.(event.pointerId); transformPointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY }); setTransformActive(true); resetTransformBase(); }
+  function beginTransform(event: React.PointerEvent<HTMLDivElement>) { event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture?.(event.pointerId); transformPointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY }); resetTransformBase(); }
   function moveTransform(event: React.PointerEvent<HTMLDivElement>) {
     if (!transformPointers.current.has(event.pointerId)) return; event.preventDefault(); event.stopPropagation(); transformPointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     const points = [...transformPointers.current.values()]; const base = transformBaseRef.current; if (!base || !points.length) return; const c = centroid(points);
-    const rawX = base.position.x + (c.x - base.centroid.x) / Math.max(stageSize.width * viewScaleRef.current, 1);
-    const rawY = base.position.y + (c.y - base.centroid.y) / Math.max(stageSize.height * viewScaleRef.current, 1);
-    const projectedFactor = placementAssistEnabled ? perspectiveScale(rawY, depthAnchorYRef.current) : 1;
-    const halfW = selection ? Math.min(0.47, (selection.bbox.width / Math.max(imageSize.width, 1)) * scaleRef.current * projectedFactor / 2) : 0;
-    const halfH = selection ? Math.min(0.47, (selection.bbox.height / Math.max(imageSize.height, 1)) * scaleRef.current * projectedFactor / 2) : 0;
-    setPosition({ x: clamp(rawX, 0.015 + halfW, 0.985 - halfW), y: clamp(rawY, 0.015 + halfH, 0.985 - halfH) });
+    setPosition({ x: clamp(base.position.x + (c.x - base.centroid.x) / Math.max(stageSize.width * viewScaleRef.current, 1), .02, .98), y: clamp(base.position.y + (c.y - base.centroid.y) / Math.max(stageSize.height * viewScaleRef.current, 1), .02, .98) });
     if (points.length >= 2) { const d = distance(points[0]!, points[1]!); const a = angle(points[0]!, points[1]!); if (base.distance > 4) setScale(clamp(base.scale * (d / base.distance), .35, 2.2)); setRotation(base.rotation + normalizeAngle(a - base.angle)); }
   }
-  function endTransform(event: React.PointerEvent<HTMLDivElement>) { if (!transformPointers.current.has(event.pointerId)) return; event.preventDefault(); event.stopPropagation(); transformPointers.current.delete(event.pointerId); if (transformPointers.current.size) resetTransformBase(); else { transformBaseRef.current = null; setTransformActive(false); } }
+  function endTransform(event: React.PointerEvent<HTMLDivElement>) { if (!transformPointers.current.has(event.pointerId)) return; event.preventDefault(); event.stopPropagation(); transformPointers.current.delete(event.pointerId); if (transformPointers.current.size) resetTransformBase(); else transformBaseRef.current = null; }
 
   async function refineBackground() {
     const source = sourceBeforeLiftRef.current; if (!selection || !source || repairing) return;
@@ -306,8 +286,8 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
     if (!projectId || !spaceId || !auth.session) { setError('A signed-in editable room is required to save this arrangement.'); return; }
     setSaving(true); setError(null); setStatus('Saving this photo arrangement…');
     try {
-      const composite = await compositeScene({ sceneUrl, selection, position, scale: renderScale, rotation, imageSize });
-      const saved = await persistPhotoArrangement({ projectId, spaceId, userId: auth.session.user.id, baseSpatialVersionId, resultDataUrl: composite, maskDataUrl: selection.maskUrl, cutoutDataUrl: selection.cutoutUrl, backgroundDataUrl, transform: { x: position.x, y: position.y, scale: renderScale, manualScale: scale, perspectiveFactor, placementAssist: placementAssistEnabled, rotationDeg: rotation, bbox: selection.bbox, rendererVersion: 'photo-arrange-2.1' } });
+      const composite = await compositeScene({ sceneUrl, selection, position, scale, rotation, imageSize });
+      const saved = await persistPhotoArrangement({ projectId, spaceId, userId: auth.session.user.id, baseSpatialVersionId, resultDataUrl: composite, maskDataUrl: selection.maskUrl, cutoutDataUrl: selection.cutoutUrl, backgroundDataUrl, transform: { x: position.x, y: position.y, scale, rotationDeg: rotation, bbox: selection.bbox, rendererVersion: 'photo-arrange-1.7' } });
       setSceneUrl(saved.sceneUrl); setPersistedSceneUrl(saved.sceneUrl); setSelection(null); setBackgroundDataUrl(null); sourceBeforeLiftRef.current = null; setStatus('Placement saved. It will restore after refresh.');
     } catch (err) { setError(message(err, 'Could not save this placement.')); }
     finally { setSaving(false); }
@@ -334,14 +314,9 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
       {candidate && liveStroke ? <StrokeOverlay stroke={liveStroke} stageSize={stageSize} viewScale={viewScale} viewOffset={viewOffset} /> : null}
       {candidate && loupePoint && sceneUrl ? <Loupe sceneUrl={sceneUrl} point={loupePoint} stageSize={stageSize} viewScale={viewScale} viewOffset={viewOffset} mode={refineMode === 'remove' ? 'remove' : 'add'} /> : null}
 
-      {selection && screenCutout && contact && placementAssistEnabled ? <>
-        <div aria-hidden="true" style={{ position:'absolute', zIndex:5, pointerEvents:'none', left:contact.x-contact.width/2, top:contact.y-contact.height/2, width:contact.width, height:contact.height, borderRadius:'50%', background:`rgba(18,20,20,${contact.opacity})`, filter:`blur(${Math.max(2, contact.height*.65)}px)`, transform:'scaleX(1.08)' }} />
-        {transformActive ? <div aria-hidden="true" style={{ position:'absolute', zIndex:8, pointerEvents:'none', left:contact.x-Math.max(24,contact.width*.65), top:contact.y, width:Math.max(48,contact.width*1.3), height:0, borderTop:'1.5px dashed rgba(13,116,150,.72)', filter:'drop-shadow(0 1px 1px rgba(255,255,255,.75))' }} /> : null}
-      </> : null}
-
       {selection && screenCutout ? <>
         <div aria-label="Move selected object" role="slider" onPointerDown={beginTransform} onPointerMove={moveTransform} onPointerUp={endTransform} onPointerCancel={endTransform} onContextMenu={(e)=>e.preventDefault()} style={{ position:'absolute', zIndex:7, left:screenCutout.left-12, top:screenCutout.top-12, width:screenCutout.width+24, height:screenCutout.height+24, borderRadius:12, cursor:'grab', ...SHIELD }} />
-        <div style={{ position:'absolute', zIndex:6, pointerEvents:'none', width:screenCutout.width, height:screenCutout.height, left:screenCutout.left, top:screenCutout.top, transform:`rotate(${rotation}deg)`, transformOrigin:'center', borderRadius:7, boxShadow:'0 0 0 2px rgba(40,199,232,.9),0 7px 14px rgba(0,0,0,.08)' }}><img src={selection.cutoutUrl} alt="" draggable={false} style={{ width:'100%', height:'100%', objectFit:'contain', display:'block' }} /></div>
+        <div style={{ position:'absolute', zIndex:6, pointerEvents:'none', width:screenCutout.width, height:screenCutout.height, left:screenCutout.left, top:screenCutout.top, transform:`rotate(${rotation}deg)`, transformOrigin:'center', borderRadius:7, boxShadow:'0 0 0 2px rgba(40,199,232,.9),0 12px 24px rgba(0,0,0,.12)' }}><img src={selection.cutoutUrl} alt="" draggable={false} style={{ width:'100%', height:'100%', objectFit:'contain', display:'block' }} /></div>
       </> : null}
 
       {busy ? <View pointerEvents="none" style={styles.busyOverlay}><ActivityIndicator color="#fff"/><Text style={styles.busyText}>{candidate ? 'Updating selection…' : 'Selecting object…'}</Text></View> : null}
@@ -361,9 +336,8 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
           <Pressable style={styles.cancelButton} onPress={cancelCandidate}><Text style={styles.cancelText}>Cancel</Text></Pressable>
         </View>
       </> : selection ? <>
-        <View style={styles.trayHeader}><View style={styles.trayHeaderCopy}><Text style={styles.trayTitle}>Arrange object</Text><Text style={styles.trayHint}>{placementAssistEnabled ? `Perspective assist ${perspectiveFactor.toFixed(2)}× · drag lower = closer/larger, higher = farther/smaller.` : 'Perspective assist is off. Drag, pinch and rotate freely.'}</Text></View></View>
+        <View style={styles.trayHeader}><View style={styles.trayHeaderCopy}><Text style={styles.trayTitle}>Arrange object</Text><Text style={styles.trayHint}>Drag the object. Pinch/twist on it to resize/rotate; gestures outside navigate the room.</Text></View></View>
         <View style={styles.refineRow}>
-          <Pressable style={[styles.modeButton, placementAssistEnabled && styles.modeButtonActive]} onPress={()=>{setPlacementAssistEnabled(v=>!v);setStatus(!placementAssistEnabled?'Perspective assist enabled. Vertical movement now adjusts apparent scale.':'Perspective assist disabled. Object scale is fully manual.');}}><Text style={[styles.modeButtonText, placementAssistEnabled && styles.modeButtonTextActive]}>{placementAssistEnabled?'Perspective: On':'Perspective: Off'}</Text></Pressable>
           <Pressable style={styles.squareButton} onPress={()=>setScale(v=>clamp(v-.1,.35,2.2))}><Text style={styles.squareButtonText}>−</Text></Pressable><Pressable style={styles.squareButton} onPress={()=>setScale(v=>clamp(v+.1,.35,2.2))}><Text style={styles.squareButtonText}>＋</Text></Pressable><Pressable style={styles.squareButton} onPress={()=>setRotation(v=>v-5)}><Text style={styles.squareButtonText}>↺</Text></Pressable><Pressable style={styles.squareButton} onPress={()=>setRotation(v=>v+5)}><Text style={styles.squareButtonText}>↻</Text></Pressable>
           <Pressable disabled={repairing} style={[styles.aiButton,repairing&&styles.disabled]} onPress={()=>void refineBackground()}><Text style={styles.aiText}>{repairing?'Repairing…':'AI repair'}</Text></Pressable><Pressable disabled={saving} style={[styles.primaryButton,saving&&styles.disabled]} onPress={()=>void keepPlacement()}><Text style={styles.primaryText}>{saving?'Saving…':'Keep placement'}</Text></Pressable>
         </View>
@@ -371,7 +345,7 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
     </View>
 
     {error ? <Text style={styles.error}>{error}</Text> : null}
-    <View style={styles.footer}><Text style={styles.footerStrong}>Paint the mask before pixels move.</Text><Text style={styles.footerText}>Continuous Add/Remove refinement and the loupe stay local. Perspective assist is an image-space approximation, not measured room depth. AI repair remains explicit; saved placements are derived photo versions and the source room photo is never overwritten.</Text></View>
+    <View style={styles.footer}><Text style={styles.footerStrong}>Paint the mask before pixels move.</Text><Text style={styles.footerText}>Continuous Add/Remove refinement, mask preview, undo/redo, and the loupe run locally in your browser. AI background repair remains explicit. Saved placements are derived photo versions; the source room photo is never overwritten.</Text></View>
   </View>;
 }
 
@@ -430,7 +404,6 @@ function simplifyStroke(points:Point[]){if(points.length<=2)return points;const 
 function localPoint(el:HTMLElement,x:number,y:number):Point{const r=el.getBoundingClientRect();return{x:x-r.left,y:y-r.top};}
 function stageToImage(p:Point,s:number,o:Point,stage:{width:number;height:number}):Point|null{const x=(p.x-o.x)/Math.max(s,.001),y=(p.y-o.y)/Math.max(s,.001);if(x<0||y<0||x>stage.width||y>stage.height)return null;return{x:clamp(x/Math.max(stage.width,1),0,1),y:clamp(y/Math.max(stage.height,1),0,1)};}
 function clampOffset(o:Point,s:number,stage:{width:number;height:number}){if(s<=1.001)return{x:0,y:0};return{x:clamp(o.x,stage.width*(1-s),0),y:clamp(o.y,stage.height*(1-s),0)};}
-function perspectiveScale(y:number,anchorY:number){return clamp(1+(y-anchorY)*.92,.72,1.38);}
 function centroid(points:Point[]){return{x:points.reduce((a,p)=>a+p.x,0)/points.length,y:points.reduce((a,p)=>a+p.y,0)/points.length};} function distance(a:Point,b:Point){return Math.hypot(b.x-a.x,b.y-a.y);} function angle(a:Point,b:Point){return Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;} function normalizeAngle(v:number){while(v>180)v-=360;while(v<-180)v+=360;return v;} function clamp(v:number,min:number,max:number){return Math.max(min,Math.min(max,v));} function message(err:unknown,fallback:string){return err instanceof Error?err.message:fallback;}
 
 const styles=StyleSheet.create({

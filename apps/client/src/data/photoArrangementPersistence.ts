@@ -21,12 +21,9 @@ export type PersistPhotoArrangementInput = {
     x: number;
     y: number;
     scale: number;
-    manualScale?: number;
-    perspectiveFactor?: number;
-    placementAssist?: boolean;
     rotationDeg: number;
     bbox: { x: number; y: number; width: number; height: number };
-    rendererVersion: string;
+    rendererVersion: 'photo-arrange-1.5';
   };
 };
 

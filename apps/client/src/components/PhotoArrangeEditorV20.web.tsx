@@ -42,13 +42,22 @@ export function PhotoArrangeEditorV20(props: Props) {
         [data-formshift-arrange-v20] { position: relative; }
         [data-formshift-arrange-v20] div[style*="rgba(40, 199, 232"] { overflow: visible !important; }
         [data-formshift-arrange-v20] div[style*="rgba(40, 199, 232"] > img {
-          filter: drop-shadow(0 1px 1px rgba(255,255,255,.16)) drop-shadow(0 4px 6px rgba(0,0,0,.08)) saturate(.985) contrast(.99) !important;
+          filter: drop-shadow(0 1px 1px rgba(255,255,255,.16)) drop-shadow(0 5px 7px rgba(0,0,0,.10)) saturate(.985) contrast(.99) !important;
         }
-        /* v2.1 renders a position-aware contact ellipse in the editor itself.
-           Disable the older generic pseudo-shadow to avoid a doubled shadow. */
         [data-formshift-arrange-v20] div[style*="rgba(40, 199, 232"]::after {
-          display: none !important;
-          content: none !important;
+          content: '';
+          position: absolute;
+          z-index: -1;
+          left: 16%;
+          right: 16%;
+          bottom: -2.5%;
+          height: 7%;
+          min-height: 3px;
+          border-radius: 50%;
+          background: rgba(18,20,20,.24);
+          filter: blur(7px);
+          transform: scaleX(1.12);
+          opacity: .72;
         }
         [data-formshift-arrange-v20] [data-formshift-ai-repair='true'] {
           background: rgba(13,116,150,.10) !important;
@@ -96,6 +105,9 @@ export function PhotoArrangeEditorV20(props: Props) {
         return;
       }
 
+      // Important: do not mark this lift as handled until the actual repair
+      // control exists. In v2.0 the status text appeared before the button,
+      // which caused automatic repair to be silently skipped.
       if (
         autoRepairRef.current &&
         !repairTriggeredForLiftRef.current &&
@@ -138,7 +150,7 @@ export function PhotoArrangeEditorV20(props: Props) {
       <View style={styles.renderBar}>
         <View style={styles.renderCopy}>
           <Text style={styles.renderTitle}>Scene rendering</Text>
-          <Text style={styles.renderText}>Perspective assist now adjusts apparent scale from vertical placement and adds a position-aware contact shadow. It remains an image-space approximation, not measured room depth.</Text>
+          <Text style={styles.renderText}>A subtle contact shadow and edge blend are applied locally. Better reconstruction can run automatically after lift if you opt in.</Text>
           {repairLabel ? <Text style={[styles.repairStatus, repairState === 'failed' && styles.repairStatusFailed]}>{repairLabel}</Text> : null}
         </View>
         <Pressable
