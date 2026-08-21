@@ -1,9 +1,9 @@
 # FormShift Architecture
 
 **Status:** Authoritative architecture  
-**Revision:** 0.5.0  
+**Revision:** 0.5.1  
 **Established:** 2026-08-19  
-**Last material architecture decision:** 2026-08-20
+**Last material architecture decision:** 2026-08-21
 
 ## 1. Architecture decision
 
@@ -214,6 +214,19 @@ Direct manipulation should occur in the photo scene where possible. Hidden geome
 
 Moving an existing object may require source-mask extraction and inpainting of its former location. Large viewpoint changes from a single photo may require illustrative reconstruction and must be labeled accordingly.
 
+A committed photo arrangement is an **editable derived-scene version**, not only a flattened image. The persistence contract retains:
+
+- composite result asset for fast display/history
+- object-free background asset when available
+- accepted mask asset
+- photographed-object cutout asset
+- object transform metadata
+- parent arrangement lineage
+
+When the background, cutout, mask, and transform are present, Arrange reconstructs the latest object as an active movable object over its object-free background. The composite result remains a convenience render/history artifact, not the sole source of editability. Legacy arrangements that lack the component assets may fall back to the flattened composite and require re-selection.
+
+New lifts persist their deterministic local background even when AI repair is not used, so later editing does not depend on a cloud reconstruction step. AI repair may replace that background before commit but remains explicit and does not alter the source photo.
+
 ### Build
 
 Flow:
@@ -325,7 +338,7 @@ Preserve:
 - spatial-version lineage
 - measurement corrections
 - accepted/rejected Organize metadata
-- Arrange alternatives
+- Arrange alternatives and their editable derived-scene assets/transforms
 - Build versions
 - scene calibration revisions
 - rendered/AI visual artifacts bound to their source capture + spatial version
@@ -361,8 +374,10 @@ Revisit architecture if:
 - public distribution becomes a goal
 - live retail/catalog integration becomes core
 
-## 20. Revision note — 0.5.0
+## 20. Revision note — 0.5.1
 
-Revision 0.5.0 reverses the user-facing visualization hierarchy established implicitly by earlier implementation work. The canonical geometry model remains unchanged as the authority, but real-photo augmentation is now the primary presentation and interaction surface. Plan/rectangle views are secondary technical tools.
+Revision 0.5.1 makes committed Photo Arrange results explicitly reconstructable editing state. A flattened result render is retained for history/display, while the object-free background, accepted mask, photographed-object cutout, transform metadata, and parent lineage form the editable derived-scene contract. New local lifts persist their background even when AI repair is not used. This uses the existing private asset and `photo_arrangements` schema; no database migration or authorization-boundary change was required.
+
+Revision 0.5.0 made real-photo augmentation the primary presentation and interaction surface while retaining canonical geometry as the authority and Plan/rectangle views as secondary technical tools.
 
 Prior architecture revisions remain preserved in Git history.
