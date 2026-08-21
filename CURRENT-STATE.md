@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.9.4  
+**Revision:** 0.9.5  
 **Date:** 2026-08-21  
-**Milestone:** Scene Foundation v1 candidate preview-build validated; Safari full-photo object-drag fix added; application production promotion pending real-device acceptance
+**Milestone:** Scene Foundation v1 candidate implemented; Safari object-drag handoff fix and CI hardening added; production promotion pending full CI and real-device acceptance
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
@@ -34,35 +34,59 @@ The candidate implements the next-cycle architectural foundation while leaving p
 
 ### Canonical Arrange boundary
 
-The active candidate Arrange route now uses one canonical `PhotoArrangeEditor` boundary instead of routing through the active `V17 → V19 → V20` wrapper chain.
+The active candidate Arrange route uses one canonical `PhotoArrangeEditor` boundary instead of routing through the active `V17 → V19 → V20` wrapper chain.
 
-- the validated v2.2 interaction/gesture implementation remains frozen underneath the canonical boundary
+- the validated v2.2 interaction/editing implementation remains underneath the canonical boundary
 - object-centered MediaPipe segmentation is isolated into a provider adapter
-- the active canonical boundary does not use `MutationObserver`, UI text scraping, programmatic button clicks, or inline-style substring matching to coordinate behavior
-- explicit AI background repair remains available in the frozen v2.2 core
-- the former V19/V20 source files are retained temporarily as rollback/comparison artifacts and are not deleted before device acceptance
+- the active canonical boundary does not use runtime `MutationObserver`, UI-state text scraping, or programmatic button clicks to coordinate editor behavior
+- explicit AI background repair remains available in the v2.2 core
+- former V19/V20 source files remain temporarily as rollback/comparison artifacts until device acceptance
 
 This refactor is preview-build validated but **not yet fully real-device interaction validated**.
 
-### Real-device finding — lower-photo drag continuity
+## Real-device finding — object drag hands off to page scrolling
 
-During the first iPhone acceptance pass, the restored guitar was confirmed movable, but drag stopped before the object could enter the lower half of the room photo.
+The iPhone acceptance pass established a specific failure mode:
 
-Code inspection confirmed this was **not** the persisted-position clamp: Arrange already permits normalized X/Y centers from `0.02` through `0.98`.
+- the restored guitar is movable
+- when dragged to roughly the middle/lower portion of the room photo, the guitar stops following the finger
+- the same finger then begins vertically scrolling the surrounding page
+- therefore the failure is a browser gesture-handoff problem, not a spatial position limit
 
-The candidate failure is consistent with Mobile Safari releasing pointer capture when the transparent selected-object drag handle is repositioned on every render. Once capture is lost, the full-room interaction surface receives subsequent movement instead of the selected-object handler, so the object appears to hit an artificial boundary even though its transform remains valid.
+Code inspection confirms the saved-position clamp already permits normalized object centers from `0.02` through `0.98` in both axes.
 
-Candidate fix:
-- functional commit `92c08eeaf73a00576cf63bf57395022f13908b93`
-- regression-guard commit `0216630031757f32e3e74fd574df3e553bed8ee7`
-- while a drag begins directly on the selected object, the same transparent React drag handle expands over the complete photo stage for the duration of the active press
-- this preserves the original pointer target even if Safari drops pointer capture
-- the position math, `0.02–0.98` bounds, transform persistence, source photo, and outside-object gesture behavior are unchanged
-- a static Arrange contract guard now requires this full-stage active-drag continuity rule
+### First workaround — rejected
 
-Exact functional/guard head `0216630031757f32e3e74fd574df3e553bed8ee7` reached **READY** on both Vercel web and API previews. This is build/export evidence only; the lower-half iPhone drag must still be re-tested before the bug is considered resolved.
+The first candidate attempted to keep the transparent selected-object handle active by expanding it over the photo while CSS `:active` was present.
 
-### SceneAnalysis contract
+Physical-device testing showed that workaround did **not** solve the problem: Safari still transferred the gesture to page scrolling around the middle of the photo.
+
+That CSS active-state workaround has been removed from the candidate and is no longer the intended solution.
+
+### Current Safari gesture bridge
+
+The replacement remains isolated in the canonical web boundary and does not change Arrange transform math.
+
+While a gesture begins directly on the selected-object move handle:
+- the canonical boundary records the active pointer ID(s)
+- a capture-phase `window.pointermove` listener continues tracking the pointer if Safari retargets it away from the moving handle
+- when a trusted pointer event is no longer targeted at the original move handle, an equivalent pointer event is forwarded to that original handle so the existing v2.2 transform code continues to receive movement
+- a capture-phase, **non-passive** `document.touchmove` listener calls `preventDefault()` only while an object drag is active, preventing the browser from converting the active object drag into page scrolling
+- pointer up/cancel immediately clears the bridge and normal page scrolling resumes
+
+Unchanged:
+- normalized `0.02–0.98` position bounds
+- object scale/rotation math
+- saved transform schema
+- source-photo integrity
+- outside-object room gestures when no object drag is active
+
+Functional gesture bridge commit: `2af366c1ade33c374e83845f6330802c33669188`  
+Arrange regression guard: `b5d028d073ff660b0c824cd95c8e21ea7f8965c4`
+
+The lower-photo drag is **not claimed fixed until the physical iPhone re-test passes**.
+
+## SceneAnalysis contract
 
 The candidate adds a typed, versioned derived-scene contract containing:
 - source photo identity
@@ -81,7 +105,7 @@ Scene analysis is derived evidence. It cannot silently mutate:
 - measurement provenance
 - immutable source photographs
 
-### Local depth provider
+## Local depth provider
 
 The web candidate includes an opt-in browser-local `Depth Anything V2 Small` provider through a pinned Transformers.js/ONNX path.
 
@@ -95,7 +119,7 @@ The current scene layer includes support-region and depth-ordering primitives. *
 
 ## Live database state — Scene Intelligence
 
-The dedicated FormShift Supabase project has been updated with two additive migrations:
+The dedicated FormShift Supabase project has two deployed additive migrations:
 
 1. `scene_intelligence_v1`
    - creates `public.scene_analyses`
@@ -107,46 +131,41 @@ The dedicated FormShift Supabase project has been updated with two additive migr
 2. `scene_intelligence_performance`
    - adds foreign-key indexes for source asset, depth asset, and creator
 
-Live verification confirmed:
-- RLS enabled on `scene_analyses`
-- authenticated SELECT = allowed
-- authenticated INSERT = allowed
-- anonymous SELECT = denied
-- both scene policies present
-- expected scene foreign-key indexes present
-
-No existing room, spatial-version, measurement, photo-arrangement, or source-photo records were mutated by these migrations.
+Live verification confirmed RLS, expected grants/policies, anonymous denial, and the expected scene foreign-key indexes. No existing room, spatial-version, measurement, photo-arrangement, or source-photo records were mutated by these migrations.
 
 ## API authentication hardening
 
-The candidate API now verifies bearer identity with Supabase `auth.getClaims()` through a request-token-scoped client before RLS-scoped database work. Existing active-user, owner, and editable-space authorization checks remain in place.
+The candidate API verifies bearer identity with Supabase `auth.getClaims()` through a request-token-scoped client before RLS-scoped database work.
 
-This change was made because the new security gate correctly rejected the older `getUser(token)` implementation against the repository's intended verified-claims contract. The gate was not weakened.
+The verified-claims path now fails closed when the SDK returns an error, missing claims, or a missing subject. Existing active-user, owner, and editable-space authorization checks remain in place.
 
-## Verification and release gates
+## CI/release hardening
 
-The candidate adds repository-level release checks for:
+The candidate CI now exercises:
 - repository/source validation
 - security validation
 - canonical domain tests
 - Arrange v2.2 contract guards
-- Safari full-stage active-drag continuity guard
+- Safari active-object drag/scroll-handoff guards
 - scene-boundary isolation guards
 - client TypeScript checking
 - API TypeScript checking
 - production web export
 
-A GitHub Actions workflow runs these checks for pull requests and selected pushes.
+The first complete typecheck exposure found and corrected three previously masked client contract issues:
+- optional saved-arrangement asset IDs are now narrowed before Map lookup/signing
+- native/non-web `PhotoArrangeEditor` accepts the same `baseSpatialVersionId` prop contract as the canonical workspace
+- the React Native `absoluteFillObject` runtime compatibility used by the existing Arrange overlay now has an explicit TypeScript compatibility declaration
 
-Vercel preview deployments for the canonical Arrange refactor and the lower-photo drag continuity fix have built successfully for both web and API. The candidate remains a preview/draft and has **not** been promoted to production.
+The subsequent API typecheck exposed and corrected nullable `getClaims()` data handling.
 
-The current environment does not provide credible evidence for a complete automated browser gesture suite or physical-iPhone interaction. Those remain release gates rather than being inferred from successful builds.
+A final complete CI run is required after these corrections. Vercel preview export success alone is not treated as sufficient release evidence.
 
 ## Current accuracy boundaries
 
 Not yet claimed:
+- confirmed resolution of the lower-half drag/page-scroll handoff on iPhone
 - completed real-device validation of the canonical Arrange boundary
-- confirmed resolution of the lower-half drag finding on iPhone
 - calibrated camera/floor/wall mapping
 - metric depth from a normal photograph
 - calibrated floor snapping
@@ -161,33 +180,36 @@ Not yet claimed:
 
 ## Required real-device acceptance before application promotion
 
-On the user's iPhone/browser using the candidate preview:
+Using the candidate preview with Scene Intelligence **off**:
 1. hard refresh **Arrange**
-2. confirm the latest saved guitar restores as an active movable object
-3. drag the guitar continuously from its current position through the lower half to near the bottom edge, release, then drag it back upward
-4. verify the object does not stop at an artificial mid-photo boundary
-5. verify a gesture beginning outside the selected object still navigates the room rather than moving the object
-6. choose **Keep placement** near the lower portion of the room
-7. drag again immediately and confirm it remains editable
-8. refresh/reopen Arrange and confirm the lower transform restores
-9. change scale/rotation, save, reopen, and confirm restoration
-10. select a fresh object and verify short-tap selection still works
-11. verify Add / Remove / Pan / Undo / Redo refinement behavior
-12. verify room pinch/pan does not accidentally select or move the object
-13. lift/save a fresh object with AI repair off and confirm editable restoration
-14. run explicit AI background repair and confirm the request starts/completes without affecting selection/gesture behavior
+2. confirm the latest saved guitar restores active/movable
+3. drag the guitar continuously from its current position through the lower half to near the bottom edge
+4. confirm the page does **not** scroll while that object drag remains active
+5. release the guitar and confirm normal page scrolling immediately returns
+6. drag the guitar back upward
+7. verify a gesture beginning outside the selected object still navigates the room rather than moving the object
+8. choose **Keep placement** near the lower portion of the room
+9. drag again immediately and confirm it remains editable
+10. refresh/reopen Arrange and confirm the lower transform restores
+11. change scale/rotation, save, reopen, and confirm restoration
+12. select a fresh object and verify short-tap selection plus Add / Remove / Pan / Undo / Redo
+13. verify room pinch/pan does not accidentally select or move the object
+14. lift/save a fresh object with AI repair off and confirm editable restoration
+15. run explicit AI background repair and confirm the request starts/completes without affecting interaction
 
-Scene Intelligence should remain off for this regression pass. It may then be enabled in preview for a separate depth/support evaluation.
+Scene Intelligence may be enabled in preview only after this regression pass succeeds.
 
 ## Next implementation decision
 
-If the full-photo guitar drag and remaining canonical Arrange device checks pass, merge/promote the refactor and then evaluate Scene Intelligence v1 in preview. The next scene work should calibrate floor/support/depth ordering before enabling occlusion or adding Rapier/RealityKit physics behavior.
+If the Safari gesture bridge passes the full-photo guitar drag and the remaining canonical Arrange device checks, merge/promote the refactor and then evaluate Scene Intelligence v1 in preview.
 
-Do not reintroduce additional image-space placement heuristics on top of uncalibrated depth.
+The next scene work remains floor/support/depth-order calibration before production occlusion or Rapier/RealityKit physics.
+
+Do not reintroduce image-space placement heuristics on top of uncalibrated depth.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision 0.9.4 records the real-device lower-photo drag finding, the preview-build-validated Safari continuity fix, and the still-pending device re-test.
-- `ARCHITECTURE.md`: unchanged in this fix; the durable SceneAnalysis/provider/persistence and canonical Arrange boundary decisions remain revision 0.5.2.
+- `CURRENT-STATE.md`: revision 0.9.5 records the failed CSS workaround, the explicit Safari gesture bridge, the CI/type-contract corrections, and pending device/CI acceptance.
+- `ARCHITECTURE.md`: unchanged in this correction; durable SceneAnalysis/provider/persistence and canonical Arrange decisions remain revision 0.5.2.
 - `DESIGN-SYSTEM.md`: unchanged; no durable visual-language or interaction-policy change was required.
 - `PROJECT-CONSTITUTION.md`: unchanged; source integrity, privacy, reversibility, deterministic spatial truth, and measurement-provenance rules continue to govern the implementation.
