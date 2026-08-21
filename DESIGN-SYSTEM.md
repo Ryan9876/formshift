@@ -1,7 +1,7 @@
 # FormShift Design System
 
 **Status:** Authoritative visual and interaction baseline  
-**Revision:** 0.5.4  
+**Revision:** 0.5.5  
 **Established:** 2026-08-19  
 **Last material design decision:** 2026-08-21  
 **Visual lineage:** Parallax light-glass/depth language adapted for a photo-first spatial augmentation product
@@ -232,6 +232,20 @@ An automatic segmentation result is a **candidate**, not an accepted object cuto
 - AI background reconstruction remains a separate explicit action; selection refinement itself remains local when supported
 - mobile refinement and arrangement controls use a compact wrapping/bottom-tray pattern and must not overflow horizontally
 
+### Saved placement editability contract
+
+Saving a photographed-object placement must not turn the object into permanently flattened pixels.
+
+- **Keep placement** commits a derived scene version while preserving the object-free background, accepted mask, photographed-object cutout, and transform needed to keep editing
+- after a successful save, the object may remain active and movable in the current Arrange session
+- reopening Arrange should restore the latest saved object as an active movable object whenever the complete editable asset set is available
+- users should not need to segment and lift the same saved object again merely to move it farther up/down/left/right
+- a flattened composite remains useful for history, fast display, and legacy fallback, but it is not the preferred editing state
+- older/incomplete saved arrangements that lack an object-free background may fall back to the composite and require re-selection
+- local background reconstruction is persisted even when AI repair is off so editability is not dependent on a cloud image call
+- if a restored saved object already has a clean persisted background, redundant AI repair should be unavailable or clearly unnecessary
+- saving/editing derived scenes never overwrites the immutable source room photo
+
 ### Placement-assist contract
 
 Photo placement assistance is permitted when calibrated scene depth is unavailable, but it must remain clearly an **estimated augmentation** rather than simulated measurement.
@@ -394,7 +408,9 @@ Never animate the source photo in a way that makes measurement or object placeme
 
 Sign-in, pending approval, suspended/revoked, active, and configuration-unavailable states retain the FormShift glass/depth language while keeping authentication quiet and explicit. No private room imagery renders behind an unauthorized access state.
 
-## 21. Revision note — 0.5.4
+## 21. Revision note — 0.5.5
+
+Revision 0.5.5 establishes that a saved photographed-object placement remains editable. **Keep placement** commits a derived scene without discarding the object-free background, mask, cutout, and transform. Complete saved arrangements reopen directly as movable objects; flattening is a legacy/incomplete fallback rather than the normal edit model. Local backgrounds are retained even when AI repair is off.
 
 Revision 0.5.4 defines optional image-space placement assistance for photo Arrange. Perspective assistance may alter apparent scale from vertical placement and may render a contact ellipse/guide, but must remain reversible, bounded, explicitly estimated, and isolated from canonical dimensions or measurement provenance. Saved derived scenes retain the effective rendered scale plus assist metadata so the visible result is reproducible.
 
