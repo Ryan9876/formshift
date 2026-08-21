@@ -166,6 +166,6 @@ Do not reintroduce additional image-space placement heuristics on top of uncalib
 ## Authoritative record impact
 
 - `CURRENT-STATE.md`: revision 0.9.3 records the live Scene Intelligence database migrations and the unpromoted Scene Foundation v1 application candidate.
-- `ARCHITECTURE.md`: requires revision for the durable SceneAnalysis/provider/persistence and canonical Arrange boundary decisions.
+- `ARCHITECTURE.md`: revision 0.5.2 records the durable SceneAnalysis/provider/persistence and canonical Arrange boundary decisions.
 - `DESIGN-SYSTEM.md`: unchanged; existing source/estimated/calibrated confidence language and photo-first interaction rules already cover this cycle.
 - `PROJECT-CONSTITUTION.md`: unchanged; existing source integrity, privacy, reversibility, deterministic spatial truth, and measurement-provenance rules already govern the implementation.
