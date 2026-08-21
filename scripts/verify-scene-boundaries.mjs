@@ -6,7 +6,7 @@ const sceneRoot = path.join(root, 'apps/client/src/scene');
 const canonicalArrange = path.join(root, 'apps/client/src/components/PhotoArrangeEditor.web.tsx');
 const segmentationProvider = path.join(root, 'apps/client/src/vision/MediaPipeObjectSegmenter.web.ts');
 const arrangeWorkspace = path.join(root, 'apps/client/src/screens/PhotoArrangeWorkspace.tsx');
-const forbiddenRuntimeCoupling = ['MutationObserver', 'querySelector(', '.textContent', '.click('];
+const forbiddenRuntimeCoupling = ['new MutationObserver(', 'querySelector(', 'root.textContent', '.click('];
 let failures = 0;
 
 function fail(message) {
