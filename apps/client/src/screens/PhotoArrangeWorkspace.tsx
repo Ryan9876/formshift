@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import React from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BrandMark } from '../components/BrandMark';
-import { PhotoArrangeEditorV20 } from '../components/PhotoArrangeEditorV20';
+import { PhotoArrangeEditor } from '../components/PhotoArrangeEditor';
 import { useRoomWorkspace } from '../data/useRoomWorkspace';
 import { SceneIntelligencePanel } from '../scene/SceneIntelligencePanel';
 import { tokens } from '../theme/tokens';
@@ -31,7 +31,7 @@ export function PhotoArrangeWorkspace() {
           <View style={styles.state}><Text style={styles.stateTitle}>Create the room first.</Text><Text style={styles.stateText}>Arrange keeps the photo primary, but the room still needs a canonical spatial version underneath it.</Text></View>
         ) : (
           <>
-            <PhotoArrangeEditorV20
+            <PhotoArrangeEditor
               photoUrl={workspace.photoUrl}
               snapshot={workspace.workingSnapshot}
               onSnapshotChange={workspace.setWorkingSnapshot}
@@ -48,8 +48,8 @@ export function PhotoArrangeWorkspace() {
         )}
 
         <View style={styles.note}>
-          <Text style={styles.noteStrong}>Photo Arrange v2.2 · Scene foundation isolated</Text>
-          <Text style={styles.noteText}>The validated selection, refinement, lift, gesture, editable-save, and restore path is unchanged. Scene Intelligence v1 is feature-flagged and runs beside that core so depth/support experiments cannot mutate canonical measurements or silently replace the working Arrange interaction model.</Text>
+          <Text style={styles.noteStrong}>Photo Arrange v2.2 · Canonical editor + isolated scene foundation</Text>
+          <Text style={styles.noteText}>The validated v2.2 interaction core is preserved behind one canonical PhotoArrangeEditor boundary. Object-centered segmentation and visual treatment are now composed without the active V19/V20 DOM-observer wrapper chain. Scene Intelligence v1 remains feature-flagged and cannot mutate canonical measurements.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
