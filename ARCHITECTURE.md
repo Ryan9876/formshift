@@ -1,7 +1,7 @@
 # FormShift Architecture
 
 **Status:** Authoritative architecture  
-**Revision:** 0.5.1  
+**Revision:** 0.5.2  
 **Established:** 2026-08-19  
 **Last material architecture decision:** 2026-08-21
 
@@ -22,12 +22,13 @@ Private user
       Google + invite gate
           │
           ├── Postgres: project/spatial/build/version/provenance state
-          └── Private Storage: source photos, scans, masks, renders, exports
+          └── Private Storage: source photos, scans, masks, depth, renders, exports
           │
           ▼
   Scene + spatial orchestration
           │
           ├── Deterministic geometry / BOM / blueprint engines
+          ├── Derived SceneAnalysis providers
           ├── Photo-scene calibration / projection / occlusion pipeline
           └── Server AI orchestration (Vercel AI SDK / AI Gateway)
 ```
@@ -50,13 +51,13 @@ Private user
 ### Web
 
 Primary capabilities:
-
 - project/room management
 - photo upload/capture where browser allows
 - photo-first Organize/Arrange/Build review
 - manual calibration/measurement correction
 - technical Plan view
 - Build brief/design/BOM/blueprint review
+- derived scene analysis where a browser-local provider is appropriate
 - exports/sharing
 
 The browser is not required to reproduce RoomPlan capture.
@@ -64,7 +65,6 @@ The browser is not required to reproduce RoomPlan capture.
 ### iOS
 
 Primary capture/AR platform:
-
 - standard photo capture
 - optional RoomPlan/LiDAR capture
 - camera calibration/depth where available
@@ -85,7 +85,7 @@ All modes operate on one project graph:
 Project
 └── Space
     ├── Captures
-    │   ├── source photos
+    │   ├── immutable source photos
     │   ├── camera/capability metadata
     │   └── derived scene artifacts
     ├── Measurements
@@ -94,6 +94,7 @@ Project
     │   ├── objects/transforms
     │   ├── constraints
     │   └── measurement references
+    ├── Scene Analyses
     ├── Organize proposals
     ├── Arrange alternatives
     ├── Build requests/plans
@@ -105,7 +106,7 @@ Project
     └── Exports
 ```
 
-Photos and renders are not canonical coordinates. They are source evidence or derived scene products.
+Photos, depth maps, masks and renders are not canonical coordinates. They are source evidence or derived scene products.
 
 ## 5. Coordinate and measurement model
 
@@ -113,63 +114,98 @@ Photos and renders are not canonical coordinates. They are source evidence or de
 - +Y up, X-Z floor plane
 - canonical length unit: millimeters
 - explicit floor polygon, ceiling height, openings, objects, transforms, constraints
-- measurement observations retain source, tolerance/confidence, verification state, timestamps, and supersession
+- measurement observations retain source, tolerance/confidence, verification state, timestamps and supersession
 - manual correction supersedes rather than erases provenance
 - spatial versions are immutable
 
-## 6. Photo-scene model
+No vision/depth/AI provider may silently promote inferred pixels into verified measurements.
 
-Every usable room photo may gain a versioned scene-calibration record containing, as capabilities mature:
+## 6. SceneAnalysis contract
 
-- source asset/capture ID
-- image dimensions/orientation
-- camera intrinsics when known
-- estimated/calibrated horizon and vanishing points
-- floor/wall planes in image coordinates
-- mapping from canonical room coordinates to image pixels
-- depth estimate or device depth data
+Every usable room photo may gain one or more versioned `SceneAnalysis` records. Scene analysis is **derived evidence**, separable from canonical spatial state and safe to recompute or supersede.
+
+The typed v1 contract supports:
+- source photo/capture identity
+- provider, model and model-version provenance
+- processing timestamp and latency
+- relative depth artifact
+- support surfaces such as floor, wall, tabletop and shelf
+- object evidence hooks and approximate depth
+- confidence state: unknown / estimated / calibrated / measured
+- explicit notes/limitations
+
+Future revisions may add:
+- camera intrinsics
+- horizon / vanishing points
+- calibrated floor/wall planes
+- canonical-room-to-image projection
+- device depth
 - segmentation/object masks
 - foreground/background ordering
-- confidence/quality state
+- lighting/environment estimates
 
-Scene calibration is derived metadata. It may be recalculated without mutating the source image or spatial version.
+Scene-analysis changes never mutate a source image, measurement observation or spatial version implicitly.
 
-## 7. Visualization architecture
+## 7. Scene provider architecture
+
+Commodity vision capability is accessed through provider boundaries rather than embedded directly into product state or UI logic.
+
+```text
+SceneAnalysis orchestration
+   │
+   ├── DepthProvider
+   │    ├── Depth Anything V2 Small (web/local candidate)
+   │    └── future device/native provider
+   │
+   ├── Segmentation provider
+   │    ├── current object-centered MediaPipe path
+   │    └── future SAM/native alternatives
+   │
+   └── future calibration / semantics providers
+```
+
+Provider output must include provenance and confidence. Providers may be replaced without changing canonical room contracts.
+
+### Depth v1
+
+The initial browser candidate uses Depth Anything V2 Small locally through a pinned Transformers.js/ONNX path. Its output is relative monocular depth, not metric distance. It remains **Estimated augmentation** until calibrated against known scene/device evidence.
+
+Feature flags default scene intelligence and diagnostics off until preview/device acceptance.
+
+## 8. Visualization architecture
 
 FormShift has three visual classes.
 
-### 7.1 Photo augmentation — primary experience
+### 8.1 Photo augmentation — primary
 
 Used for normal user decisions:
-
 - original room photo
 - augmented room with proposed Build object
 - Arrange visual manipulation
 - Organize before/after scene
 
-Rendering should use deterministic object geometry and calibrated camera projection where available. Estimated projection is allowed when explicitly labeled.
+Rendering should use deterministic object geometry and calibrated camera projection where available. Estimated projection is allowed only when explicitly labeled.
 
-### 7.2 Technical geometry views — secondary
+### 8.2 Technical geometry views — secondary
 
 Used for exact verification and diagnostics:
-
 - Skia plan/2.5D editor
 - measured perspective geometry view
+- depth/calibration diagnostics
 - blueprint views
 - collision/clearance overlays
 
-### 7.3 AI pixel synthesis — supporting
+### 8.3 AI pixel synthesis — supporting
 
 Used only where structured rendering cannot reconstruct source pixels safely:
-
-- inpainting background revealed after moving/removing an object
-- reconstructing unseen object surfaces
+- background inpainting after moving/removing an object
+- reconstructing unseen surfaces
 - visual material/style concepts
 - polished illustrative end-state imagery
 
 AI-generated pixels never update geometry implicitly.
 
-## 8. Scene augmentation pipeline
+## 9. Scene augmentation pipeline
 
 Target pipeline:
 
@@ -191,193 +227,164 @@ Optional AI inpainting/reconstruction
 Labeled augmented scene
 ```
 
-### v1 fallback
+Until camera calibration is implemented, estimated mapping may be used only as explicitly labeled visualization. Plan/canonical geometry remains fit authority.
 
-Until camera calibration is implemented, FormShift may project canonical X/Z placement into photo coordinates using an estimated mapping. This output must be labeled **Estimated augmentation** and Plan remains the fit authority.
+## 10. Arrange architecture
 
-## 9. Mode architecture
+Direct manipulation occurs in the photo scene where possible. Hidden geometry keeps dimensions and future collision/position constraints authoritative.
 
-### Organize
+A committed photo arrangement is an **editable derived-scene version**, not only a flattened image. Its persistence contract retains:
+- composite result asset for display/history
+- object-free background when available
+- accepted mask
+- photographed-object cutout
+- object transform metadata
+- parent arrangement lineage
+
+Complete saved arrangements reopen as movable objects over their object-free background. Legacy/incomplete arrangements may fall back to the flattened composite and require re-selection.
+
+### Canonical editor boundary
+
+The application route owns one canonical `PhotoArrangeEditor` boundary. Versioned experimental wrappers must not remain the normal coordination mechanism.
+
+The currently validated v2.2 gesture/selection implementation may remain frozen behind that boundary while refactoring proceeds. New providers/rendering behavior must compose through explicit interfaces or semantic component boundaries rather than:
+- `MutationObserver` state detection
+- rendered text scraping
+- programmatic control clicks
+- inline-style substring matching
+
+The current object-centered MediaPipe selector is isolated behind a transitional provider adapter. This allows later SAM/native evaluation without coupling the room editor to a specific model.
+
+Scene realism work must remain isolated from the validated short-tap/pan/pinch/refinement gesture contract.
+
+## 11. Organize architecture
 
 Inputs:
-
-- source photo/scene calibration
+- source photo / scene analysis
 - active spatial version
 - object semantics and constraints
 - prior accepted/rejected proposals
 
-AI proposes strategy/actions. Deterministic geometry validates them. The primary preview is a before/after real-room visualization; Plan is secondary.
+AI proposes strategy/actions. Deterministic geometry validates them. The primary result is a before/after real-room visualization; Plan is secondary verification.
 
-### Arrange
-
-Direct manipulation should occur in the photo scene where possible. Hidden geometry keeps scale, dimensions, collision, and position valid. Numeric/Plan editing remains available for precision and unsupported visual cases.
-
-Moving an existing object may require source-mask extraction and inpainting of its former location. Large viewpoint changes from a single photo may require illustrative reconstruction and must be labeled accordingly.
-
-A committed photo arrangement is an **editable derived-scene version**, not only a flattened image. The persistence contract retains:
-
-- composite result asset for fast display/history
-- object-free background asset when available
-- accepted mask asset
-- photographed-object cutout asset
-- object transform metadata
-- parent arrangement lineage
-
-When the background, cutout, mask, and transform are present, Arrange reconstructs the latest object as an active movable object over its object-free background. The composite result remains a convenience render/history artifact, not the sole source of editability. Legacy arrangements that lack the component assets may fall back to the flattened composite and require re-selection.
-
-New lifts persist their deterministic local background even when AI repair is not used, so later editing does not depend on a cloud reconstruction step. AI repair may replace that background before commit but remains explicit and does not alter the source photo.
-
-### Build
+## 12. Build architecture
 
 Flow:
 
 ```text
-Describe → Normalize → Build deterministic geometry → Validate →
+Describe → Normalize → deterministic geometry → Validate →
 Project/render into real room photo → User reviews/adjusts →
 Accept version → Blueprint/BOM/Cost/Effort
 ```
 
-The photo result is the primary decision surface. Blueprint and Plan remain authoritative for dimensions and construction planning.
+Current Class A archetype: freestanding open shelving/storage.
 
-## 10. Rendering decisions
+The deterministic Build engine owns dimensions, components, placement envelope, collision/containment, span rules, quantities, cost inputs, effort characteristics and retained blueprint geometry. Image augmentation never replaces that authority.
 
-- React Native Skia: technical 2D/2.5D precision view and retained drawing support
-- web geometry-faithful 3D/scene rendering: Three.js-class path when perspective calibration/mesh fidelity requires it
+## 13. Rendering decisions
+
+- React Native Skia: technical 2D/2.5D precision views
+- web calibrated geometry/scene rendering: Three.js-class path when needed
 - iOS geometry/AR: RealityKit
 - iOS room capture: RoomPlan behind a native adapter
-- photo compositing layer: shared scene-projection contract; implementation may differ between web and iOS
-- blueprint: retained/vector model, not AI drawing pixels
+- web physical simulation: Rapier-class path only after support/collision geometry is reliable
+- photo compositing: shared scene-projection contract, platform-specific implementation allowed
+- blueprint: retained/vector geometry, never AI drawing pixels
 
-Renderer sharing is secondary to correct data contracts and platform quality.
+Physics does not precede spatial evidence. Gravity/support behavior must operate on calibrated/confirmed scene geometry rather than a screen-space heuristic.
 
-## 11. AI architecture
-
-AI is server-side through Vercel AI SDK / AI Gateway abstraction.
-
-Current/target task families:
-
-- analyze room capture
-- classify/describe objects
-- infer room use/zones
-- propose Organize actions
-- normalize Arrange object requests
-- normalize Build requests
-- explain Build conflicts
-- estimate task classifications
-- generate/refine visual concept imagery
-- segmentation/inpainting/reconstruction where a dedicated vision model is appropriate
-
-State-changing AI output must use versioned schemas and pass entity/unit/range/geometry/authorization validation.
-
-Provider credentials remain server-only. Minimal project context is sent per task. Private images are not logged into general observability streams.
-
-## 12. Backend/data platform
+## 14. Backend and derived scene persistence
 
 ### Supabase
 
-- Auth
-- PostgreSQL
-- private Storage
-- RLS/storage policies
-- optional Realtime
+Supabase owns Auth, PostgreSQL, private Storage and RLS/storage policies.
 
-Core relational records include profiles/access, projects/members/spaces, assets/captures, measurements, spatial versions, AI runs, Organize records, saved layouts, Build records, BOM/cost/effort, exports, jobs, and audit events.
+`public.scene_analyses` stores versioned derived-scene metadata separately from canonical measurements/spatial versions. Depth images are private assets in `formshift-private` and are referenced from scene-analysis rows.
 
-Scene-calibration/mask/render metadata may be added relationally or as typed derived-asset metadata when implemented.
+Authorization:
+- anonymous: no scene-analysis access
+- authenticated project readers: SELECT
+- authenticated project editors: INSERT for their own derived analysis
+
+Scene records are append-oriented derived evidence. Supersession/recalculation must preserve provenance rather than overwrite source truth.
 
 ### Vercel
 
-- Expo web static hosting
-- separate TypeScript API/functions project
-- AI orchestration
-- authenticated RLS-scoped Supabase operations
-- export/scene jobs where runtime characteristics fit
+Vercel hosts the Expo web export, separate TypeScript API/functions project and server AI orchestration. Long-running vision/image work may move to a worker architecture if runtime/cost becomes material.
 
-Long-running image/vision work may move to a job/worker architecture if Vercel limits or cost become material.
+## 15. AI architecture
 
-## 13. Build architecture
+AI is server-side through the Vercel AI SDK / AI Gateway abstraction for tasks that require remote models. Current/target tasks include room interpretation, object/zone labels, Organize actions, Build normalization, conflict explanation and image reconstruction/concepts.
 
-Current supported Class A archetype: freestanding open shelving/storage.
+State-changing AI output must use versioned schemas and pass entity/unit/range/geometry/authorization validation.
 
-Deterministic engine owns:
+Provider/API keys remain server-only. Private images are not logged into ordinary observability streams.
 
-- dimensions/components
-- placement envelope
-- collision/containment
-- unsupported-span rule
-- materials quantity
-- planning cost inputs
-- effort characteristics
-- retained blueprint geometry
-
-Atomic Build acceptance writes Build records, measurement provenance, and the new spatial version together.
-
-Image augmentation represents that validated object visually but does not replace the deterministic Build engine.
-
-## 14. Blueprint/export architecture
-
-Blueprints derive from validated retained geometry and support plan/location, front/side elevations, component/cut views, dimensions, clearances, notes, and verification state.
-
-PDF/export artifacts bind to exact Build/spatial versions. AI-generated images are never used as blueprint geometry.
-
-## 15. Security/privacy
+## 16. Security and privacy
 
 - Google through Supabase Auth for current private release
-- invitation/allowlist required in addition to authentication
+- invitation/allowlist in addition to authentication
 - RLS and private Storage enforce authorization
-- source room photos and derived masks/depth/renders are private household data
+- source room photos, masks, depth and renders are private household data
+- API bearer identity is verified before RLS-scoped server work
 - server-only provider/API keys
 - project deletion must include derived scene artifacts
 - no service-role dependency in normal client runtime
 
-## 16. Versioning and reversibility
+## 17. Versioning and reversibility
 
 Preserve:
-
 - immutable source captures
 - spatial-version lineage
 - measurement corrections
+- scene-analysis revisions/provider provenance
 - accepted/rejected Organize metadata
-- Arrange alternatives and their editable derived-scene assets/transforms
+- editable Arrange alternatives/assets/transforms
 - Build versions
-- scene calibration revisions
-- rendered/AI visual artifacts bound to their source capture + spatial version
+- rendered/AI visual artifacts bound to source + version
 - exports bound to exact source versions
 
-## 17. Reliability and observability
+Feature-flagged scene providers must have a clean fallback to the last validated photo-editing behavior.
 
-Record privacy-safe correlation IDs, project/user IDs, task/model/prompt version, model latency/usage, geometry validation failures, capture/scene-analysis failures, export failures, and auth denials.
+## 18. Reliability and observability
 
-Do not log OAuth tokens or raw private images into ordinary logs.
+Record privacy-safe correlation IDs and relevant task/provider/model versions, latency, geometry validation failures, scene-analysis failures, export failures and auth denials.
 
-## 18. Rollout sequence from 0.5.0
+Release gates should include repository/security/domain checks, client/API typechecks, production web export, interaction regression coverage where available, preview deployment and physical-device acceptance for gesture-sensitive changes.
 
-1. Build Augmentation v1: real photo primary, estimated projection, Plan fallback
-2. persistent photo-scene calibration contract
-3. calibrated camera/floor/wall mapping
-4. geometry-faithful Build projection with perspective/contact/occlusion
-5. Arrange photo manipulation + object masks
-6. background inpainting/reconstruction for moved objects
-7. Organize real-photo before/after proposals
-8. iOS RoomPlan/RealityKit enhanced pipeline
-9. multi-photo/depth refinement
-10. dedicated export/package hardening and broader Build archetypes
+Do not infer device acceptance from a successful build.
 
-## 19. Reconsideration triggers
+## 19. Rollout sequence
+
+1. preserve/validate editable Photo Arrange v2.2 baseline
+2. canonical Arrange boundary + regression gates
+3. persistent SceneAnalysis/provider contract
+4. local depth/support evaluation behind feature flag
+5. calibrated camera/floor/wall mapping and depth ordering
+6. depth-aware occlusion/contact rendering
+7. physical constraint engine / Rapier or RealityKit integration where supported
+8. photo-first Organize visualization using the shared scene engine
+9. calibrated Build visualization
+10. RoomPlan/RealityKit production capture/AR path
+11. local/cloud image-provider routing
+12. private-beta hardening and broader Build archetypes
+
+## 20. Reconsideration triggers
 
 Revisit architecture if:
-
 - browser rendering cannot provide acceptable calibrated augmentation fidelity
 - RealityKit/RoomPlan requires stronger iOS-native separation
-- segmentation/inpainting workloads exceed Vercel runtime/cost limits
+- segmentation/depth/inpainting workloads exceed browser/Vercel limits or cost
 - scene-derived storage materially exceeds private-group assumptions
 - public distribution becomes a goal
 - live retail/catalog integration becomes core
 
-## 20. Revision note — 0.5.1
+## 21. Revision note — 0.5.2
 
-Revision 0.5.1 makes committed Photo Arrange results explicitly reconstructable editing state. A flattened result render is retained for history/display, while the object-free background, accepted mask, photographed-object cutout, transform metadata, and parent lineage form the editable derived-scene contract. New local lifts persist their background even when AI repair is not used. This uses the existing private asset and `photo_arrangements` schema; no database migration or authorization-boundary change was required.
+Revision 0.5.2 establishes `SceneAnalysis` as versioned derived evidence with provider/model provenance, relative depth and support-surface contracts, private RLS-protected persistence, and feature-flagged provider execution. It also establishes a single canonical Photo Arrange boundary: scene/vision providers may evolve without coordinating editor behavior through DOM observers, rendered-text scraping, programmatic UI clicks, or version-wrapper chains. The validated v2.2 interaction core remains protected until replacement behavior passes real-device acceptance.
 
-Revision 0.5.0 made real-photo augmentation the primary presentation and interaction surface while retaining canonical geometry as the authority and Plan/rectangle views as secondary technical tools.
+Revision 0.5.1 made committed Photo Arrange results explicitly reconstructable editing state: background + mask + photographed-object cutout + transform + lineage remain editable while the flattened composite is a convenience/history artifact.
+
+Revision 0.5.0 made real-photo augmentation the primary experience while retaining canonical geometry as authority and Plan/rectangle views as secondary technical tools.
 
 Prior architecture revisions remain preserved in Git history.
