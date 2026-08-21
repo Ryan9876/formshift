@@ -67,6 +67,21 @@ export function PhotoArrangeEditor(props: Props) {
           filter: blur(7px);
           opacity: .68;
         }
+
+        /*
+         * Mobile Safari can drop pointer capture when the transparent object
+         * handle is repositioned every frame. While the drag is active, expand
+         * that same handle over the complete photo stage. The pointer therefore
+         * remains on the original React target even if Safari releases capture,
+         * while outside-stage gestures remain unchanged because expansion only
+         * begins after the user starts directly on the selected object.
+         */
+        [data-formshift-photo-arrange='canonical'] [aria-label='Move selected object']:active {
+          inset: 0 !important;
+          width: auto !important;
+          height: auto !important;
+          z-index: 9 !important;
+        }
       `;
       document.head.appendChild(style);
     }
