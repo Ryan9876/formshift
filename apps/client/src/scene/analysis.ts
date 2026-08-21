@@ -37,6 +37,7 @@ export function buildSceneAnalysis(sourcePhotoUrl: string, depth: DepthEstimate)
     notes: [
       'Monocular depth is relative scene evidence, not a physical measurement.',
       'The initial floor region is deliberately conservative and requires calibration or user confirmation before physical-fit use.',
+      'Depth ordering must be calibrated before it is used to drive occlusion.',
     ],
   };
 }
@@ -62,8 +63,20 @@ export function isPointSupported(analysis: SceneAnalysis, x: number, y: number) 
   return analysis.surfaces.some((surface) => surface.kind === 'floor' && pointInPolygon({ x, y }, surface.imagePolygon));
 }
 
-export function shouldSourceOccludeObject(sourceDepth: number, objectDepth: number, tolerance = 0.035) {
-  return sourceDepth + tolerance < objectDepth;
+export function shouldSourceOccludeObject({
+  sourceDepth,
+  objectDepth,
+  nearIsHigher,
+  tolerance = 0.035,
+}: {
+  sourceDepth: number;
+  objectDepth: number;
+  nearIsHigher: boolean;
+  tolerance?: number;
+}) {
+  return nearIsHigher
+    ? sourceDepth > objectDepth + tolerance
+    : sourceDepth + tolerance < objectDepth;
 }
 
 function pointInPolygon(point: { x: number; y: number }, polygon: { x: number; y: number }[]) {
@@ -71,8 +84,10 @@ function pointInPolygon(point: { x: number; y: number }, polygon: { x: number; y
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
     const a = polygon[i]!;
     const b = polygon[j]!;
+    const dy = b.y - a.y;
+    const divisor = Math.abs(dy) < 1e-9 ? (dy < 0 ? -1e-9 : 1e-9) : dy;
     const intersects = ((a.y > point.y) !== (b.y > point.y))
-      && point.x < ((b.x - a.x) * (point.y - a.y)) / Math.max(b.y - a.y, 1e-9) + a.x;
+      && point.x < ((b.x - a.x) * (point.y - a.y)) / divisor + a.x;
     if (intersects) inside = !inside;
   }
   return inside;
