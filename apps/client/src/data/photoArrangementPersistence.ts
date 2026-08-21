@@ -2,9 +2,25 @@ import { supabase } from '../auth/AuthProvider';
 
 const BUCKET = 'formshift-private';
 
+export type PhotoArrangementTransform = {
+  x: number;
+  y: number;
+  scale: number;
+  rotationDeg: number;
+  bbox: { x: number; y: number; width: number; height: number };
+  rendererVersion: string;
+  manualScale?: number;
+  perspectiveFactor?: number;
+  placementAssist?: boolean;
+};
+
 export type LoadedPhotoArrangement = {
   id: string;
   sceneUrl: string;
+  backgroundUrl: string | null;
+  maskUrl: string | null;
+  cutoutUrl: string | null;
+  transform: PhotoArrangementTransform | null;
   createdAt: string;
 };
 
@@ -17,14 +33,7 @@ export type PersistPhotoArrangementInput = {
   maskDataUrl: string;
   cutoutDataUrl: string;
   backgroundDataUrl?: string | null;
-  transform: {
-    x: number;
-    y: number;
-    scale: number;
-    rotationDeg: number;
-    bbox: { x: number; y: number; width: number; height: number };
-    rendererVersion: 'photo-arrange-1.5';
-  };
+  transform: PhotoArrangementTransform;
 };
 
 type AssetRow = {
@@ -40,7 +49,7 @@ export async function loadLatestPhotoArrangement(
 
   const latest = await supabase
     .from('photo_arrangements')
-    .select('id, result_asset_id, created_at')
+    .select('id, result_asset_id, mask_asset_id, cutout_asset_id, background_asset_id, transform_json, created_at')
     .eq('project_id', projectId)
     .eq('space_id', spaceId)
     .eq('status', 'committed')
@@ -54,25 +63,38 @@ export async function loadLatestPhotoArrangement(
   }
   if (!latest.data?.result_asset_id) return null;
 
-  const asset = await supabase
+  const assetIds = [
+    latest.data.result_asset_id,
+    latest.data.mask_asset_id,
+    latest.data.cutout_asset_id,
+    latest.data.background_asset_id,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+  const assets = await supabase
     .from('assets')
     .select('id, storage_path')
-    .eq('id', latest.data.result_asset_id)
-    .is('deleted_at', null)
-    .maybeSingle();
+    .in('id', assetIds)
+    .is('deleted_at', null);
 
-  if (asset.error) throw asset.error;
-  if (!asset.data?.storage_path) return null;
+  if (assets.error) throw assets.error;
+  const byId = new Map((assets.data ?? []).map((asset) => [asset.id as string, asset.storage_path as string]));
+  const resultPath = byId.get(latest.data.result_asset_id as string);
+  if (!resultPath) return null;
 
-  const signed = await supabase.storage
-    .from(BUCKET)
-    .createSignedUrl(asset.data.storage_path, 3600);
-
-  if (signed.error) throw signed.error;
+  const [sceneUrl, backgroundUrl, maskUrl, cutoutUrl] = await Promise.all([
+    signAssetPath(resultPath),
+    signOptionalAssetPath(byId.get(latest.data.background_asset_id as string | undefined)),
+    signOptionalAssetPath(byId.get(latest.data.mask_asset_id as string | undefined)),
+    signOptionalAssetPath(byId.get(latest.data.cutout_asset_id as string | undefined)),
+  ]);
 
   return {
     id: latest.data.id,
-    sceneUrl: signed.data.signedUrl,
+    sceneUrl,
+    backgroundUrl,
+    maskUrl,
+    cutoutUrl,
+    transform: parseTransform(latest.data.transform_json),
     createdAt: latest.data.created_at,
   };
 }
@@ -183,15 +205,12 @@ export async function persistPhotoArrangement(input: PersistPhotoArrangementInpu
 
     if (row.error) throw row.error;
 
-    const signed = await supabase.storage
-      .from(BUCKET)
-      .createSignedUrl(resultAsset.storage_path, 3600);
-    if (signed.error) throw signed.error;
+    const sceneUrl = await signAssetPath(resultAsset.storage_path);
 
     return {
       id: row.data.id as string,
       createdAt: row.data.created_at as string,
-      sceneUrl: signed.data.signedUrl,
+      sceneUrl,
     };
   } catch (error) {
     if (insertedAssetIds.length) {
@@ -202,6 +221,51 @@ export async function persistPhotoArrangement(input: PersistPhotoArrangementInpu
     }
     throw error;
   }
+}
+
+async function signAssetPath(path: string) {
+  if (!supabase) throw new Error('Photo arrangement persistence is unavailable.');
+  const signed = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600);
+  if (signed.error) throw signed.error;
+  return signed.data.signedUrl;
+}
+
+async function signOptionalAssetPath(path?: string) {
+  return path ? signAssetPath(path) : null;
+}
+
+function parseTransform(value: unknown): PhotoArrangementTransform | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<PhotoArrangementTransform>;
+  const bbox = candidate.bbox;
+  if (
+    !Number.isFinite(candidate.x) ||
+    !Number.isFinite(candidate.y) ||
+    !Number.isFinite(candidate.scale) ||
+    !Number.isFinite(candidate.rotationDeg) ||
+    !bbox ||
+    !Number.isFinite(bbox.x) ||
+    !Number.isFinite(bbox.y) ||
+    !Number.isFinite(bbox.width) ||
+    !Number.isFinite(bbox.height)
+  ) return null;
+
+  return {
+    x: candidate.x as number,
+    y: candidate.y as number,
+    scale: candidate.scale as number,
+    rotationDeg: candidate.rotationDeg as number,
+    bbox: {
+      x: bbox.x as number,
+      y: bbox.y as number,
+      width: bbox.width as number,
+      height: bbox.height as number,
+    },
+    rendererVersion: typeof candidate.rendererVersion === 'string' ? candidate.rendererVersion : 'photo-arrange-legacy',
+    manualScale: Number.isFinite(candidate.manualScale) ? candidate.manualScale : undefined,
+    perspectiveFactor: Number.isFinite(candidate.perspectiveFactor) ? candidate.perspectiveFactor : undefined,
+    placementAssist: typeof candidate.placementAssist === 'boolean' ? candidate.placementAssist : undefined,
+  };
 }
 
 async function uploadDataUrlAsset({
