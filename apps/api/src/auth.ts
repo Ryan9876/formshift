@@ -1,12 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { requireServerEnv } from './env.js';
 
-function verifierClient() {
-  return createClient(requireServerEnv('SUPABASE_URL'), requireServerEnv('SUPABASE_PUBLISHABLE_KEY'), {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
-  });
-}
-
 function userClient(token: string) {
   return createClient(requireServerEnv('SUPABASE_URL'), requireServerEnv('SUPABASE_PUBLISHABLE_KEY'), {
     accessToken: async () => token,
@@ -19,18 +13,15 @@ export async function requireVerifiedIdentity(request: Request) {
   if (!bearer?.startsWith('Bearer ')) throw new Response('Unauthorized', { status: 401 });
   const token = bearer.slice(7);
 
-  // Verify the Supabase Auth JWT with an ordinary server-side auth client.
-  // Database queries use a separate RLS-scoped client with the same JWT.
-  const verifier = verifierClient();
-  const { data, error } = await verifier.auth.getUser(token);
-  if (error || !data.user?.id) throw new Response('Unauthorized', { status: 401 });
-
+  // The client is scoped to the request bearer through the explicit accessToken
+  // provider. getClaims() verifies the JWT before any RLS-scoped database work.
   const client = userClient(token);
-  return {
-    userId: data.user.id,
-    email: data.user.email ?? null,
-    client
-  };
+  const { data, error } = await client.auth.getClaims();
+  const userId = typeof data?.claims?.sub === 'string' ? data.claims.sub : null;
+  if (error || !userId) throw new Response('Unauthorized', { status: 401 });
+
+  const email = typeof data.claims.email === 'string' ? data.claims.email : null;
+  return { userId, email, client };
 }
 
 export async function requireActiveUser(request: Request) {
