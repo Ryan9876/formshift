@@ -1,136 +1,97 @@
 # FormShift Current State
 
-**Revision:** 0.9.0  
+**Revision:** 0.9.1  
 **Date:** 2026-08-21  
-**Milestone:** Photo Arrange v2.1 placement realism deployed; real-device visual and persistence validation pending
+**Milestone:** Photo Arrange v2.1 placement assist rolled back after a selection regression; last validated selection/repair runtime restored in production
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
 ## Validated Photo Arrange baseline
 
-Authenticated browser/iPhone testing has established that:
-- a normal tap reaches FormShift rather than Safari's native image-selection UI
-- local interactive segmentation can isolate a photographed object
-- a photographed object such as the guitar can be lifted and moved using its real pixels
-- room pinch-zoom/pan improves small-object targeting
-- candidate review/refinement and lifted-object manipulation are meaningfully separated
-- immutable source room imagery remains preserved in private FormShift storage
-- persisted derived photo arrangements restore after refresh
-- object-centered local inference materially improved guitar isolation enough to shift the primary bottleneck from gesture design to rendering quality
-- the authenticated AI background-repair path executes successfully after explicit opt-in and materially improves the removed-object location compared with the deterministic local fallback
+Authenticated browser/iPhone testing established that the pre-v2.1 Arrange runtime can:
+- receive normal object taps without Safari taking over the gesture
+- isolate a photographed object with local object-centered segmentation
+- preview/refine a candidate mask before pixels are lifted
+- lift and move the real photographed pixels
+- zoom/pan the room independently from object manipulation
+- persist derived arrangements without overwriting the immutable source photo
+- run explicit authenticated AI background reconstruction through `openai/gpt-image-2`
 
-The experience remains prototype-quality. The dominant remaining quality constraints are calibrated depth, true occlusion, floor/support understanding, physically appropriate contact, edge integration, and lighting.
+The validated AI repair production test completed successfully with `openai/gpt-image-2` in 24,880 ms and materially improved the removed guitar location compared with the deterministic local fallback.
 
-## Retained Arrange foundations
+## v2.1 regression and rollback
 
-Photo Arrange v1.5–v2.0.1 retain:
-- candidate selection preview before pixels are lifted
-- explicit Add / Remove refinement with continuous strokes and Undo / Redo
+Photo Arrange v2.1 introduced an optional image-space perspective/contact assist. The deployment built successfully and `/arrange` returned HTTP 200, but real-device testing immediately revealed a critical regression: **the user could no longer select any object**.
+
+Because selection is a foundational Arrange capability, the v2.1 runtime was not retained while debugging the placement feature.
+
+Rollback action:
+- branch: `hotfix-restore-selection-v21`
+- rollback commit: `c9402bce2e15ba1e45fb683295dc6eddccca7fd4`
+- restored the three runtime files changed by v2.1 to their last selection-validated contents from commit `30c9d84b5f2bfe3a72fe552b7951b6c64a84f342`
+- preview deployment `dpl_Baw5fPqwi4ZfYvztKY9qsRj2ymL4` — READY on the exact rollback commit
+- branch comparison was a clean one-commit fast-forward changing only:
+  - `apps/client/src/components/PhotoArrangeEditorV17.web.tsx`
+  - `apps/client/src/components/PhotoArrangeEditorV20.web.tsx`
+  - `apps/client/src/data/photoArrangementPersistence.ts`
+- production deployment `dpl_A9jKNGoEQc9zXTYxALggV86shb3o` — READY on the exact rollback commit and serving `formshift-web.vercel.app`
+- production `/arrange` — HTTP 200 smoke-verified
+
+The rollback restores the previously validated implementation in code, but **selection is not yet re-confirmed on the user's device after this rollback**.
+
+## Current Arrange capabilities
+
+The active production runtime retains:
+- object-centered local segmentation around the tap
+- candidate mask preview
+- continuous Add / Remove refinement with Undo / Redo
 - explicit Pan/review mode and two-finger room zoom
-- one-finger object movement plus two-finger scale/rotation
-- private immutable photo-arrangement persistence with parent lineage
-- explicit asynchronous AI background repair
+- explicit **Lift object** transition
+- one-finger object movement and two-finger scale/rotation
+- opt-in AI background repair with visible queued/sending/completed/failed state
+- private immutable `photo_arrangements` persistence
+- source-photo integrity and parent lineage
 - iPhone Safari gesture/safe-area hardening
-- prewarmed local segmentation and cached semantic selection
-- object-centered local inference around the tap for higher effective object resolution
-- explicit **Lift object** transition before photographed pixels become movable
-- restrained cutout/edge treatment
-- validated opt-in AI background reconstruction through `openai/gpt-image-2`
 
-Persistence/security baseline remains:
+The v2.1 screen-Y perspective scaling, dynamic contact ellipse/guide, and v2.1 transform metadata are **not active in the production runtime after the rollback**.
+
+## Persistence/security baseline
+
 - Supabase private bucket `formshift-private`
 - 26/26 public application tables RLS-enabled
 - anonymous has no `photo_arrangements` table privileges; authenticated has SELECT + INSERT only
 - pixel edits never overwrite the immutable source photo
+- AI background repair remains explicit opt-in and the configured image-provider path is not claimed to be zero-data-retention
 
-## Validated AI background repair
+## Accuracy boundaries
 
-A production iPhone test after v2.0.1 showed the removed guitar location reconstructed as continuous room background instead of the faceted deterministic fallback.
-
-Server-side evidence for that test:
-- `public.ai_runs.task_name = 'photo-background-repair'`
-- status: `completed`
-- provider model: `openai/gpt-image-2`
-- latency: `24,880 ms`
-- error class: none
-- created at: `2026-08-20 17:16:28.707697+00`
-
-The current authenticated AI repair path is retained for the prototype baseline. Automatic repair remains explicit opt-in and off by default.
-
-## Photo Arrange v2.1 — placement realism
-
-Functional runtime baseline: `aef0bd41ec41b4fcff25db3324870a0f70a9245c`
-
-Implemented:
-- optional **Perspective: On / Off** placement assistance after an object is lifted
-- the accepted source-object vertical position becomes the image-space depth reference for that edit
-- with assistance enabled, moving the object lower in the photo moderately increases apparent size and moving it higher moderately reduces apparent size
-- the estimated perspective factor is bounded to avoid unstable scale changes
-- manual pinch/button scale remains independent and composes with the estimated perspective factor
-- drag bounds account for the effective rendered size so assisted scaling does not push the object outside the scene
-- a position-aware contact ellipse is rendered beneath the moved object while assistance is enabled
-- a temporary dashed contact guide appears at the object base during drag
-- the older generic pseudo-shadow is disabled so the new position-aware contact treatment is not doubled
-- **Keep placement** composites using the same effective rendered scale shown in the live preview
-- persisted `transform_json` now retains effective scale plus optional `manualScale`, `perspectiveFactor`, `placementAssist`, and renderer version `photo-arrange-2.1`
-- existing source-photo integrity, selection/refinement, AI background repair, and persistence/storage behavior remain unchanged
-
-This is deliberately an **image-space heuristic**, not calibrated depth. Perspective assistance can be disabled for placements where vertical screen position is not a useful depth proxy, including wall-mounted or unusual support situations.
-
-### Validation and deployment evidence
-
-- isolated branch: `photo-arrange-v21-placement`
-- an intermediate branch build was reviewed but not promoted after detecting an unnecessary persistence-helper rewrite; that change was fully reverted before release
-- corrected exact preview `dpl_2o7sUopCLavwDZ9Kms9WtPjrXJhQ` — READY on `aef0bd41ec41b4fcff25db3324870a0f70a9245c`
-- corrected branch comparison against then-current `main` was a clean fast-forward affecting only:
-  - `apps/client/src/components/PhotoArrangeEditorV17.web.tsx`
-  - `apps/client/src/components/PhotoArrangeEditorV20.web.tsx`
-  - `apps/client/src/data/photoArrangementPersistence.ts` with transform-type metadata only
-- production web deployment `dpl_63d5PJCDqfgYv4nysQjMszPyn3Ue` — READY on the exact runtime baseline and serving `formshift-web.vercel.app`
-- production build exported `/arrange` successfully with no build errors
-- live production `/arrange` — HTTP 200 smoke-verified
-
-## Accuracy and privacy boundaries
-
-- segmentation/refinement remain local in the browser
-- AI background repair occurs only after explicit user opt-in; the configured image provider path is not claimed to be zero-data-retention
-- deterministic local removed-object reconstruction remains a fast fallback and is not claimed to be photorealistic
-- v2.1 perspective assistance is an estimated screen-space visualization aid, not camera calibration, measured floor depth, or proof of physical scale
-- the contact ellipse/guide is illustrative, not a detected support plane or physically simulated shadow
-- placement assistance never changes canonical physical dimensions, room geometry, or measurement provenance
-- true depth, floor/wall/support planes, occlusion, calibrated perspective, relighting, and physical scale remain uncalibrated for free-form photographed-object movement
+- segmentation/refinement are image-based and remain prototype quality
+- deterministic local removed-object reconstruction is a fast fallback and is not photorealistic
+- free-form photo movement does not establish measured depth, floor contact, perspective, occlusion, relighting, or physical scale
+- canonical room/object dimensions and measurement provenance are not changed by pixel movement
 
 ## Next validation
 
-In production on iPhone Safari / browser:
-1. hard refresh and open **Arrange**
-2. select and lift the guitar using the existing selection/refinement flow
-3. leave **Perspective: On** and drag the guitar substantially lower, then higher; confirm apparent scale changes smoothly in the expected direction
-4. confirm the contact ellipse follows the bottom of the guitar and the dashed contact guide appears only while dragging
-5. use manual pinch/size controls and confirm manual scale still works while perspective assistance is on
-6. switch **Perspective: Off** and confirm vertical movement no longer changes apparent scale
-7. use AI background repair and confirm the validated repair flow still completes normally
-8. choose **Keep placement**, refresh, and confirm the saved derived scene visually matches the effective size shown before save
+On the user's iPhone/browser after a hard refresh:
+1. open **Arrange**
+2. zoom to the guitar or another distinct object
+3. short-tap the object
+4. confirm the candidate selection mask appears again
+5. confirm refinement, Lift object, movement, and AI repair still work
 
 ## Next implementation decision
 
-If v2.1 feels directionally natural, stop adding image-space heuristics and proceed to a real scene model:
-1. estimate or capture floor/wall/support planes and coarse depth
-2. use calibrated/estimated depth for projection rather than screen-Y scaling
-3. add depth-aware occlusion so furniture can correctly pass in front of or behind moved objects
-4. derive contact/support constraints from the scene model
-5. improve edge matting, color spill, and scene-aware lighting
-6. use LiDAR/RoomPlan where available on supported iPhones and an explicitly lower-confidence monocular/photo fallback elsewhere
+Only after selection is re-confirmed should placement realism return. Reintroduce it behind a separate rendering/scene-assist boundary rather than modifying the validated selection/gesture core directly. The next placement implementation should be independently switchable/rollbackable and must pass selection regression testing before production promotion.
 
-If the screen-Y heuristic feels unnatural on common placements, disable it by default rather than adding more compensating heuristics; true depth/calibration is the appropriate next architecture step.
+Longer term, prefer a real scene model—floor/support planes, coarse depth, occlusion and camera-aware projection—over accumulating additional screen-space heuristics.
 
 ## Not yet claimed
 
-Real-device validation of v2.1 placement assistance, calibrated floor snapping, true scene depth, depth-aware occlusion, perspective-aware **physical** scaling, physically correct contact shadow, calibrated relighting, native iOS continuous photo manipulation, or dedicated persisted blueprint PDF.
+Post-rollback device confirmation of selection, calibrated floor snapping, real scene depth, depth-aware occlusion, perspective-aware physical scaling, physically correct contact shadow, calibrated relighting, native iOS continuous photo manipulation, or dedicated persisted blueprint PDF.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated for the deployed Photo Arrange v2.1 placement-realism release and pending real-device validation
-- `DESIGN-SYSTEM.md`: updated to revision 0.5.4 with the durable optional/reversible placement-assist contract and explicit estimated-vs-calibrated boundary
-- `ARCHITECTURE.md`: unchanged; v2.1 extends the existing derived-scene transform metadata without changing service, storage, auth, or persistence boundaries
-- `PROJECT-CONSTITUTION.md`: unchanged; existing source-integrity, privacy, measurement-provenance, and photo-first rules continue to govern the release
+- `CURRENT-STATE.md`: updated for the production rollback and the required selection re-validation
+- `DESIGN-SYSTEM.md`: unchanged; the optional/reversible estimated-assist rule remains a durable design constraint for any future reimplementation, not a statement that the feature is currently deployed
+- `ARCHITECTURE.md`: unchanged
+- `PROJECT-CONSTITUTION.md`: unchanged
