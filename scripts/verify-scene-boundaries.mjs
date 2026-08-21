@@ -3,7 +3,10 @@ import path from 'node:path';
 
 const root = process.cwd();
 const sceneRoot = path.join(root, 'apps/client/src/scene');
-const forbidden = ['MutationObserver', 'querySelector(', '.textContent', '.click(', 'PhotoArrangeEditorV'];
+const canonicalArrange = path.join(root, 'apps/client/src/components/PhotoArrangeEditor.web.tsx');
+const segmentationProvider = path.join(root, 'apps/client/src/vision/MediaPipeObjectSegmenter.web.ts');
+const arrangeWorkspace = path.join(root, 'apps/client/src/screens/PhotoArrangeWorkspace.tsx');
+const forbiddenRuntimeCoupling = ['MutationObserver', 'querySelector(', '.textContent', '.click('];
 let failures = 0;
 
 function fail(message) {
@@ -17,14 +20,24 @@ function filesUnder(directory) {
     return entry.isDirectory() ? filesUnder(full) : [full];
   });
 }
-
-for (const file of filesUnder(sceneRoot).filter((value) => /\.(ts|tsx)$/.test(value))) {
+function scan(file, tokens) {
   const source = fs.readFileSync(file, 'utf8');
-  for (const token of forbidden) {
+  for (const token of tokens) {
     if (source.includes(token)) fail(`${path.relative(root, file)} uses forbidden legacy coupling: ${token}`);
   }
 }
-if (!failures) pass('scene layer is isolated from legacy DOM/editor-version coupling');
+
+for (const file of filesUnder(sceneRoot).filter((value) => /\.(ts|tsx)$/.test(value))) {
+  scan(file, [...forbiddenRuntimeCoupling, 'PhotoArrangeEditorV']);
+}
+scan(canonicalArrange, forbiddenRuntimeCoupling);
+scan(segmentationProvider, forbiddenRuntimeCoupling);
+if (!failures) pass('scene and canonical Arrange boundaries avoid DOM text/click observer coupling');
+
+const workspace = fs.readFileSync(arrangeWorkspace, 'utf8');
+if (!workspace.includes("from '../components/PhotoArrangeEditor'")) fail('Arrange workspace is not routed through canonical PhotoArrangeEditor');
+if (/PhotoArrangeEditorV\d+/.test(workspace)) fail('Arrange workspace still imports a versioned editor wrapper');
+else pass('Arrange workspace uses one canonical editor boundary');
 
 const flags = fs.readFileSync(path.join(sceneRoot, 'featureFlags.ts'), 'utf8');
 if (!flags.includes('EXPO_PUBLIC_SCENE_INTELLIGENCE_V1')) fail('scene intelligence feature flag missing');
