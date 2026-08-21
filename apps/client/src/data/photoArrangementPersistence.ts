@@ -80,12 +80,13 @@ export async function loadLatestPhotoArrangement(
   const byId = new Map((assets.data ?? []).map((asset) => [asset.id as string, asset.storage_path as string]));
   const resultPath = byId.get(latest.data.result_asset_id as string);
   if (!resultPath) return null;
+  const pathFor = (id: string | null | undefined) => id ? byId.get(id) : undefined;
 
   const [sceneUrl, backgroundUrl, maskUrl, cutoutUrl] = await Promise.all([
     signAssetPath(resultPath),
-    signOptionalAssetPath(byId.get(latest.data.background_asset_id as string | undefined)),
-    signOptionalAssetPath(byId.get(latest.data.mask_asset_id as string | undefined)),
-    signOptionalAssetPath(byId.get(latest.data.cutout_asset_id as string | undefined)),
+    signOptionalAssetPath(pathFor(latest.data.background_asset_id)),
+    signOptionalAssetPath(pathFor(latest.data.mask_asset_id)),
+    signOptionalAssetPath(pathFor(latest.data.cutout_asset_id)),
   ]);
 
   return {
