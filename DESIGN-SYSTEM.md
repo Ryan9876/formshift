@@ -1,9 +1,9 @@
 # FormShift Design System
 
 **Status:** Authoritative visual and interaction baseline  
-**Revision:** 0.5.3  
+**Revision:** 0.5.4  
 **Established:** 2026-08-19  
-**Last material design decision:** 2026-08-20  
+**Last material design decision:** 2026-08-21  
 **Visual lineage:** Parallax light-glass/depth language adapted for a photo-first spatial augmentation product
 
 ## 1. Brand
@@ -197,7 +197,7 @@ Selected visible object:
 - drag/rotate handles appropriate to confidence
 - dimensions available without covering the object
 - live collision/clearance feedback
-- perspective/scale preserved automatically
+- perspective/scale preserved automatically when calibrated, or assisted explicitly when only estimated
 - fixed/estimated state visible in inspector
 
 ### Arrange gesture contract
@@ -231,6 +231,21 @@ An automatic segmentation result is a **candidate**, not an accepted object cuto
 - background removal/repair begins only after the candidate is accepted for lift
 - AI background reconstruction remains a separate explicit action; selection refinement itself remains local when supported
 - mobile refinement and arrangement controls use a compact wrapping/bottom-tray pattern and must not overflow horizontally
+
+### Placement-assist contract
+
+Photo placement assistance is permitted when calibrated scene depth is unavailable, but it must remain clearly an **estimated augmentation** rather than simulated measurement.
+
+- perspective assistance is explicit, visible, and reversible; users can turn it off when the heuristic is inappropriate, such as a wall-mounted object or a placement that does not follow the apparent floor/depth direction
+- when enabled for a free-standing photographed object, moving lower in the image may increase apparent size and moving higher may reduce apparent size relative to the object's accepted source position
+- the heuristic must be bounded and visually stable; it must never cause abrupt scale jumps or allow the object to escape the visible scene solely because assisted scale changed
+- manual pinch/button scaling remains available and composes with the assisted factor rather than being silently overwritten
+- the current assist factor may be shown during manipulation so the user can understand why apparent size changed
+- a subtle contact ellipse and temporary ground/contact guide may be used as visual aids while moving an object, but they are illustrative until a floor/support plane is calibrated
+- viewport framing never changes the placement-assist result
+- saved derived scenes must preserve the effective rendered scale and enough metadata to distinguish manual scale from estimated perspective assistance
+- placement assistance must never change canonical physical dimensions, measured geometry, measurement provenance, or claim physical fit
+- once calibrated camera/depth/floor data is available, calibrated projection should replace this image-space heuristic rather than stacking additional heuristics on top of it
 
 The technical Plan view remains available for:
 
@@ -379,7 +394,9 @@ Never animate the source photo in a way that makes measurement or object placeme
 
 Sign-in, pending approval, suspended/revoked, active, and configuration-unavailable states retain the FormShift glass/depth language while keeping authentication quiet and explicit. No private room imagery renders behind an unauthorized access state.
 
-## 21. Revision note — 0.5.3
+## 21. Revision note — 0.5.4
+
+Revision 0.5.4 defines optional image-space placement assistance for photo Arrange. Perspective assistance may alter apparent scale from vertical placement and may render a contact ellipse/guide, but must remain reversible, bounded, explicitly estimated, and isolated from canonical dimensions or measurement provenance. Saved derived scenes retain the effective rendered scale plus assist metadata so the visible result is reproducible.
 
 Revision 0.5.3 extends selection refinement from point corrections to continuous Add/Remove strokes, adds an explicit Pan mode during candidate refinement, keeps two-finger room zoom available in all refinement modes, and establishes Undo/Redo for completed refinement strokes.
 
