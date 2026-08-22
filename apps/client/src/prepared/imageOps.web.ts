@@ -44,12 +44,13 @@ export function createQuickCleanBackground(source: HTMLCanvasElement, masks: Uin
   const shift = Math.max(14, Math.round(Math.min(width, height) * 0.04));
   fillContext.save();
   fillContext.filter = `blur(${Math.max(10, Math.round(shift * 0.46))}px)`;
-  fillContext.globalAlpha = 0.3;
+  fillContext.globalAlpha = 1;
   fillContext.drawImage(source, -shift, 0, width, height);
+  fillContext.globalAlpha = 0.28;
   fillContext.drawImage(source, shift, 0, width, height);
   fillContext.drawImage(source, 0, -shift, width, height);
   fillContext.drawImage(source, 0, shift, width, height);
-  fillContext.globalAlpha = 0.2;
+  fillContext.globalAlpha = 0.16;
   const insetX = Math.round(width * 0.025);
   const insetY = Math.round(height * 0.025);
   fillContext.drawImage(source, insetX, insetY, width - insetX * 2, height - insetY * 2, 0, 0, width, height);
@@ -65,6 +66,7 @@ export function createQuickCleanBackground(source: HTMLCanvasElement, masks: Uin
   outputContext.globalCompositeOperation = 'destination-out';
   outputContext.drawImage(maskCanvas, 0, 0);
   outputContext.globalCompositeOperation = 'source-over';
+  outputContext.drawImage(fill, 0, 0);
   outputContext.drawImage(fill, 0, 0);
   return output.toDataURL('image/jpeg', 0.92);
 }
