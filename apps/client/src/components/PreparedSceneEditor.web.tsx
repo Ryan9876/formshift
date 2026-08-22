@@ -17,16 +17,21 @@ type Props = {
 
 type Phase = 'idle' | 'loading' | 'discovering' | 'segmenting' | 'cleaning' | 'ready' | 'error';
 type DragSession = { objectId: string; pointerId: number; clientX: number; clientY: number; startX: number; startY: number };
-
 type DetectorInfo = { provider: string; model: string; modelVersion: string; processingMs: number } | null;
 type DepthInfo = { provider: string; model: string; modelVersion: string; processingMs: number } | null;
+type NormalizedPoint = { x: number; y: number };
 
-const MAX_AUTOMATIC_OBJECTS = 12;
+const MAX_AUTOMATIC_OBJECTS = 14;
 const IGNORED_LABELS = new Set(['person', 'cat', 'dog', 'bird', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe']);
 const FIXED_LABELS = new Set(['toilet', 'sink', 'oven']);
 const SURFACE_LABELS = new Set(['dining table']);
 const FLOOR_LABELS = new Set(['chair', 'couch', 'bed', 'suitcase', 'potted plant', 'refrigerator']);
 const WALL_LABELS = new Set(['tv', 'clock']);
+const ROOM_SWEEP_SEEDS: NormalizedPoint[] = [
+  { x: 0.16, y: 0.22 }, { x: 0.38, y: 0.22 }, { x: 0.62, y: 0.22 }, { x: 0.84, y: 0.22 },
+  { x: 0.16, y: 0.48 }, { x: 0.38, y: 0.48 }, { x: 0.62, y: 0.48 }, { x: 0.84, y: 0.48 },
+  { x: 0.16, y: 0.74 }, { x: 0.38, y: 0.74 }, { x: 0.62, y: 0.74 }, { x: 0.84, y: 0.74 },
+];
 
 export function PreparedSceneEditor({ photoUrl }: Props) {
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -48,6 +53,7 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
   const [detectorInfo, setDetectorInfo] = useState<DetectorInfo>(null);
   const [depthInfo, setDepthInfo] = useState<DepthInfo>(null);
   const [ignoredCount, setIgnoredCount] = useState(0);
+  const [sweepCount, setSweepCount] = useState(0);
 
   const selected = useMemo(() => objects.find((object) => object.id === selectedId) ?? null, [objects, selectedId]);
 
@@ -93,6 +99,7 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
     setDetectorInfo(null);
     setDepthInfo(null);
     setIgnoredCount(0);
+    setSweepCount(0);
     setError(null);
     setAddMode(false);
     setShowCleanPlate(false);
@@ -123,10 +130,12 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
       setDetectorInfo({ provider: discovery.provider, model: discovery.model, modelVersion: discovery.modelVersion, processingMs: discovery.processingMs });
       const chosen = chooseCandidates(discovery.candidates, source.originalWidth, source.originalHeight);
       setIgnoredCount(Math.max(0, discovery.candidates.length - chosen.length));
-      setProgress({ complete: 0, total: chosen.length });
+      setProgress({ complete: 0, total: chosen.length + ROOM_SWEEP_SEEDS.length });
 
       setPhase('segmenting');
       const prepared: PreparedSceneObject[] = [];
+      let completed = 0;
+
       for (let index = 0; index < chosen.length; index += 1) {
         if (generationRef.current !== generation) return;
         const candidate = chosen[index]!;
@@ -137,19 +146,53 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
         };
         try {
           const segment = await segmentPreparedObject(source.canvas, seed);
-          if (!segment || segment.bbox.width * segment.bbox.height > 0.62) {
-            setProgress({ complete: index + 1, total: chosen.length });
-            continue;
+          if (segment && segment.bbox.width * segment.bbox.height <= 0.62 && !overlapsPrepared(segment.bbox, prepared, 0.74)) {
+            const id = crypto.randomUUID();
+            maskValuesRef.current.set(id, segment.maskValues);
+            const semantics = classify(candidate.label);
+            prepared.push({
+              id,
+              label: candidate.label,
+              detectionScore: candidate.score,
+              mobility: semantics.mobility,
+              expectedSupport: semantics.support,
+              bbox: segment.bbox,
+              maskDataUrl: segment.maskDataUrl,
+              cutoutDataUrl: segment.cutoutDataUrl,
+              position: { x: segment.centerX, y: segment.centerY },
+              scale: 1,
+              rotationDeg: 0,
+              source: 'automatic',
+            });
+            setObjects([...prepared]);
           }
+        } catch {
+          // One weak detector candidate must not stop room preparation.
+        }
+        completed += 1;
+        setProgress({ complete: completed, total: chosen.length + ROOM_SWEEP_SEEDS.length });
+      }
+
+      let supplemental = 0;
+      for (let index = 0; index < ROOM_SWEEP_SEEDS.length && prepared.length < MAX_AUTOMATIC_OBJECTS; index += 1) {
+        if (generationRef.current !== generation) return;
+        const seed = ROOM_SWEEP_SEEDS[index]!;
+        completed += 1;
+        setProgress({ complete: completed, total: chosen.length + ROOM_SWEEP_SEEDS.length });
+        if (seedCovered(seed, maskValuesRef.current, source.canvas.width, source.canvas.height)) continue;
+        setStatus(`Scanning remaining room areas · ${index + 1} of ${ROOM_SWEEP_SEEDS.length}`);
+        try {
+          const segment = await segmentPreparedObject(source.canvas, seed);
+          const area = segment ? segment.bbox.width * segment.bbox.height : 1;
+          if (!segment || area < 0.0015 || area > 0.2 || overlapsPrepared(segment.bbox, prepared, 0.52)) continue;
           const id = crypto.randomUUID();
           maskValuesRef.current.set(id, segment.maskValues);
-          const semantics = classify(candidate.label);
-          const object: PreparedSceneObject = {
+          prepared.push({
             id,
-            label: candidate.label,
-            detectionScore: candidate.score,
-            mobility: semantics.mobility,
-            expectedSupport: semantics.support,
+            label: 'object',
+            detectionScore: 0.5,
+            mobility: 'movable',
+            expectedSupport: 'unknown',
             bbox: segment.bbox,
             maskDataUrl: segment.maskDataUrl,
             cutoutDataUrl: segment.cutoutDataUrl,
@@ -157,14 +200,14 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
             scale: 1,
             rotationDeg: 0,
             source: 'automatic',
-          };
-          prepared.push(object);
+          });
+          supplemental += 1;
           setObjects([...prepared]);
         } catch {
-          // A single weak candidate must not prevent the rest of the room from becoming editable.
+          // The sweep is opportunistic; uncertain regions are left for manual correction.
         }
-        setProgress({ complete: index + 1, total: chosen.length });
       }
+      setSweepCount(supplemental);
 
       if (generationRef.current !== generation) return;
       setPhase('cleaning');
@@ -180,7 +223,7 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
       if (generationRef.current !== generation) return;
       setPhase('error');
       setError(cause instanceof Error ? cause.message : 'Prepared Scene could not analyze this room.');
-      setStatus('The original Arrange editor is still available by disabling Prepared Scene.');
+      setStatus('The original Arrange editor is still available when Prepared Scene is disabled.');
     }
   }
 
@@ -194,7 +237,7 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
       })));
       setDepthInfo({ provider: estimate.provider, model: estimate.model, modelVersion: estimate.modelVersion, processingMs: estimate.processingMs });
     } catch {
-      // Depth is enrichment. Object manipulation remains available if the model cannot run on this device.
+      // Depth is enrichment. Object manipulation remains available if it cannot run on this device.
     }
   }
 
@@ -205,6 +248,7 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
     if (!rect.width || !rect.height) return;
     const seed = { x: clamp((event.clientX - rect.left) / rect.width, 0, 1), y: clamp((event.clientY - rect.top) / rect.height, 0, 1) };
     setStatus('Adding the object you tapped…');
+    setError(null);
     try {
       const segment = await segmentPreparedObject(sourceCanvasRef.current, seed);
       if (!segment || segment.bbox.width * segment.bbox.height > 0.62) throw new Error('That area did not produce a reliable object mask.');
@@ -269,9 +313,7 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
           <Text style={{ fontSize: 13, fontWeight: '800', color: tokens.color.text }}>Prepared Scene v1</Text>
           <Text style={{ flex: 1, minWidth: 180, fontSize: 11, lineHeight: 16, color: tokens.color.muted }}>{status}</Text>
         </View>
-        {phase === 'segmenting' && progress.total ? (
-          <Text style={{ fontSize: 10, color: tokens.color.muted }}>{progress.complete}/{progress.total} candidates prepared</Text>
-        ) : null}
+        {phase === 'segmenting' && progress.total ? <Text style={{ fontSize: 10, color: tokens.color.muted }}>{progress.complete}/{progress.total} preparation probes complete</Text> : null}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
           <Pressable disabled={phase !== 'ready'} onPress={() => { setAddMode((value) => !value); setError(null); }} style={buttonStyle(addMode)}>
             <Text style={buttonTextStyle}>{addMode ? 'Tap object in photo' : 'Add missed object'}</Text>
@@ -288,19 +330,14 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
         ref={stageRef}
         onPointerDown={addMissedObjectAt}
         style={{
-          position: 'relative',
-          width: '100%',
+          position: 'relative', width: '100%',
           aspectRatio: sourceCanvasRef.current ? `${sourceCanvasRef.current.width} / ${sourceCanvasRef.current.height}` : '4 / 3',
-          overflow: 'hidden',
-          borderRadius: 22,
-          background: '#D9D4C9',
-          border: `1px solid ${tokens.color.line}`,
-          touchAction: addMode ? 'none' : 'pan-y',
-          cursor: addMode ? 'crosshair' : 'default',
+          overflow: 'hidden', borderRadius: 22, background: '#D9D4C9', border: `1px solid ${tokens.color.line}`,
+          touchAction: addMode ? 'none' : 'pan-y', cursor: addMode ? 'crosshair' : 'default',
         }}
       >
         {background ? <img src={background} alt="Prepared room background" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill', userSelect: 'none', pointerEvents: 'none' }} /> : null}
-        {!showCleanPlate ? ordered.map((object, index) => {
+        {phase === 'ready' && !showCleanPlate ? ordered.map((object, index) => {
           const selectedObject = selectedId === object.id;
           return (
             <div
@@ -308,29 +345,18 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
               aria-label={`Move prepared ${object.label}`}
               onPointerDown={(event) => beginObjectDrag(event, object)}
               style={{
-                position: 'absolute',
-                left: `${object.position.x * 100}%`,
-                top: `${object.position.y * 100}%`,
-                width: `${object.bbox.width * object.scale * 100}%`,
-                height: `${object.bbox.height * object.scale * 100}%`,
-                transform: `translate(-50%, -50%) rotate(${object.rotationDeg}deg)`,
-                transformOrigin: 'center',
-                zIndex: selectedObject ? 100 : 10 + index,
-                touchAction: 'none',
-                cursor: 'grab',
-                outline: selectedObject ? '2px solid rgba(40,199,232,.9)' : '1px solid transparent',
-                borderRadius: 4,
+                position: 'absolute', left: `${object.position.x * 100}%`, top: `${object.position.y * 100}%`,
+                width: `${object.bbox.width * object.scale * 100}%`, height: `${object.bbox.height * object.scale * 100}%`,
+                transform: `translate(-50%, -50%) rotate(${object.rotationDeg}deg)`, transformOrigin: 'center',
+                zIndex: selectedObject ? 100 : 10 + index, touchAction: 'none', cursor: 'grab',
+                outline: selectedObject ? '2px solid rgba(40,199,232,.9)' : '1px solid transparent', borderRadius: 4,
               }}
             >
               <img src={object.cutoutDataUrl} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none', userSelect: 'none', filter: selectedObject ? 'drop-shadow(0 6px 8px rgba(0,0,0,.18))' : 'none' }} />
             </div>
           );
         }) : null}
-        {phase !== 'ready' && sourcePreview ? (
-          <div style={{ position: 'absolute', left: 12, bottom: 12, padding: '7px 10px', borderRadius: 999, background: 'rgba(20,24,24,.72)', color: '#fff', fontSize: 11, fontWeight: 700, pointerEvents: 'none' }}>
-            Preparing room…
-          </div>
-        ) : null}
+        {phase !== 'ready' && sourcePreview ? <div style={{ position: 'absolute', left: 12, bottom: 12, padding: '7px 10px', borderRadius: 999, background: 'rgba(20,24,24,.72)', color: '#fff', fontSize: 11, fontWeight: 700, pointerEvents: 'none' }}>Preparing room…</div> : null}
       </div>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
@@ -344,7 +370,7 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
       <View style={{ padding: 10, borderRadius: 14, backgroundColor: 'rgba(250,249,246,.82)', borderWidth: 1, borderColor: tokens.color.line, gap: 3 }}>
         <Text style={{ fontSize: 10, fontWeight: '800', color: tokens.color.text }}>Estimated prepared scene · source photo remains immutable</Text>
         <Text style={{ fontSize: 10, lineHeight: 15, color: tokens.color.muted }}>
-          {objects.length} editable object{objects.length === 1 ? '' : 's'} · {ignoredCount} detector candidate{ignoredCount === 1 ? '' : 's'} filtered or deferred. {selected ? `Selected: ${selected.label} · expected support ${selected.expectedSupport}${typeof selected.approximateDepth === 'number' ? ` · relative depth ${selected.approximateDepth.toFixed(2)}` : ''}.` : 'Tap an object to select it.'}
+          {objects.length} editable object{objects.length === 1 ? '' : 's'} · {sweepCount} discovered by the supplemental room sweep · {ignoredCount} detector candidate{ignoredCount === 1 ? '' : 's'} filtered or deferred. {selected ? `Selected: ${selected.label} · expected support ${selected.expectedSupport}${typeof selected.approximateDepth === 'number' ? ` · relative depth ${selected.approximateDepth.toFixed(2)}` : ''}.` : 'Tap an object to select it.'}
         </Text>
         {detectorInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Discovery: {detectorInfo.model} · {detectorInfo.processingMs} ms</Text> : null}
         {depthInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth: {depthInfo.model} · {depthInfo.processingMs} ms</Text> : <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth enrichment runs after objects become moveable so it does not block interaction.</Text>}
@@ -381,6 +407,25 @@ function classify(label: string): { mobility: PreparedObjectMobility; support: P
   return { mobility: 'movable', support: 'surface' };
 }
 
+function seedCovered(seed: NormalizedPoint, masks: Map<string, Uint8ClampedArray>, width: number, height: number) {
+  const x = clamp(Math.round(seed.x * (width - 1)), 0, width - 1);
+  const y = clamp(Math.round(seed.y * (height - 1)), 0, height - 1);
+  const index = y * width + x;
+  for (const mask of masks.values()) if ((mask[index] ?? 0) >= 96) return true;
+  return false;
+}
+
+function overlapsPrepared(bbox: { x: number; y: number; width: number; height: number }, objects: PreparedSceneObject[], threshold: number) {
+  return objects.some((object) => normalizedIou(bbox, object.bbox) >= threshold);
+}
+
+function normalizedIou(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) {
+  const x0 = Math.max(a.x, b.x); const y0 = Math.max(a.y, b.y);
+  const x1 = Math.min(a.x + a.width, b.x + b.width); const y1 = Math.min(a.y + a.height, b.y + b.height);
+  const intersection = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+  return intersection / Math.max(0.000001, a.width * a.height + b.width * b.height - intersection);
+}
+
 function iou(a: ObjectDetectionCandidate, b: ObjectDetectionCandidate) {
   const x0 = Math.max(a.box.xmin, b.box.xmin); const y0 = Math.max(a.box.ymin, b.box.ymin);
   const x1 = Math.min(a.box.xmax, b.box.xmax); const y1 = Math.min(a.box.ymax, b.box.ymax);
@@ -391,16 +436,7 @@ function iou(a: ObjectDetectionCandidate, b: ObjectDetectionCandidate) {
 }
 
 function buttonStyle(active: boolean) {
-  return {
-    minHeight: 40,
-    paddingHorizontal: 11,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    borderRadius: 11,
-    borderWidth: 1,
-    borderColor: active ? tokens.color.blue : tokens.color.line,
-    backgroundColor: active ? 'rgba(40,199,232,.09)' : '#fff',
-  };
+  return { minHeight: 40, paddingHorizontal: 11, alignItems: 'center' as const, justifyContent: 'center' as const, borderRadius: 11, borderWidth: 1, borderColor: active ? tokens.color.blue : tokens.color.line, backgroundColor: active ? 'rgba(40,199,232,.09)' : '#fff' };
 }
 const buttonTextStyle = { fontSize: 10, fontWeight: '800' as const, color: tokens.color.text };
 
