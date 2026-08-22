@@ -1,6 +1,7 @@
 export type SceneFeatureFlags = {
   sceneIntelligenceV1: boolean;
   depthDiagnostics: boolean;
+  preparedSceneV1: boolean;
 };
 
 function enabled(value: string | undefined) {
@@ -11,5 +12,6 @@ export function sceneFeatureFlags(): SceneFeatureFlags {
   return {
     sceneIntelligenceV1: enabled(process.env.EXPO_PUBLIC_SCENE_INTELLIGENCE_V1),
     depthDiagnostics: enabled(process.env.EXPO_PUBLIC_SCENE_DEPTH_DIAGNOSTICS),
+    preparedSceneV1: enabled(process.env.EXPO_PUBLIC_PREPARED_SCENE_V1),
   };
 }
