@@ -1,176 +1,118 @@
 # FormShift Current State
 
-**Revision:** 0.9.9  
+**Revision:** 0.9.10  
 **Date:** 2026-08-22  
-**Milestone:** Prepared Scene v1 application candidate passes complete CI and exact preview build; physical-iPhone Prepared Scene acceptance pending
+**Milestone:** Prepared Scene v1 has a route-explicit test entrypoint; exact preview and CI validated, physical-iPhone Prepared Scene behavior pending
 
-FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
+FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
 
 ## Production baseline
 
-Production remains on `main` with the validated Photo Arrange v2.2 baseline. **Prepared Scene has not been promoted to production.**
+Production remains on `main` with the validated Photo Arrange v2.2 baseline. Prepared Scene has **not** been promoted to production.
 
-The production baseline retains short-tap selection, Add/Remove refinement, pan/zoom, object lift, move/scale/rotate, local background reconstruction, explicit GPT Image background repair, editable saved-placement persistence, and immutable source-photo preservation.
-
-The v2.1 screen-Y perspective/contact experiment remains rolled back.
+The production baseline retains short-tap object selection, Add/Remove refinement, room pan/zoom, object lift, move/scale/rotate, local background reconstruction, explicit GPT Image background repair, editable saved-placement persistence, and immutable source-photo preservation.
 
 ## Confirmed Safari drag correction
 
-The Scene Foundation candidate previously exposed a Mobile Safari failure where the selected guitar stopped around the middle/lower photograph and the same touch began scrolling the page.
+Physical-iPhone testing on 2026-08-22 confirmed the selected guitar can now be dragged freely across the full room photograph without the active object gesture handing off to page scrolling. Normal page scrolling resumes when the object drag ends.
 
-The replacement gesture bridge tracks the selected-object pointer through Safari retargeting and blocks native page scrolling only during the active object drag. It does not change saved transforms or position bounds.
-
-**Physical-iPhone evidence:** on 2026-08-22 the user confirmed the guitar can now be moved freely across the room photograph. The specific lower-half/page-scroll regression is considered resolved.
-
-## Prepared Scene v1
+## Prepared Scene v1 candidate
 
 Branch: `scene-foundation-v1`  
-Draft PR: `#1 — Scene Foundation + Prepared Scene v1: multi-object room preparation`  
-Validated application commit: `53447ddd8f159e79e64f122ddfa4daa04ea5a4f3`
+Draft PR: `#1 — Scene Foundation + Prepared Scene v1: multi-object room preparation`
 
-Prepared Scene v1 implements a multi-object acceleration path so expensive perception work can happen once when a photo loads rather than repeating a single-object lift/reconstruction workflow for every item.
-
-### Pipeline
+Prepared Scene v1 is a derived multi-object acceleration path:
 
 ```text
 Immutable source photo
-   ↓ immediately visible
-Local object discovery
-   ├── DETR ResNet-50 detector
-   └── supplemental MediaPipe sweep of uncovered room regions
+   ↓
+Object discovery
+   ├── local DETR ResNet-50
+   └── supplemental MediaPipe room sweep
    ↓
 Per-object MediaPipe masks + photographed-pixel cutouts
    ↓
-Shared deterministic local clean-background plate
+One shared deterministic clean-background plate
    ↓
 Multiple independent moveable photo layers
-   ↓ non-blocking enrichment
-Depth Anything V2 Small relative-depth evidence
+   ↓
+Non-blocking Depth Anything V2 Small enrichment
 ```
 
-Prepared Scene preview selection is resolved client-side before either editor mounts. This avoids static-render/hydration mismatch and prevents the validated fallback editor and Prepared Scene from initializing their model stacks simultaneously on the iPhone.
+Current v1 behavior is intentionally move-only and in-memory. Scale/rotate/save and explicit AI background repair remain in the validated fallback editor until Prepared Scene feasibility is proven on the target iPhone.
 
-### Object discovery and correction
+## Activation defect found during physical test
 
-Prepared Scene uses an explicit `ObjectDiscoveryProvider` boundary.
+The first Prepared Scene test link used `/arrange?prepared=1`. Physical-device feedback showed no visible behavior change and only the previously restored guitar remained selectable.
 
-The first browser/iPhone feasibility provider is the quantized ONNX conversion `Xenova/detr-resnet-50` through Transformers.js. Because DETR has a limited COCO vocabulary, FormShift also performs a lightweight MediaPipe room sweep over detector-uncovered regions. Supplemental layers may be labeled generically as `object`.
+Code review determined that the feature existed in the preview build, but activation depended on a query parameter surviving Vercel preview protection, authentication, and navigation. That was too fragile for a release/test boundary.
 
-A user can choose **Add missed object** and tap near the center of an omitted item. MediaPipe then creates another independent photographed-pixel layer.
+### Replacement activation boundary
 
-### Multi-object editor behavior
+Prepared Scene now has a dedicated route:
 
-When Prepared Scene is enabled:
-- prepared objects are independent photographed-pixel layers
-- any prepared object can be selected and dragged without first lifting another object
-- dragging uses Safari-safe global pointer continuation
-- page scrolling is suppressed only during active object movement
-- object chips expose the prepared layer set
-- **Reset positions** returns all layers to their source-image locations
-- **Inspect clean background** hides all layers for direct reconstruction review
+`/arrange-prepared`
 
-Prepared Scene v1 deliberately implements **move-only, in-memory editing** for this feasibility test. Scale/rotate, committed persistence and explicit AI repair remain available in the validated fallback editor until the new discovery/masking/background model proves viable on the target iPhone.
+The route passes `forcePreparedScene` directly into `PhotoArrangeWorkspace`. This forces Prepared Scene before either editor mounts and does not depend on a query parameter, environment variable, or subsequent navigation state.
 
-### Shared clean background
+Ordinary `/arrange` continues to use the validated fallback unless its environment flag is intentionally enabled.
 
-The shared background plate is derived locally from the union of prepared object masks. Masked source pixels are removed from the derived canvas and filled from neighboring/blurred image evidence.
+## Validation evidence for route-explicit fix
 
-This is a fast deterministic approximation, **not photorealistic inpainting**. Its purpose in v1 is to validate the one-background/many-object architecture and identify where selective AI reconstruction is needed.
+Application commit: `5ef9fe875f45099a88858f16a600934aebefa3c8`  
+GitHub Actions run: `32555434137` — **success**  
+Vercel web preview: `dpl_CcG2VHdDZb4p1eVnFS8tRE1ZLeE7` — **READY**
 
-### Depth enrichment
-
-Depth Anything V2 Small runs after the room becomes editable when supported. It adds relative-depth evidence to prepared objects without blocking basic movement.
-
-Depth is estimated and non-metric. It never updates verified room measurements or canonical coordinates.
-
-## Feature boundary and rollback
-
-Prepared Scene is disabled by default and can be enabled for evaluation through:
-- `EXPO_PUBLIC_PREPARED_SCENE_V1=true`, or
-- preview query parameter `prepared=1`
-
-When disabled, Arrange uses the validated canonical Photo Arrange editor. There is no migration requirement and no source-photo mutation.
-
-## Persistence and integrity boundary
-
-Prepared Scene v1 is intentionally ephemeral:
-- no Prepared Scene database table
-- no Prepared Scene write into `photo_arrangements`
-- no canonical spatial-version mutation
-- no measurement mutation
-- no source-photo overwrite
-- reload causes the room to be prepared again
-
-The existing RLS-protected `scene_analyses` foundation remains deployed from the Scene Foundation cycle, but Prepared Scene persistence is deferred until device behavior is known.
-
-## Verification evidence
-
-GitHub Actions run `32554940790` completed **successfully** for application commit `53447ddd8f159e79e64f122ddfa4daa04ea5a4f3`.
-
-Passed gates:
-- repository verification
-- security verification
-- domain tests
+The exact commit passed:
+- repository/security/domain verification
 - Arrange/Safari contract guards
 - scene/Prepared Scene boundary guards
 - client TypeScript check
 - API TypeScript check
 - production web export
 
-Matching Vercel web preview deployment `dpl_C8Rcb9VLtKeuUa97My3ZyKf9Auy1` reached **READY** on that exact commit. Build evidence confirms the static export includes `/arrange`.
+Vercel export evidence includes six routes and explicitly includes `/arrange-prepared`.
 
-This is code/build evidence, not physical-iPhone Prepared Scene acceptance.
+This is build/route evidence, not physical-iPhone proof that object discovery and multi-object manipulation work correctly.
 
 ## Prepared Scene physical-device acceptance
 
-Open the exact preview with `prepared=1` and authenticate normally.
+Next test must use the dedicated `/arrange-prepared` preview route.
 
-Validate:
-1. source photo appears before preparation completes
-2. Safari remains responsive during model loading/preparation
-3. automatic prepared-object count becomes non-zero, or manual add remains usable
-4. at least two distinct prepared objects can move independently
-5. dragging can traverse the full photo without page-scroll handoff
-6. note whether the guitar is automatically prepared
-7. if not, **Add missed object** can add the guitar
-8. moved objects expose the shared background plate rather than the original object pixels
-9. **Inspect clean background** shows no transparent/black holes
-10. normal page scrolling works outside active object drags
-11. depth, if completed, reports latency without having blocked movement
-12. Safari does not reload/crash from memory pressure
-13. reload reprocesses the room rather than implying persistence
-14. immutable source photo remains unchanged
+Expected visible evidence that the correct editor is active:
+1. the interface identifies itself as **Prepared Scene v1**
+2. the room begins object preparation instead of reopening the saved guitar as the sole active editor object
+3. object chips/count appear after preparation
+4. at least two different prepared objects can be selected and moved independently
+5. if an item is missed, **Add missed object** can create a moveable layer
+6. **Inspect clean background** exposes the shared background plate
+7. Safari remains responsive during detector/segmentation/depth work
+8. source photo and canonical measurements remain unchanged
 
-Detailed checklist: `docs/PREPARED-SCENE-V1-ACCEPTANCE.md`. GitHub Issue `#3` tracks physical-device acceptance.
+GitHub Issue `#3` tracks this acceptance pass.
 
 ## Current limitations / not yet claimed
 
-- Prepared Scene physical-iPhone acceptance
+- physical-iPhone Prepared Scene acceptance
 - comprehensive household-object recognition
 - perfect automatic masks
-- photorealistic clean-background reconstruction
-- persisted multi-object scenes
+- photorealistic shared clean-background reconstruction
+- persisted multi-object Prepared Scenes
 - Prepared Scene scale/rotate/save
 - calibrated camera/floor/wall mapping
 - metric depth
 - calibrated support relationships
 - depth-aware production occlusion
-- perspective-correct physical scaling
-- contact shadows/relighting
-- gravity or rigid-body physics
-- native iOS Prepared Scene execution
+- gravity / rigid-body physics
 - production RoomPlan capture/normalization
 
-## Next decision after device test
+## Next decision
 
-- If discovery, masks and mobile performance are good: persist Prepared Scene and restore multi-object scale/rotate/save semantics.
-- If recognition coverage is the weakness: evaluate a broader open-vocabulary detector behind `ObjectDiscoveryProvider`.
-- If local memory/latency is the weakness: keep lightweight local correction/depth where useful and move automatic room preparation to a controlled worker/server path.
-- Do not introduce Rapier/RealityKit physics until reliable support/collision geometry exists.
+If the dedicated route visibly opens Prepared Scene and local discovery/masking performance is acceptable, continue with multi-object persistence and selective high-quality background reconstruction. If the dedicated route opens Prepared Scene but recognition or mobile memory is poor, keep the provider boundary and change the perception execution strategy rather than rebuilding the editor.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision 0.9.9 records the user-confirmed Safari drag fix and CI/preview-validated final Prepared Scene v1 test build.
-- `ARCHITECTURE.md`: revision 0.5.3 establishes Prepared Scene as a durable derived multi-object acceleration layer and `ObjectDiscoveryProvider` boundary.
-- `DESIGN-SYSTEM.md`: unchanged; existing photo-first, confidence and source-integrity rules cover this feasibility slice.
-- `PROJECT-CONSTITUTION.md`: unchanged; existing spatial-truth, privacy, reversibility and immutable-source rules continue to govern the implementation.
+- `CURRENT-STATE.md`: revision 0.9.10 records the failed query-parameter activation test and the CI/preview-validated dedicated-route correction.
+- `ARCHITECTURE.md`: unchanged at revision 0.5.3; Prepared Scene/provider boundaries are already durable architecture.
+- `DESIGN-SYSTEM.md`: unchanged; no durable visual-language change.
+- `PROJECT-CONSTITUTION.md`: unchanged; existing spatial-truth, privacy, reversibility, and immutable-source rules continue to govern the implementation.
