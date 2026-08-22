@@ -6,6 +6,9 @@ const sceneRoot = path.join(root, 'apps/client/src/scene');
 const preparedRoot = path.join(root, 'apps/client/src/prepared');
 const canonicalArrange = path.join(root, 'apps/client/src/components/PhotoArrangeEditor.web.tsx');
 const preparedEditor = path.join(root, 'apps/client/src/components/PreparedSceneEditor.web.tsx');
+const preparedPersistence = path.join(root, 'apps/client/src/prepared/persistence.ts');
+const preparedRepairClient = path.join(root, 'apps/client/src/prepared/backgroundRepair.web.ts');
+const repairApi = path.join(root, 'apps/api/api/ai/repair-background.ts');
 const segmentationProvider = path.join(root, 'apps/client/src/vision/MediaPipeObjectSegmenter.web.ts');
 const arrangeWorkspace = path.join(root, 'apps/client/src/screens/PhotoArrangeWorkspace.tsx');
 const arrangePreparedRoute = path.join(root, 'apps/client/app/arrange-prepared.tsx');
@@ -71,13 +74,42 @@ if (!flags.includes('EXPO_PUBLIC_PREPARED_SCENE_V1')) fail('Prepared Scene featu
 else pass('Prepared Scene is independently feature-flagged');
 
 const preparedSource = fs.readFileSync(preparedEditor, 'utf8');
-for (const required of ['createObjectDiscoveryProvider', 'segmentPreparedObject', 'createQuickCleanBackground', 'createDepthProvider', 'Add missed object']) {
+for (const required of [
+  'createObjectDiscoveryProvider',
+  'segmentPreparedObject',
+  'createQuickCleanBackground',
+  'createDepthProvider',
+  'loadLatestPreparedScene',
+  'persistPreparedScene',
+  'repairPreparedSceneBackground',
+  'createPreparedSceneRepairMask',
+  'compositeRepairedCleanBackground',
+  'Add missed object',
+]) {
   if (!preparedSource.includes(required)) fail(`Prepared Scene editor missing ${required}`);
 }
-for (const forbidden of ['persistPhotoArrangement(', '.from(', 'supabase.', 'onSnapshotChange(']) {
-  if (preparedSource.includes(forbidden)) fail(`Prepared Scene v1 must remain derived-only during evaluation; found ${forbidden}`);
+for (const forbidden of ['persistPhotoArrangement(', '.from(', 'supabase.', 'onSnapshotChange(', 'measurement_observations', 'spatial_versions']) {
+  if (preparedSource.includes(forbidden)) fail(`Prepared Scene editor crosses a forbidden canonical/data boundary: ${forbidden}`);
 }
-if (!failures) pass('Prepared Scene v1 performs progressive local preparation without canonical persistence writes');
+if (!failures) pass('Prepared Scene persists only through derived-scene services and does not mutate canonical measurements/spatial state');
+
+const preparedPersistenceSource = fs.readFileSync(preparedPersistence, 'utf8');
+for (const required of [".from('prepared_scenes')", ".eq('source_asset_id', sourceAsset.id)", "kind: 'prepared_scene_object_mask_v1'", "kind: 'prepared_scene_object_cutout_v1'"]) {
+  if (!preparedPersistenceSource.includes(required)) fail(`Prepared Scene persistence missing source-bound derived asset contract ${required}`);
+}
+if (preparedPersistenceSource.includes(".from('spatial_versions')") || preparedPersistenceSource.includes(".from('measurement_observations')")) {
+  fail('Prepared Scene persistence must never write canonical spatial/measurement tables');
+} else pass('Prepared Scene cache is source-photo-bound and derived-only');
+
+const preparedRepairSource = fs.readFileSync(preparedRepairClient, 'utf8');
+for (const required of ["mode: 'prepared-scene'", '/api/ai/repair-background']) {
+  if (!preparedRepairSource.includes(required)) fail(`Prepared Scene repair client missing ${required}`);
+}
+const repairApiSource = fs.readFileSync(repairApi, 'utf8');
+for (const required of ['prepared-scene-background-repair', 'preparedScenePrompt', "body.mode === 'prepared-scene'"]) {
+  if (!repairApiSource.includes(required)) fail(`Prepared Scene repair API missing ${required}`);
+}
+if (!failures) pass('high-quality background repair is explicit and uses a dedicated Prepared Scene task contract');
 
 const detector = fs.readFileSync(path.join(preparedRoot, 'providers/DetrObjectDiscovery.web.ts'), 'utf8');
 if (!detector.includes("Xenova/detr-resnet-50")) fail('Prepared Scene detector model identity missing');
@@ -94,10 +126,14 @@ for (const required of ['isAppleWebKit', "backend: 'wasm'", 'wasm.numThreads = 1
 if (depthProvider.includes("device: webGpu ? 'webgpu' : 'wasm'")) fail('Depth provider still treats navigator.gpu as sufficient WebGPU compatibility evidence');
 else pass('Depth Anything uses the same Safari-safe WASM fallback contract');
 
-const migration = fs.readFileSync(path.join(root, 'supabase/schema/003_scene_intelligence.sql'), 'utf8');
+const sceneMigration = fs.readFileSync(path.join(root, 'supabase/schema/003_scene_intelligence.sql'), 'utf8');
 for (const required of ['enable row level security', 'grant select, insert', 'scene_analyses_select_member', 'scene_analyses_insert_editor']) {
-  if (!migration.toLowerCase().includes(required.toLowerCase())) fail(`scene migration missing ${required}`);
+  if (!sceneMigration.toLowerCase().includes(required.toLowerCase())) fail(`scene migration missing ${required}`);
 }
-if (!failures) pass('scene persistence has explicit grants and RLS policies');
+const preparedMigration = fs.readFileSync(path.join(root, 'supabase/schema/006_prepared_scenes.sql'), 'utf8');
+for (const required of ['enable row level security', 'grant select, insert', 'prepared_scenes_select_member', 'prepared_scenes_insert_editor', 'source_asset_id']) {
+  if (!preparedMigration.toLowerCase().includes(required.toLowerCase())) fail(`Prepared Scene migration missing ${required}`);
+}
+if (!failures) pass('scene and Prepared Scene persistence have explicit grants and RLS policies');
 
 if (failures) process.exit(1);
