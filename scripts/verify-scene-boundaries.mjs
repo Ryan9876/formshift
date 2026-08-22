@@ -84,25 +84,28 @@ for (const required of [
   'repairPreparedSceneBackground',
   'createPreparedSceneRepairMask',
   'compositeRepairedCleanBackground',
+  "automaticAcceptance: 'detector-backed-only'",
   'Add missed object',
 ]) {
   if (!preparedSource.includes(required)) fail(`Prepared Scene editor missing ${required}`);
 }
+if (preparedSource.includes('ROOM_SWEEP_SEEDS')) fail('Prepared Scene must not auto-promote unlabeled grid segmentation into moveable room objects');
+else pass('automatic Prepared Scene layers require detector evidence; unknown items remain user-added');
 for (const forbidden of ['persistPhotoArrangement(', '.from(', 'supabase.', 'onSnapshotChange(', 'measurement_observations', 'spatial_versions']) {
   if (preparedSource.includes(forbidden)) fail(`Prepared Scene editor crosses a forbidden canonical/data boundary: ${forbidden}`);
 }
 if (!failures) pass('Prepared Scene persists only through derived-scene services and does not mutate canonical measurements/spatial state');
 
 const preparedPersistenceSource = fs.readFileSync(preparedPersistence, 'utf8');
-for (const required of [".from('prepared_scenes')", ".eq('source_asset_id', sourceAsset.id)", "kind: 'prepared_scene_object_mask_v1'", "kind: 'prepared_scene_object_cutout_v1'"]) {
+for (const required of [".from('prepared_scenes')", ".eq('source_asset_id', sourceAsset.id)", "PREPARED_SCENE_SCHEMA = 'prepared-scene-1.1'", ".eq('schema_version', PREPARED_SCENE_SCHEMA)", "kind: 'prepared_scene_object_mask_v1'", "kind: 'prepared_scene_object_cutout_v1'"]) {
   if (!preparedPersistenceSource.includes(required)) fail(`Prepared Scene persistence missing source-bound derived asset contract ${required}`);
 }
 if (preparedPersistenceSource.includes(".from('spatial_versions')") || preparedPersistenceSource.includes(".from('measurement_observations')")) {
   fail('Prepared Scene persistence must never write canonical spatial/measurement tables');
-} else pass('Prepared Scene cache is source-photo-bound and derived-only');
+} else pass('Prepared Scene cache is source-photo-bound, generation-bound, and derived-only');
 
 const preparedRepairSource = fs.readFileSync(preparedRepairClient, 'utf8');
-for (const required of ["mode: 'prepared-scene'", '/api/ai/repair-background']) {
+for (const required of ["mode: 'prepared-scene'", '/api/ai/repair-background', 'fast local background is still available']) {
   if (!preparedRepairSource.includes(required)) fail(`Prepared Scene repair client missing ${required}`);
 }
 const repairApiSource = fs.readFileSync(repairApi, 'utf8');
