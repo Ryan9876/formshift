@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.9.8  
+**Revision:** 0.9.9  
 **Date:** 2026-08-22  
-**Milestone:** Prepared Scene v1 application candidate passes CI and preview build; physical-iPhone Prepared Scene acceptance pending
+**Milestone:** Prepared Scene v1 application candidate passes complete CI and exact preview build; physical-iPhone Prepared Scene acceptance pending
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
 
@@ -25,8 +25,8 @@ The replacement gesture bridge tracks the selected-object pointer through Safari
 ## Prepared Scene v1
 
 Branch: `scene-foundation-v1`  
-Draft PR: `#1`  
-Validated application commit: `e9a3f2bb379d25bafe23953017dcc0cafab4388a`
+Draft PR: `#1 — Scene Foundation + Prepared Scene v1: multi-object room preparation`  
+Validated application commit: `53447ddd8f159e79e64f122ddfa4daa04ea5a4f3`
 
 Prepared Scene v1 implements a multi-object acceleration path so expensive perception work can happen once when a photo loads rather than repeating a single-object lift/reconstruction workflow for every item.
 
@@ -48,13 +48,15 @@ Multiple independent moveable photo layers
 Depth Anything V2 Small relative-depth evidence
 ```
 
+Prepared Scene preview selection is resolved client-side before either editor mounts. This avoids static-render/hydration mismatch and prevents the validated fallback editor and Prepared Scene from initializing their model stacks simultaneously on the iPhone.
+
 ### Object discovery and correction
 
 Prepared Scene uses an explicit `ObjectDiscoveryProvider` boundary.
 
-The first browser/iPhone feasibility provider is the quantized ONNX conversion `Xenova/detr-resnet-50` through Transformers.js. Because DETR has a limited COCO vocabulary, FormShift also performs a lightweight MediaPipe room sweep over detector-uncovered regions. Those supplemental layers may be labeled generically as `object`.
+The first browser/iPhone feasibility provider is the quantized ONNX conversion `Xenova/detr-resnet-50` through Transformers.js. Because DETR has a limited COCO vocabulary, FormShift also performs a lightweight MediaPipe room sweep over detector-uncovered regions. Supplemental layers may be labeled generically as `object`.
 
-A user can choose **Add missed object** and tap near the center of an omitted object. The existing MediaPipe segmentation path then creates another independent layer.
+A user can choose **Add missed object** and tap near the center of an omitted item. MediaPipe then creates another independent photographed-pixel layer.
 
 ### Multi-object editor behavior
 
@@ -67,17 +69,17 @@ When Prepared Scene is enabled:
 - **Reset positions** returns all layers to their source-image locations
 - **Inspect clean background** hides all layers for direct reconstruction review
 
-Prepared Scene v1 deliberately implements **move-only, in-memory editing** for this feasibility test. Scale/rotate, committed persistence and explicit AI repair remain available in the validated fallback editor until the new object/discovery/background model proves viable on the target iPhone.
+Prepared Scene v1 deliberately implements **move-only, in-memory editing** for this feasibility test. Scale/rotate, committed persistence and explicit AI repair remain available in the validated fallback editor until the new discovery/masking/background model proves viable on the target iPhone.
 
 ### Shared clean background
 
 The shared background plate is derived locally from the union of prepared object masks. Masked source pixels are removed from the derived canvas and filled from neighboring/blurred image evidence.
 
-This is a fast deterministic approximation, **not photorealistic inpainting**. Its purpose in v1 is to validate the one-background/many-object architecture and expose where selective AI reconstruction will be needed.
+This is a fast deterministic approximation, **not photorealistic inpainting**. Its purpose in v1 is to validate the one-background/many-object architecture and identify where selective AI reconstruction is needed.
 
 ### Depth enrichment
 
-Depth Anything V2 Small runs after the room becomes editable when the device can support it. It adds relative-depth evidence to prepared objects without blocking movement.
+Depth Anything V2 Small runs after the room becomes editable when supported. It adds relative-depth evidence to prepared objects without blocking basic movement.
 
 Depth is estimated and non-metric. It never updates verified room measurements or canonical coordinates.
 
@@ -103,7 +105,7 @@ The existing RLS-protected `scene_analyses` foundation remains deployed from the
 
 ## Verification evidence
 
-GitHub Actions run `32554764503` completed successfully for application commit `e9a3f2bb379d25bafe23953017dcc0cafab4388a`.
+GitHub Actions run `32554940790` completed **successfully** for application commit `53447ddd8f159e79e64f122ddfa4daa04ea5a4f3`.
 
 Passed gates:
 - repository verification
@@ -115,7 +117,7 @@ Passed gates:
 - API TypeScript check
 - production web export
 
-Matching Vercel web preview deployment `dpl_E1Pu3ZUn5uNea9YNWWV3NTtiFqBs` reached **READY** for that exact application commit.
+Matching Vercel web preview deployment `dpl_C8Rcb9VLtKeuUa97My3ZyKf9Auy1` reached **READY** on that exact commit. Build evidence confirms the static export includes `/arrange`.
 
 This is code/build evidence, not physical-iPhone Prepared Scene acceptance.
 
@@ -139,7 +141,7 @@ Validate:
 13. reload reprocesses the room rather than implying persistence
 14. immutable source photo remains unchanged
 
-Detailed checklist: `docs/PREPARED-SCENE-V1-ACCEPTANCE.md`.
+Detailed checklist: `docs/PREPARED-SCENE-V1-ACCEPTANCE.md`. GitHub Issue `#3` tracks physical-device acceptance.
 
 ## Current limitations / not yet claimed
 
@@ -168,7 +170,7 @@ Detailed checklist: `docs/PREPARED-SCENE-V1-ACCEPTANCE.md`.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision 0.9.8 records the user-confirmed Safari drag fix and CI/preview-validated Prepared Scene application candidate.
+- `CURRENT-STATE.md`: revision 0.9.9 records the user-confirmed Safari drag fix and CI/preview-validated final Prepared Scene v1 test build.
 - `ARCHITECTURE.md`: revision 0.5.3 establishes Prepared Scene as a durable derived multi-object acceleration layer and `ObjectDiscoveryProvider` boundary.
 - `DESIGN-SYSTEM.md`: unchanged; existing photo-first, confidence and source-integrity rules cover this feasibility slice.
 - `PROJECT-CONSTITUTION.md`: unchanged; existing spatial-truth, privacy, reversibility and immutable-source rules continue to govern the implementation.
