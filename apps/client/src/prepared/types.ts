@@ -17,6 +17,8 @@ export type PreparedSceneObject = {
   bbox: PreparedBox;
   maskDataUrl: string;
   cutoutDataUrl: string;
+  maskAssetId?: string;
+  cutoutAssetId?: string;
   position: { x: number; y: number };
   scale: number;
   rotationDeg: number;
