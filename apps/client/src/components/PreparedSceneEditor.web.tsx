@@ -17,7 +17,22 @@ import {
 } from '../prepared/persistence';
 import { createObjectDiscoveryProvider } from '../prepared/providers/DetrObjectDiscovery.web';
 import { segmentPreparedObject } from '../prepared/providers/MediaPipePreparedSegmenter.web';
-import type { ObjectDetectionCandidate, PreparedObjectMobility, PreparedSceneObject, PreparedSupportKind } from '../prepared/types';
+import {
+  DEFAULT_PREPARED_SUPPORT_MODEL,
+  classifyPreparedLabel,
+  comparePreparedDepth,
+  constrainPreparedObjects,
+  constrainPreparedPosition,
+  estimateSupportModel,
+  estimateSupportModelFromObjects,
+  isFixedPreparedLabel,
+  isPersonOccludedCandidate,
+  maskMatchesDetection,
+  parsePreparedSupportModel,
+  positionsDiffer,
+  type PreparedSupportModel,
+} from '../prepared/support';
+import type { ObjectDetectionCandidate, PreparedSceneObject } from '../prepared/types';
 import { createDepthProvider } from '../scene/providers/DepthAnythingV2Small.web';
 import { tokens } from '../theme/tokens';
 
@@ -36,10 +51,7 @@ type CacheState = 'none' | 'restored' | 'saving' | 'saved' | 'dirty' | 'error';
 
 const MAX_AUTOMATIC_OBJECTS = 18;
 const IGNORED_LABELS = new Set(['person', 'cat', 'dog', 'bird', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe']);
-const FIXED_LABELS = new Set(['toilet', 'sink', 'oven']);
-const SURFACE_LABELS = new Set(['dining table']);
-const FLOOR_LABELS = new Set(['chair', 'couch', 'bed', 'suitcase', 'potted plant', 'refrigerator']);
-const WALL_LABELS = new Set(['tv', 'clock']);
+const SUPPORT_MODEL_VERSION = 1;
 
 export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   const auth = useAuth();
@@ -48,6 +60,8 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   const maskValuesRef = useRef(new Map<string, Uint8ClampedArray>());
   const dragRef = useRef<DragSession | null>(null);
   const generationRef = useRef(0);
+  const supportModelRef = useRef<PreparedSupportModel>(DEFAULT_PREPARED_SUPPORT_MODEL);
+  const supportAssistRef = useRef(true);
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [status, setStatus] = useState('Waiting for a room photo.');
@@ -62,7 +76,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   const [detectorInfo, setDetectorInfo] = useState<DetectorInfo>(null);
   const [depthInfo, setDepthInfo] = useState<DepthInfo>(null);
   const [ignoredCount, setIgnoredCount] = useState(0);
-  const [sweepCount, setSweepCount] = useState(0);
+  const [personDeferredCount, setPersonDeferredCount] = useState(0);
   const [backgroundQuality, setBackgroundQuality] = useState<PreparedBackgroundQuality>('quick');
   const [preparedSceneId, setPreparedSceneId] = useState<string | null>(null);
   const [cleanBackgroundAssetId, setCleanBackgroundAssetId] = useState<string | null>(null);
@@ -70,8 +84,19 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   const [repairing, setRepairing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [repairInfo, setRepairInfo] = useState<{ model: string; processingMs: number } | null>(null);
+  const [supportModel, setSupportModel] = useState<PreparedSupportModel>(DEFAULT_PREPARED_SUPPORT_MODEL);
+  const [supportAssistEnabled, setSupportAssistEnabled] = useState(true);
 
   const selected = useMemo(() => objects.find((object) => object.id === selectedId) ?? null, [objects, selectedId]);
+
+  function applySupportModel(model: PreparedSupportModel) {
+    supportModelRef.current = model;
+    setSupportModel(model);
+  }
+
+  useEffect(() => {
+    supportAssistRef.current = supportAssistEnabled;
+  }, [supportAssistEnabled]);
 
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
@@ -81,9 +106,13 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       if (event.cancelable) event.preventDefault();
       const rect = stage.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
-      const nextX = clamp(drag.startX + (event.clientX - drag.clientX) / rect.width, 0.01, 0.99);
-      const nextY = clamp(drag.startY + (event.clientY - drag.clientY) / rect.height, 0.01, 0.99);
-      setObjects((current) => current.map((object) => object.id === drag.objectId ? { ...object, position: { x: nextX, y: nextY } } : object));
+      const desired = {
+        x: drag.startX + (event.clientX - drag.clientX) / rect.width,
+        y: drag.startY + (event.clientY - drag.clientY) / rect.height,
+      };
+      setObjects((current) => current.map((object) => object.id === drag.objectId
+        ? { ...object, position: constrainPreparedPosition(object, desired, supportModelRef.current, supportAssistRef.current) }
+        : object));
     };
     const onEnd = (event: PointerEvent) => {
       if (dragRef.current?.pointerId !== event.pointerId) return;
@@ -117,7 +146,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     setDetectorInfo(null);
     setDepthInfo(null);
     setIgnoredCount(0);
-    setSweepCount(0);
+    setPersonDeferredCount(0);
     setError(null);
     setAddMode(false);
     setShowCleanPlate(false);
@@ -128,6 +157,9 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     setRepairInfo(null);
     setRepairing(false);
     setSaving(false);
+    setSupportAssistEnabled(true);
+    supportAssistRef.current = true;
+    applySupportModel(DEFAULT_PREPARED_SUPPORT_MODEL);
 
     if (!photoUrl) {
       setPhase('idle');
@@ -152,7 +184,8 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         try {
           const cached = await loadLatestPreparedScene(projectId, spaceId);
           if (generationRef.current !== generation) return;
-          if (cached?.objects.length) {
+          const supportVersion = typeof cached?.provider.supportModelVersion === 'number' ? cached.provider.supportModelVersion : 0;
+          if (cached?.objects.length && supportVersion === SUPPORT_MODEL_VERSION) {
             const restored: PreparedSceneObject[] = [];
             maskValuesRef.current.clear();
             for (const object of cached.objects) {
@@ -162,19 +195,25 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
                 maskValuesRef.current.set(object.id, mask);
                 restored.push(object);
               } catch {
-                // A single damaged cached object should not make the entire room unusable.
+                // One damaged cached object must not make the room unusable.
               }
             }
             if (restored.length) {
-              setObjects(restored);
+              const restoredSupport = parsePreparedSupportModel(cached.provider.supportModel) ?? estimateSupportModelFromObjects(restored);
+              applySupportModel(restoredSupport);
+              const constrained = constrainPreparedObjects(restored, restoredSupport, true);
+              const corrected = positionsDiffer(restored, constrained);
+              setObjects(constrained);
               setCleanBackground(cached.cleanBackgroundUrl);
               setBackgroundQuality(cached.backgroundQuality);
               setPreparedSceneId(cached.id);
               setCleanBackgroundAssetId(cached.cleanBackgroundAssetId);
-              setCacheState('restored');
+              setCacheState(corrected ? 'dirty' : 'restored');
               setPhase('ready');
-              setStatus(`${restored.length} cached object${restored.length === 1 ? '' : 's'} restored. Tap any prepared object and move it.`);
-              if (restored.some((object) => typeof object.approximateDepth !== 'number')) void enrichDepth(url, generation);
+              setStatus(corrected
+                ? `${constrained.length} cached objects restored. Estimated support assist corrected an unsupported saved placement.`
+                : `${constrained.length} cached object${constrained.length === 1 ? '' : 's'} restored. Tap any prepared object and move it.`);
+              if (constrained.some((object) => typeof object.approximateDepth !== 'number')) void enrichDepth(url, generation);
               return;
             }
           }
@@ -194,29 +233,30 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     }
   }
 
-  async function prepareFresh(
-    url: string,
-    source: Awaited<ReturnType<typeof loadPreparedSource>>,
-    generation: number,
-  ) {
+  async function prepareFresh(url: string, source: Awaited<ReturnType<typeof loadPreparedSource>>, generation: number) {
     setPhase('discovering');
     setStatus('Finding moveable objects…');
     let chosen: ObjectDetectionCandidate[] = [];
     let discoveryInfo: DetectorInfo = null;
+    let nextSupport = DEFAULT_PREPARED_SUPPORT_MODEL;
     try {
       const discovery = await createObjectDiscoveryProvider().discover(url);
       if (generationRef.current !== generation) return;
       discoveryInfo = { provider: discovery.provider, model: discovery.model, modelVersion: discovery.modelVersion, processingMs: discovery.processingMs };
       setDetectorInfo(discoveryInfo);
+      nextSupport = estimateSupportModel(discovery.candidates, source.originalWidth, source.originalHeight);
+      applySupportModel(nextSupport);
+      const deferred = discovery.candidates.filter((candidate) => candidate.score >= 0.52 && !IGNORED_LABELS.has(candidate.label) && isPersonOccludedCandidate(candidate, discovery.candidates)).length;
+      setPersonDeferredCount(deferred);
       chosen = chooseCandidates(discovery.candidates, source.originalWidth, source.originalHeight);
       setIgnoredCount(Math.max(0, discovery.candidates.length - chosen.length));
     } catch {
       if (generationRef.current !== generation) return;
       setDetectorInfo(null);
       setIgnoredCount(0);
+      setPersonDeferredCount(0);
       setStatus('Automatic object labels are unavailable on this device. You can still use Add missed object.');
     }
-    setSweepCount(0);
     setProgress({ complete: 0, total: chosen.length });
 
     setPhase('segmenting');
@@ -233,11 +273,16 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       };
       try {
         const segment = await segmentPreparedObject(source.canvas, seed);
-        if (segment && segment.bbox.width * segment.bbox.height <= 0.62 && !overlapsLabeledPrepared(segment.bbox, candidate.label, prepared)) {
+        if (
+          segment
+          && segment.bbox.width * segment.bbox.height <= 0.62
+          && maskMatchesDetection(segment.bbox, candidate, source.originalWidth, source.originalHeight)
+          && !overlapsLabeledPrepared(segment.bbox, candidate.label, prepared)
+        ) {
           const id = crypto.randomUUID();
           maskValuesRef.current.set(id, segment.maskValues);
-          const semantics = classify(candidate.label);
-          prepared.push({
+          const semantics = classifyPreparedLabel(candidate.label);
+          const next: PreparedSceneObject = {
             id,
             label: candidate.label,
             detectionScore: candidate.score,
@@ -250,7 +295,9 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
             scale: 1,
             rotationDeg: 0,
             source: 'automatic',
-          });
+          };
+          next.position = constrainPreparedPosition(next, next.position, nextSupport, true);
+          prepared.push(next);
           setObjects([...prepared]);
         }
       } catch {
@@ -268,7 +315,9 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     setCleanBackground(clean);
     setBackgroundQuality('quick');
     setPhase('ready');
-    setStatus(prepared.length ? `${prepared.length} detector-backed object${prepared.length === 1 ? '' : 's'} ready. Tap an object and move it, or add a missed object.` : 'No reliable automatic objects were found. Use Add missed object to prepare the items you want to move.');
+    setStatus(prepared.length
+      ? `${prepared.length} reliable object${prepared.length === 1 ? '' : 's'} ready. Estimated support assist is on.`
+      : 'No reliable automatic objects were found. Use Add missed object to prepare the items you want to move.');
 
     if (prepared.length) {
       void persistVersion({
@@ -277,7 +326,14 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         quality: 'quick',
         parentId: null,
         backgroundAssetId: null,
-        provider: { discovery: discoveryInfo, supplementalSweep: 0, automaticAcceptance: 'detector-backed-only', automaticCache: true },
+        provider: {
+          discovery: discoveryInfo,
+          automaticAcceptance: 'detector-backed-only',
+          personOverlapPolicy: 'defer',
+          supportModelVersion: SUPPORT_MODEL_VERSION,
+          supportModel: nextSupport,
+          automaticCache: true,
+        },
         quiet: true,
         generation,
       });
@@ -296,19 +352,20 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       setDepthInfo({ provider: estimate.provider, model: estimate.model, modelVersion: estimate.modelVersion, processingMs: estimate.processingMs });
       setCacheState((current) => current === 'none' ? current : 'dirty');
     } catch {
-      // Depth is enrichment. Object manipulation remains available if it cannot run on this device.
+      // Depth is enrichment; movement remains available if it fails.
     }
   }
 
   async function improveBackground() {
     const source = sourceCanvasRef.current;
     const masks = [...maskValuesRef.current.values()];
-    if (!source || !masks.length || phase !== 'ready' || repairing) return;
+    if (!source || !masks.length || phase !== 'ready' || repairing || saving || cacheState === 'saving') return;
     if (!projectId || !spaceId || !auth.session?.access_token) {
       setError('Sign in with edit access before requesting high-quality background repair.');
       return;
     }
 
+    const repairObjects = objects.map((object) => ({ ...object, position: { ...object.position } }));
     setRepairing(true);
     setError(null);
     setStatus('Improving the hidden room areas…');
@@ -331,12 +388,12 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       setStatus('High-quality clean background ready. Object movement remains instant.');
 
       await persistVersion({
-        sceneObjects: objects,
+        sceneObjects: repairObjects,
         backgroundDataUrl: clean,
         quality: 'ai_repaired',
         parentId: preparedSceneId,
         backgroundAssetId: null,
-        provider: providerMetadata({ repairModel: repaired.modelUsed, repairMs: repaired.processingMs }),
+        provider: providerMetadata({ repairModel: repaired.modelUsed, repairMs: repaired.processingMs, backgroundQuality: 'ai_repaired' }),
         quiet: true,
         generation: generationRef.current,
       });
@@ -349,7 +406,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   }
 
   async function savePreparedScene() {
-    if (!cleanBackground || !objects.length || saving) return;
+    if (!cleanBackground || !objects.length || saving || repairing || cacheState === 'saving') return;
     setSaving(true);
     setError(null);
     setStatus('Saving the prepared room…');
@@ -417,15 +474,17 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     return {
       discovery: detectorInfo,
       depth: depthInfo,
-      supplementalSweep: sweepCount,
       automaticAcceptance: 'detector-backed-only',
+      personOverlapPolicy: 'defer',
+      supportModelVersion: SUPPORT_MODEL_VERSION,
+      supportModel,
       backgroundQuality,
       ...extra,
     };
   }
 
   async function addMissedObjectAt(event: React.PointerEvent<HTMLDivElement>) {
-    if (!addMode || !sourceCanvasRef.current || phase !== 'ready') return;
+    if (!addMode || !sourceCanvasRef.current || phase !== 'ready' || repairing || saving || cacheState === 'saving') return;
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -467,6 +526,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   }
 
   function beginObjectDrag(event: React.PointerEvent<HTMLDivElement>, object: PreparedSceneObject) {
+    if (repairing || saving || cacheState === 'saving') return;
     event.preventDefault();
     event.stopPropagation();
     setSelectedId(object.id);
@@ -482,14 +542,30 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
 
+  function toggleSupportAssist() {
+    const next = !supportAssistEnabled;
+    supportAssistRef.current = next;
+    setSupportAssistEnabled(next);
+    if (next) {
+      setObjects((current) => constrainPreparedObjects(current, supportModelRef.current, true));
+      setCacheState((current) => current === 'none' ? current : 'dirty');
+      setStatus('Estimated support assist enabled. Floor and wall objects are kept on plausible support regions.');
+    } else {
+      setStatus('Estimated support assist disabled. Free placement is available for comparison.');
+    }
+  }
+
   function resetPositions() {
-    setObjects((current) => current.map((object) => ({ ...object, position: { x: object.bbox.x + object.bbox.width / 2, y: object.bbox.y + object.bbox.height / 2 }, scale: 1, rotationDeg: 0 })));
+    setObjects((current) => current.map((object) => {
+      const original = { ...object, position: { x: object.bbox.x + object.bbox.width / 2, y: object.bbox.y + object.bbox.height / 2 }, scale: 1, rotationDeg: 0 };
+      return { ...original, position: constrainPreparedPosition(original, original.position, supportModelRef.current, supportAssistRef.current) };
+    }));
     setCacheState((current) => current === 'none' ? current : 'dirty');
     setStatus('Prepared objects returned to their original photo positions.');
   }
 
   const background = showCleanPlate ? cleanBackground : (cleanBackground ?? sourcePreview ?? photoUrl ?? null);
-  const ordered = useMemo(() => [...objects].sort((a, b) => a.position.y - b.position.y), [objects]);
+  const ordered = useMemo(() => [...objects].sort(comparePreparedDepth), [objects]);
 
   if (!photoUrl) return <StateCard title="No room photo" body="Load a room photo to create a Prepared Scene." />;
 
@@ -515,6 +591,9 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
           <Pressable disabled={phase !== 'ready' || !objects.length || saving || cacheState === 'saving'} onPress={savePreparedScene} style={buttonStyle(cacheState === 'saved' || cacheState === 'restored')}>
             <Text style={buttonTextStyle}>{saving || cacheState === 'saving' ? 'Saving…' : cacheState === 'dirty' ? 'Save changes' : 'Save scene'}</Text>
           </Pressable>
+          <Pressable disabled={phase !== 'ready'} onPress={toggleSupportAssist} style={buttonStyle(supportAssistEnabled)}>
+            <Text style={buttonTextStyle}>{supportAssistEnabled ? 'Support assist on' : 'Support assist off'}</Text>
+          </Pressable>
           <Pressable disabled={!objects.length} onPress={resetPositions} style={buttonStyle(false)}><Text style={buttonTextStyle}>Reset positions</Text></Pressable>
         </View>
         {error ? <Text style={{ fontSize: 10, lineHeight: 15, color: '#A84C4C' }}>{error}</Text> : null}
@@ -531,6 +610,11 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         }}
       >
         {background ? <img src={background} alt="Prepared room background" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill', userSelect: 'none', pointerEvents: 'none' }} /> : null}
+        {phase === 'ready' && supportAssistEnabled && !showCleanPlate ? (
+          <div style={{ position: 'absolute', left: 0, right: 0, top: `${supportModel.floorRegionStartY * 100}%`, borderTop: '1px dashed rgba(40,199,232,.5)', zIndex: 4, pointerEvents: 'none' }}>
+            <span style={{ position: 'absolute', right: 8, top: -18, padding: '2px 6px', borderRadius: 999, background: 'rgba(20,24,24,.62)', color: '#fff', fontSize: 9, fontWeight: 700 }}>Estimated floor region</span>
+          </div>
+        ) : null}
         {phase === 'ready' && !showCleanPlate ? ordered.map((object, index) => {
           const selectedObject = selectedId === object.id;
           return (
@@ -542,7 +626,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
                 position: 'absolute', left: `${object.position.x * 100}%`, top: `${object.position.y * 100}%`,
                 width: `${object.bbox.width * object.scale * 100}%`, height: `${object.bbox.height * object.scale * 100}%`,
                 transform: `translate(-50%, -50%) rotate(${object.rotationDeg}deg)`, transformOrigin: 'center',
-                zIndex: selectedObject ? 100 : 10 + index, touchAction: 'none', cursor: 'grab',
+                zIndex: 10 + index, touchAction: 'none', cursor: 'grab',
                 outline: selectedObject ? '2px solid rgba(40,199,232,.9)' : '1px solid transparent', borderRadius: 4,
               }}
             >
@@ -555,7 +639,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
         {objects.map((object) => (
-          <Pressable key={object.id} onPress={() => { setSelectedId(object.id); setAddMode(false); }} style={{ paddingHorizontal: 9, minHeight: 34, justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: selectedId === object.id ? tokens.color.blue : tokens.color.line, backgroundColor: selectedId === object.id ? 'rgba(40,199,232,.08)' : 'rgba(255,255,255,.72)' }}>
+          <Pressable key={object.id} onPress={() => { setSelectedId(object.id); setAddMode(false); }} style={{ paddingHorizontal: 9, minHeight: 36, justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: selectedId === object.id ? tokens.color.blue : tokens.color.line, backgroundColor: selectedId === object.id ? 'rgba(40,199,232,.08)' : 'rgba(255,255,255,.72)' }}>
             <Text style={{ fontSize: 10, fontWeight: '700', color: tokens.color.text }}>{object.label}{object.source === 'user_added' ? ' · added' : ''}</Text>
           </Pressable>
         ))}
@@ -564,9 +648,11 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       <View style={{ padding: 10, borderRadius: 14, backgroundColor: 'rgba(250,249,246,.82)', borderWidth: 1, borderColor: tokens.color.line, gap: 3 }}>
         <Text style={{ fontSize: 10, fontWeight: '800', color: tokens.color.text }}>Estimated prepared scene · source photo remains immutable</Text>
         <Text style={{ fontSize: 10, lineHeight: 15, color: tokens.color.muted }}>
-          {objects.length} editable object{objects.length === 1 ? '' : 's'} · {sweepCount} unlabeled room-region mask{sweepCount === 1 ? '' : 's'} auto-promoted · {ignoredCount} detector candidate{ignoredCount === 1 ? '' : 's'} filtered or deferred. {selected ? `Selected: ${selected.label} · expected support ${selected.expectedSupport}${typeof selected.approximateDepth === 'number' ? ` · relative depth ${selected.approximateDepth.toFixed(2)}` : ''}.` : 'Tap an object to select it.'}
+          {objects.length} editable object{objects.length === 1 ? '' : 's'} · {ignoredCount} detector candidate{ignoredCount === 1 ? '' : 's'} filtered/deferred · {personDeferredCount} candidate{personDeferredCount === 1 ? '' : 's'} deferred because a person overlaps it. {selected ? `Selected: ${selected.label} · expected support ${selected.expectedSupport}${typeof selected.approximateDepth === 'number' ? ` · relative depth ${selected.approximateDepth.toFixed(2)}` : ''}.` : 'Tap an object to select it.'}
         </Text>
-        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Automatic layers require detector evidence. Use Add missed object for household items outside the current detector vocabulary.</Text>
+        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Support assist: {supportAssistEnabled ? 'on' : 'off'} · estimated floor region {(supportModel.floorRegionStartY * 100).toFixed(0)}% down photo · confidence {(supportModel.confidence * 100).toFixed(0)}% · {supportModel.source}.</Text>
+        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Automatic masks must agree with detector geometry. Person-overlapped furniture is deferred instead of moving the person with it.</Text>
+        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Prepared layers use relative depth for front/back order when depth evidence exists; this is still estimated, not calibrated occlusion.</Text>
         <Text style={{ fontSize: 9, color: tokens.color.muted }}>Background: {backgroundQuality === 'ai_repaired' ? 'AI-repaired masked regions' : 'fast local approximation'} · Cache: {cacheLabel(cacheState)}</Text>
         {detectorInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Discovery: {detectorInfo.model} · {detectorInfo.processingMs} ms</Text> : null}
         {depthInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth: {depthInfo.model} · {depthInfo.processingMs} ms</Text> : <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth enrichment runs after objects become moveable so it does not block interaction.</Text>}
@@ -588,20 +674,13 @@ function chooseCandidates(candidates: ObjectDetectionCandidate[], width: number,
 
   const chosen: ObjectDetectionCandidate[] = [];
   for (const candidate of normalized) {
-    if (FIXED_LABELS.has(candidate.label)) continue;
+    if (isFixedPreparedLabel(candidate.label)) continue;
+    if (isPersonOccludedCandidate(candidate, candidates)) continue;
     if (chosen.some((existing) => existing.label === candidate.label && iou(existing, candidate) > 0.55)) continue;
     chosen.push(candidate);
     if (chosen.length >= MAX_AUTOMATIC_OBJECTS) break;
   }
   return chosen;
-}
-
-function classify(label: string): { mobility: PreparedObjectMobility; support: PreparedSupportKind } {
-  if (FIXED_LABELS.has(label)) return { mobility: 'fixed', support: 'unknown' };
-  if (FLOOR_LABELS.has(label)) return { mobility: label === 'refrigerator' ? 'conditional' : 'movable', support: 'floor' };
-  if (SURFACE_LABELS.has(label)) return { mobility: 'movable', support: 'floor' };
-  if (WALL_LABELS.has(label)) return { mobility: 'conditional', support: 'wall' };
-  return { mobility: 'movable', support: 'surface' };
 }
 
 function overlapsLabeledPrepared(bbox: { x: number; y: number; width: number; height: number }, label: string, objects: PreparedSceneObject[]) {
@@ -613,21 +692,14 @@ function overlapsLabeledPrepared(bbox: { x: number; y: number; width: number; he
   });
 }
 
-function boxCenter(bbox: { x: number; y: number; width: number; height: number }) {
-  return { x: bbox.x + bbox.width / 2, y: bbox.y + bbox.height / 2 };
-}
-
-function pointInBox(point: { x: number; y: number }, bbox: { x: number; y: number; width: number; height: number }) {
-  return point.x >= bbox.x && point.x <= bbox.x + bbox.width && point.y >= bbox.y && point.y <= bbox.y + bbox.height;
-}
-
+function boxCenter(bbox: { x: number; y: number; width: number; height: number }) { return { x: bbox.x + bbox.width / 2, y: bbox.y + bbox.height / 2 }; }
+function pointInBox(point: { x: number; y: number }, bbox: { x: number; y: number; width: number; height: number }) { return point.x >= bbox.x && point.x <= bbox.x + bbox.width && point.y >= bbox.y && point.y <= bbox.y + bbox.height; }
 function normalizedIou(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) {
   const x0 = Math.max(a.x, b.x); const y0 = Math.max(a.y, b.y);
   const x1 = Math.min(a.x + a.width, b.x + b.width); const y1 = Math.min(a.y + a.height, b.y + b.height);
   const intersection = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
   return intersection / Math.max(0.000001, a.width * a.height + b.width * b.height - intersection);
 }
-
 function iou(a: ObjectDetectionCandidate, b: ObjectDetectionCandidate) {
   const x0 = Math.max(a.box.xmin, b.box.xmin); const y0 = Math.max(a.box.ymin, b.box.ymin);
   const x1 = Math.min(a.box.xmax, b.box.xmax); const y1 = Math.min(a.box.ymax, b.box.ymax);
@@ -671,7 +743,7 @@ function cacheLabel(state: CacheState) {
 }
 
 function buttonStyle(active: boolean) {
-  return { minHeight: 40, paddingHorizontal: 11, alignItems: 'center' as const, justifyContent: 'center' as const, borderRadius: 11, borderWidth: 1, borderColor: active ? tokens.color.blue : tokens.color.line, backgroundColor: active ? 'rgba(40,199,232,.09)' : '#fff' };
+  return { minHeight: 44, paddingHorizontal: 11, alignItems: 'center' as const, justifyContent: 'center' as const, borderRadius: 11, borderWidth: 1, borderColor: active ? tokens.color.blue : tokens.color.line, backgroundColor: active ? 'rgba(40,199,232,.09)' : '#fff' };
 }
 const buttonTextStyle = { fontSize: 10, fontWeight: '800' as const, color: tokens.color.text };
 
@@ -689,6 +761,4 @@ function loadImage(url: string) {
   });
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
+function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }

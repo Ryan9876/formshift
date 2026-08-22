@@ -7,6 +7,7 @@ const preparedRoot = path.join(root, 'apps/client/src/prepared');
 const canonicalArrange = path.join(root, 'apps/client/src/components/PhotoArrangeEditor.web.tsx');
 const preparedEditor = path.join(root, 'apps/client/src/components/PreparedSceneEditor.web.tsx');
 const preparedPersistence = path.join(root, 'apps/client/src/prepared/persistence.ts');
+const preparedSupport = path.join(root, 'apps/client/src/prepared/support.ts');
 const preparedRepairClient = path.join(root, 'apps/client/src/prepared/backgroundRepair.web.ts');
 const repairApi = path.join(root, 'apps/api/api/ai/repair-background.ts');
 const segmentationProvider = path.join(root, 'apps/client/src/vision/MediaPipeObjectSegmenter.web.ts');
@@ -85,6 +86,12 @@ for (const required of [
   'createPreparedSceneRepairMask',
   'compositeRepairedCleanBackground',
   "automaticAcceptance: 'detector-backed-only'",
+  'supportModelVersion',
+  'supportAssistEnabled',
+  'constrainPreparedPosition',
+  'maskMatchesDetection',
+  'isPersonOccludedCandidate',
+  'comparePreparedDepth',
   'Add missed object',
 ]) {
   if (!preparedSource.includes(required)) fail(`Prepared Scene editor missing ${required}`);
@@ -95,6 +102,20 @@ for (const forbidden of ['persistPhotoArrangement(', '.from(', 'supabase.', 'onS
   if (preparedSource.includes(forbidden)) fail(`Prepared Scene editor crosses a forbidden canonical/data boundary: ${forbidden}`);
 }
 if (!failures) pass('Prepared Scene persists only through derived-scene services and does not mutate canonical measurements/spatial state');
+
+const supportSource = fs.readFileSync(preparedSupport, 'utf8');
+for (const required of [
+  'estimateSupportModel',
+  'estimateSupportModelFromObjects',
+  'constrainPreparedPosition',
+  'isPersonOccludedCandidate',
+  'maskMatchesDetection',
+  'comparePreparedDepth',
+]) {
+  if (!supportSource.includes(required)) fail(`Prepared support layer missing ${required}`);
+}
+if (!supportSource.includes("source: 'detector-anchors' | 'object-anchors' | 'fallback'")) fail('Prepared support model does not preserve estimated provenance');
+else pass('Prepared Scene support constraints remain estimated, reversible, and provenance-aware');
 
 const preparedPersistenceSource = fs.readFileSync(preparedPersistence, 'utf8');
 for (const required of [".from('prepared_scenes')", ".eq('source_asset_id', sourceAsset.id)", "PREPARED_SCENE_SCHEMA = 'prepared-scene-1.1'", ".eq('schema_version', PREPARED_SCENE_SCHEMA)", "kind: 'prepared_scene_object_mask_v1'", "kind: 'prepared_scene_object_cutout_v1'"]) {
