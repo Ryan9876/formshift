@@ -125,11 +125,19 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
 
       setPhase('discovering');
       setStatus('Finding moveable objects…');
-      const discovery = await createObjectDiscoveryProvider().discover(url);
-      if (generationRef.current !== generation) return;
-      setDetectorInfo({ provider: discovery.provider, model: discovery.model, modelVersion: discovery.modelVersion, processingMs: discovery.processingMs });
-      const chosen = chooseCandidates(discovery.candidates, source.originalWidth, source.originalHeight);
-      setIgnoredCount(Math.max(0, discovery.candidates.length - chosen.length));
+      let chosen: ObjectDetectionCandidate[] = [];
+      try {
+        const discovery = await createObjectDiscoveryProvider().discover(url);
+        if (generationRef.current !== generation) return;
+        setDetectorInfo({ provider: discovery.provider, model: discovery.model, modelVersion: discovery.modelVersion, processingMs: discovery.processingMs });
+        chosen = chooseCandidates(discovery.candidates, source.originalWidth, source.originalHeight);
+        setIgnoredCount(Math.max(0, discovery.candidates.length - chosen.length));
+      } catch {
+        if (generationRef.current !== generation) return;
+        setDetectorInfo(null);
+        setIgnoredCount(0);
+        setStatus('Object labels are unavailable on this device. Scanning room shapes instead…');
+      }
       setProgress({ complete: 0, total: chosen.length + ROOM_SWEEP_SEEDS.length });
 
       setPhase('segmenting');
