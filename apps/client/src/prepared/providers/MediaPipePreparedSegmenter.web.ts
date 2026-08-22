@@ -27,7 +27,10 @@ export type PreparedSegment = {
   height: number;
 };
 
-const MEDIAPIPE_BUNDLE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs';
+// The query string forces a distinct ESM module instance from the canonical
+// Arrange adapter, which intentionally patches its own factory for v2.2
+// compatibility. Prepared Scene must never inherit or mutate that patch.
+const MEDIAPIPE_BUNDLE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs?formshift=prepared-scene-v1';
 const MEDIAPIPE_WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm';
 const MAGIC_TOUCH_MODEL = 'https://storage.googleapis.com/mediapipe-models/interactive_segmenter_v2/magic_touch/int8/1/interactive_segmentation.task';
 const MAX_CROP_DIMENSION = 820;
