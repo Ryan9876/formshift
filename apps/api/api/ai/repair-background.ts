@@ -7,6 +7,7 @@ type Body = {
   spaceId: string;
   sourceDataUrl: string;
   maskDataUrl: string;
+  mode?: 'single-object' | 'prepared-scene';
 };
 
 export function OPTIONS(request: Request) {
@@ -27,15 +28,16 @@ export async function POST(request: Request) {
       return json(request, { error: 'image_inputs_required' }, 400);
     }
 
+    const preparedScene = body.mode === 'prepared-scene';
     const model = process.env.FORMSHIFT_IMAGE_MODEL?.trim() || 'openai/gpt-image-2';
     const startedAt = Date.now();
     const { data: run } = await active.client.from('ai_runs').insert({
       project_id: body.projectId,
       space_id: body.spaceId,
       actor_user_id: active.userId,
-      task_name: 'photo-background-repair',
-      task_schema_version: 'photo-repair-1',
-      prompt_version: 'photo-repair-v0.6.0',
+      task_name: preparedScene ? 'prepared-scene-background-repair' : 'photo-background-repair',
+      task_schema_version: preparedScene ? 'prepared-scene-repair-1' : 'photo-repair-1',
+      prompt_version: preparedScene ? 'prepared-scene-repair-v1.0.0' : 'photo-repair-v0.6.0',
       status: 'running',
       provider_model: model,
     }).select('id').single();
@@ -44,13 +46,7 @@ export async function POST(request: Request) {
       const result = await generateImage({
         model,
         prompt: {
-          text: [
-            'Edit the first image only.',
-            'The second image is a black-and-white selection mask: white marks the photographed object that was lifted and must be removed; black marks pixels that must stay unchanged.',
-            'Reconstruct only the white-mask area as the background that would naturally be visible behind the removed object.',
-            'Preserve the room, people, furniture, lighting, camera perspective, framing, colors, texture, and every pixel outside the masked area as closely as possible.',
-            'Do not add a replacement object. Do not redesign or restyle the room. Return a photorealistic repaired room image.',
-          ].join(' '),
+          text: preparedScene ? preparedScenePrompt() : singleObjectPrompt(),
           images: [source.bytes, mask.bytes],
         },
       });
@@ -87,6 +83,27 @@ export async function POST(request: Request) {
       message: error instanceof Error ? error.message : 'unknown error',
     }, 500);
   }
+}
+
+function singleObjectPrompt() {
+  return [
+    'Edit the first image only.',
+    'The second image is a black-and-white selection mask: white marks the photographed object that was lifted and must be removed; black marks pixels that must stay unchanged.',
+    'Reconstruct only the white-mask area as the background that would naturally be visible behind the removed object.',
+    'Preserve the room, people, furniture, lighting, camera perspective, framing, colors, texture, and every pixel outside the masked area as closely as possible.',
+    'Do not add a replacement object. Do not redesign or restyle the room. Return a photorealistic repaired room image.',
+  ].join(' ');
+}
+
+function preparedScenePrompt() {
+  return [
+    'Edit the first room photograph only.',
+    'The second image is a black-and-white mask. Every white region marks one or more photographed moveable objects that have been separated into independent layers. Black marks room pixels that must stay unchanged.',
+    'Remove every object covered by white and reconstruct only those white regions as the wall, floor, furniture surface, or other background that would naturally be visible behind the removed objects.',
+    'Treat all white regions as parts of one consistent room scene so wall lines, floorboards, furniture edges, lighting, shadows, perspective, texture, and color continue naturally across the repaired areas.',
+    'Preserve people and every unmasked object. Do not redesign, redecorate, restyle, add replacement objects, or change camera framing.',
+    'Return a photorealistic clean background plate for the same room.',
+  ].join(' ');
 }
 
 function decodeDataUrl(value: string, maxBytes: number) {
