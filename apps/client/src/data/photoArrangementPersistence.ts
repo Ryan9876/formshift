@@ -47,11 +47,26 @@ export async function loadLatestPhotoArrangement(
 ): Promise<LoadedPhotoArrangement | null> {
   if (!supabase) return null;
 
+  const sourceAsset = await supabase
+    .from('assets')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('space_id', spaceId)
+    .eq('kind', 'room_photo')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (sourceAsset.error) throw sourceAsset.error;
+  if (!sourceAsset.data?.id) return null;
+
   const latest = await supabase
     .from('photo_arrangements')
     .select('id, result_asset_id, mask_asset_id, cutout_asset_id, background_asset_id, transform_json, created_at')
     .eq('project_id', projectId)
     .eq('space_id', spaceId)
+    .eq('source_asset_id', sourceAsset.data.id)
     .eq('status', 'committed')
     .order('created_at', { ascending: false })
     .limit(1)
@@ -122,6 +137,7 @@ export async function persistPhotoArrangement(input: PersistPhotoArrangementInpu
     .select('id')
     .eq('project_id', input.projectId)
     .eq('space_id', input.spaceId)
+    .eq('source_asset_id', sourceAsset.data.id)
     .eq('status', 'committed')
     .order('created_at', { ascending: false })
     .limit(1)
