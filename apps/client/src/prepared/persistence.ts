@@ -2,6 +2,7 @@ import { supabase } from '../auth/AuthProvider';
 import type { PreparedBox, PreparedObjectMobility, PreparedSceneObject, PreparedSupportKind } from './types';
 
 const BUCKET = 'formshift-private';
+const PREPARED_SCENE_SCHEMA = 'prepared-scene-1.1';
 
 export type PreparedBackgroundQuality = 'quick' | 'ai_repaired';
 
@@ -45,6 +46,7 @@ export async function loadLatestPreparedScene(projectId: string, spaceId: string
     .eq('project_id', projectId)
     .eq('space_id', spaceId)
     .eq('source_asset_id', sourceAsset.id)
+    .eq('schema_version', PREPARED_SCENE_SCHEMA)
     .eq('status', 'ready')
     .order('created_at', { ascending: false })
     .limit(1)
@@ -211,7 +213,7 @@ export async function persistPreparedScene(input: {
         source_asset_id: sourceAsset.id,
         parent_prepared_scene_id: latestParent?.id ?? null,
         clean_background_asset_id: cleanBackgroundAssetId,
-        schema_version: 'prepared-scene-1',
+        schema_version: PREPARED_SCENE_SCHEMA,
         background_quality: input.backgroundQuality,
         objects_json: storedObjects,
         provider_json: input.provider ?? {},
@@ -260,6 +262,7 @@ async function findLatestPreparedSceneId(projectId: string, spaceId: string, sou
     .eq('project_id', projectId)
     .eq('space_id', spaceId)
     .eq('source_asset_id', sourceAssetId)
+    .eq('schema_version', PREPARED_SCENE_SCHEMA)
     .eq('status', 'ready')
     .order('created_at', { ascending: false })
     .limit(1)
