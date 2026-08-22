@@ -81,7 +81,18 @@ if (!failures) pass('Prepared Scene v1 performs progressive local preparation wi
 
 const detector = fs.readFileSync(path.join(preparedRoot, 'providers/DetrObjectDiscovery.web.ts'), 'utf8');
 if (!detector.includes("Xenova/detr-resnet-50")) fail('Prepared Scene detector model identity missing');
-else pass('Prepared Scene detector identity is explicit');
+for (const required of ['isAppleWebKit', "backend: 'wasm'", 'wasm.numThreads = 1']) {
+  if (!detector.includes(required)) fail(`Prepared Scene detector is missing Safari-safe inference guard ${required}`);
+}
+if (detector.includes("device: webGpu ? 'webgpu' : 'wasm'")) fail('Prepared Scene detector still treats navigator.gpu as sufficient WebGPU compatibility evidence');
+else pass('Prepared Scene detector uses Safari-safe WASM fallback instead of navigator.gpu capability guessing');
+
+const depthProvider = fs.readFileSync(path.join(sceneRoot, 'providers/DepthAnythingV2Small.web.ts'), 'utf8');
+for (const required of ['isAppleWebKit', "backend: 'wasm'", 'wasm.numThreads = 1']) {
+  if (!depthProvider.includes(required)) fail(`Depth Anything provider is missing Safari-safe inference guard ${required}`);
+}
+if (depthProvider.includes("device: webGpu ? 'webgpu' : 'wasm'")) fail('Depth provider still treats navigator.gpu as sufficient WebGPU compatibility evidence');
+else pass('Depth Anything uses the same Safari-safe WASM fallback contract');
 
 const migration = fs.readFileSync(path.join(root, 'supabase/schema/003_scene_intelligence.sql'), 'utf8');
 for (const required of ['enable row level security', 'grant select, insert', 'scene_analyses_select_member', 'scene_analyses_insert_editor']) {
