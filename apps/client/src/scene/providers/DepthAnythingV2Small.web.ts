@@ -13,18 +13,51 @@ type RawDepthImage = {
 };
 
 type DepthPipeline = (input: string) => Promise<{ depth?: RawDepthImage }>;
-let pipelinePromise: Promise<DepthPipeline> | null = null;
+type InferenceBackend = 'webgpu' | 'wasm';
+let pipelinePromise: Promise<{ pipeline: DepthPipeline; backend: InferenceBackend }> | null = null;
 
-async function getPipeline(): Promise<DepthPipeline> {
+function isAppleWebKit() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent ?? '';
+  const appleMobile = /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const safari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR|Firefox|CriOS|FxiOS/i.test(ua);
+  return appleMobile || safari;
+}
+
+function canAttemptWebGpu() {
+  return typeof navigator !== 'undefined' && !!(navigator as any).gpu && !isAppleWebKit();
+}
+
+function configureWasm(transformers: any) {
+  const wasm = transformers?.env?.backends?.onnx?.wasm;
+  if (!wasm) return;
+  wasm.numThreads = 1;
+  wasm.proxy = false;
+}
+
+async function buildPipeline(transformers: any, backend: InferenceBackend): Promise<DepthPipeline> {
+  if (backend === 'wasm') configureWasm(transformers);
+  return transformers.pipeline('depth-estimation', MODEL_ID, {
+    device: backend,
+    dtype: backend === 'webgpu' ? 'fp16' : 'q8',
+  }) as Promise<DepthPipeline>;
+}
+
+async function getPipeline(): Promise<{ pipeline: DepthPipeline; backend: InferenceBackend }> {
   if (pipelinePromise) return pipelinePromise;
   pipelinePromise = (async () => {
     const dynamicImport = new Function('url', 'return import(url)') as (url: string) => Promise<any>;
     const transformers = await dynamicImport(TRANSFORMERS_ESM);
-    const webGpu = typeof navigator !== 'undefined' && !!(navigator as any).gpu;
-    return transformers.pipeline('depth-estimation', MODEL_ID, {
-      device: webGpu ? 'webgpu' : 'wasm',
-      dtype: webGpu ? 'fp16' : 'q8',
-    }) as Promise<DepthPipeline>;
+
+    if (canAttemptWebGpu()) {
+      try {
+        return { pipeline: await buildPipeline(transformers, 'webgpu'), backend: 'webgpu' as const };
+      } catch {
+        // Exposed WebGPU does not guarantee a complete ONNX WebGPU backend.
+      }
+    }
+
+    return { pipeline: await buildPipeline(transformers, 'wasm'), backend: 'wasm' as const };
   })().catch((error) => {
     pipelinePromise = null;
     throw error;
@@ -70,8 +103,8 @@ export function createDepthProvider(): DepthProvider {
     estimate: async (imageUrl: string): Promise<DepthEstimate> => {
       if (!imageUrl) throw new Error('A source room photo is required for depth estimation.');
       const startedAt = performance.now();
-      const pipeline = await getPipeline();
-      const result = await pipeline(imageUrl);
+      const runtime = await getPipeline();
+      const result = await runtime.pipeline(imageUrl);
       if (!result.depth?.data || !result.depth.width || !result.depth.height) {
         throw new Error('Depth Anything returned no usable depth image.');
       }
@@ -81,7 +114,7 @@ export function createDepthProvider(): DepthProvider {
         height: result.depth.height,
         normalized,
         dataUrl: depthDataUrl(result.depth.width, result.depth.height, normalized),
-        provider: 'transformers.js',
+        provider: `transformers.js-${runtime.backend}`,
         model: MODEL_ID,
         modelVersion: MODEL_VERSION,
         processingMs: Math.round(performance.now() - startedAt),
