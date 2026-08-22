@@ -75,7 +75,7 @@ export async function loadLatestPreparedScene(projectId: string, spaceId: string
   if (!backgroundPath) return null;
   const cleanBackgroundUrl = await signAssetPath(backgroundPath);
 
-  const objects = (await Promise.all(storedObjects.map(async (object) => {
+  const objects = (await Promise.all(storedObjects.map(async (object): Promise<PreparedSceneObject | null> => {
     const maskPath = byId.get(object.maskAssetId);
     const cutoutPath = byId.get(object.cutoutAssetId);
     if (!maskPath || !cutoutPath) return null;
@@ -96,8 +96,8 @@ export async function loadLatestPreparedScene(projectId: string, spaceId: string
       rotationDeg: object.rotationDeg,
       approximateDepth: object.approximateDepth,
       source: object.source,
-    } satisfies PreparedSceneObject;
-  }))).filter((value): value is PreparedSceneObject => !!value);
+    };
+  }))).filter((value): value is PreparedSceneObject => value !== null);
 
   if (!objects.length) return null;
   return {
