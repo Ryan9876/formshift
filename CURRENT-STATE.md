@@ -1,10 +1,26 @@
 # FormShift Current State
 
-**Revision:** 0.9.2  
-**Date:** 2026-08-21  
-**Milestone:** Photo Arrange v2.2 editable saved placements deployed; real-device restore-and-drag validation pending
+**Revision:** 0.9.3  
+**Date:** 2026-08-22  
+**Milestone:** Production image API remains backward-compatible with Photo Arrange v2.2 and now accepts authenticated FormShift branch previews plus opt-in Prepared Scene multi-object repair; production web UI remains on the validated Photo Arrange baseline
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
+
+## Production API compatibility hotfix — 2026-08-22
+
+Physical testing of the feature-flagged `scene-foundation-v1` preview exposed a transport failure when **Improve background** was pressed. Production runtime logs showed three successful `OPTIONS /api/ai/repair-background` preflights but no subsequent `POST`, and `ai_runs` contained no corresponding image task. The image model and Prepared Scene cache were therefore not the failing components: the preview browser origin was being rejected by the production API CORS response before the authenticated repair request could execute.
+
+A backward-compatible API-only hotfix was deployed on `main`:
+
+- commit `674c7b5e86598ca0c671338766b1a3551ac923db`;
+- production API deployment `dpl_3nQ1HZ2DTFPLrt3nLwXKKPKoCD3C` — **READY**;
+- production API alias remains `formshift-api.vercel.app`;
+- FormShift branch preview aliases matching the controlled `formshift-web-git-*-lew7.vercel.app` project/team pattern may now pass the CORS origin gate;
+- CORS does **not** grant project access: protected repair requests still require a valid bearer identity plus editable project/space authorization;
+- `/api/ai/repair-background` now accepts optional `mode: 'prepared-scene'` for multi-object clean-plate reconstruction;
+- omitting `mode` preserves the existing Photo Arrange single-object repair task, schema and prompt contract.
+
+The FormShift production web deployment triggered by this API-only commit was canceled; no Prepared Scene UI was promoted through this hotfix. The existing production Photo Arrange v2.2 web baseline remains the user-facing production interface.
 
 ## Validated Photo Arrange baseline
 
@@ -67,13 +83,12 @@ No database migration was required.
   - `apps/client/src/data/photoArrangementPersistence.ts`
 - production deployment `dpl_HgQSnBmuUESfhokvU2uNyfiyBkz3` — READY on the exact functional runtime and serving `formshift-web.vercel.app`
 - production `/arrange` — HTTP 200 smoke-verified
-- API service, database schema, and RLS policies were unchanged
 
-The deployment is verified; **direct iPhone interaction with the restored editable object is not yet confirmed**.
+The API compatibility hotfix above does not alter this interaction runtime.
 
 ## Current Arrange capabilities
 
-The active production runtime now retains:
+The active production runtime retains:
 - object-centered local segmentation around a new object tap
 - candidate mask preview
 - continuous Add / Remove refinement with Undo / Redo
@@ -89,11 +104,12 @@ The active production runtime now retains:
 ## Persistence/security baseline
 
 - Supabase private bucket `formshift-private`
-- 26/26 public application tables RLS-enabled
+- public application tables remain RLS-protected
 - anonymous has no `photo_arrangements` table privileges; authenticated has SELECT + INSERT only
 - pixel edits never overwrite the immutable source photo
 - saved composite images remain history/display artifacts rather than the sole source of editability
 - AI background repair remains explicit opt-in and the configured image-provider path is not claimed to be zero-data-retention
+- allowing controlled FormShift preview origins through CORS does not bypass bearer authentication, project membership, space existence or edit authorization
 
 ## Accuracy boundaries
 
@@ -105,29 +121,15 @@ The active production runtime now retains:
 
 ## Next validation
 
-On the user's iPhone/browser after a hard refresh:
-1. open **Arrange**
-2. confirm the latest saved guitar opens already active with **Arrange object** controls rather than only the idle `Saved arrangement restored` state
-3. drag the guitar substantially downward in the photo
-4. choose **Keep placement**
-5. drag it again immediately and confirm it remains editable after saving
-6. refresh/reopen Arrange and confirm the guitar restores as active at its newly saved position
-7. optionally change scale/rotation, save, refresh, and confirm those transforms restore
-8. for a fresh object, leave AI repair off, lift/save it, refresh, and confirm it still restores editable from the persisted local background
-
-## Next implementation decision
-
-If v2.2 restore-and-drag works reliably, preserve this editable-derived-scene contract and resume scene-realism work behind a separate rendering boundary. Do not modify the validated selection/gesture core to implement future depth/contact/occlusion features.
-
-Longer term, prefer a real scene model—floor/support planes, coarse depth, occlusion and camera-aware projection—over accumulating additional screen-space heuristics.
+Production Photo Arrange remains the fallback while the isolated Prepared Scene branch is tested. For the branch candidate, confirm that an explicit **Improve background** request now proceeds past preflight and creates a `prepared-scene-background-repair` AI run. Do not promote the Prepared Scene UI until its cache/reconstruction/object-quality acceptance criteria pass on the target iPhone.
 
 ## Not yet claimed
 
-Real-device validation of v2.2 editable restore, calibrated floor snapping, real scene depth, depth-aware occlusion, perspective-aware physical scaling, physically correct contact shadow, calibrated relighting, native iOS continuous photo manipulation, or dedicated persisted blueprint PDF.
+Production Prepared Scene UI, real-device Prepared Scene cache restore, real-device multi-object background-repair success, calibrated floor snapping, real scene depth, depth-aware occlusion, perspective-aware physical scaling, physically correct contact shadow, calibrated relighting, native iOS continuous photo manipulation, or dedicated persisted blueprint PDF.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated to revision 0.9.2 for the deployed v2.2 editable-placement runtime and pending real-device validation
-- `ARCHITECTURE.md`: updated to revision 0.5.1 because saved Arrange state is now durably defined as reconstructable background + mask + cutout + transform, with the flattened composite as a convenience/history artifact
-- `DESIGN-SYSTEM.md`: updated to revision 0.5.5 because saved photographed objects are now required to remain directly editable when complete assets exist
-- `PROJECT-CONSTITUTION.md`: unchanged; existing source integrity, privacy, reversibility, and measurement-provenance rules already govern this behavior
+- `CURRENT-STATE.md`: revision 0.9.3 records the deployed API compatibility hotfix and explicitly preserves the production Photo Arrange web boundary.
+- `ARCHITECTURE.md`: unchanged; the existing authenticated server-AI and provider-boundary architecture already covers this compatibility correction.
+- `DESIGN-SYSTEM.md`: unchanged; no durable visual-language change.
+- `PROJECT-CONSTITUTION.md`: unchanged; existing source integrity, privacy, authorization, reversibility and measurement-provenance rules continue to govern the runtime.
