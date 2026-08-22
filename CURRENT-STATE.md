@@ -1,133 +1,222 @@
 # FormShift Current State
 
-**Revision:** 0.9.2  
-**Date:** 2026-08-21  
-**Milestone:** Photo Arrange v2.2 editable saved placements deployed; real-device restore-and-drag validation pending
+**Revision:** 0.9.13  
+**Date:** 2026-08-22  
+**Milestone:** Prepared Scene is physically proven on iPhone; source-bound private caching and explicit masked high-quality background repair are implemented and build-validated; database support is deployed; device validation of persistence/repair remains pending
 
-FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views are secondary technical verification surfaces.
+FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
 
-## Validated Photo Arrange baseline
+## Production baseline
 
-Authenticated browser/iPhone testing established that the pre-v2.1 Arrange runtime can:
-- receive normal object taps without Safari taking over the gesture
-- isolate a photographed object with local object-centered segmentation
-- preview/refine a candidate mask before pixels are lifted
-- lift and move the real photographed pixels
-- zoom/pan the room independently from object manipulation
-- persist derived arrangements without overwriting the immutable source photo
-- run explicit authenticated AI background reconstruction through `openai/gpt-image-2`
+Production remains on `main` with the validated Photo Arrange v2.2 baseline. Prepared Scene has **not** been promoted to production.
 
-The validated AI repair production test completed successfully with `openai/gpt-image-2` in 24,880 ms and materially improved the removed guitar location compared with the deterministic local fallback.
+The production baseline retains short-tap object selection, Add/Remove refinement, room pan/zoom, object lift, move/scale/rotate, local background reconstruction, explicit GPT Image background repair, editable saved-placement persistence, and immutable source-photo preservation.
 
-## v2.1 regression and rollback
+## Physical iPhone evidence
 
-Photo Arrange v2.1 introduced an optional image-space perspective/contact assist. Real-device testing revealed a critical regression: the user could no longer select any object. The three v2.1 runtime files were rolled back to the last selection-validated implementation before further Arrange work continued.
+Physical testing on 2026-08-22 has now established:
 
-Rollback runtime: `c9402bce2e15ba1e45fb683295dc6eddccca7fd4`  
-Rollback production deployment: `dpl_A9jKNGoEQc9zXTYxALggV86shb3o` — READY
+- the validated guitar can be dragged across the full photo without Safari handing the gesture to page scrolling;
+- `/arrange-prepared` survives preview authentication and opens the Prepared Scene editor;
+- the newest uploaded room photo remains the active source rather than being replaced by a saved arrangement from an older photo;
+- Safari-safe WASM inference reaches Prepared Scene instead of failing in the ONNX WebGPU initialization path;
+- at least one real photographed object (the TV) was automatically prepared as an independent layer and could be moved on the iPhone.
 
-The v2.1 screen-Y perspective scaling, dynamic contact ellipse/guide, and v2.1 transform metadata remain inactive.
+The TV test materially validates the **Prepared Scene interaction architecture**, but not its commercial quality. The same screenshot showed two remaining quality gaps clearly: the quick clean-background plate left visible ghosting at the TV's original location, and automatic object coverage remained sparse.
 
-## Photo Arrange v2.2 — editable saved placements
+GitHub Issue `#3` remains the physical-device acceptance record.
 
-Functional runtime baseline: `5983276ad773ea8abdd1ac03924b67a33b31ccf5`
+## Prepared Scene candidate
 
-A subsequent real-device screenshot exposed a separate persistence/interaction problem: the visible guitar was part of a restored **flattened composite**, so it looked like an arranged object but could not be dragged farther down. The runtime had been restoring only `result_asset_id` even though `photo_arrangements` already retained the component assets needed for editing.
+Branch: `scene-foundation-v1`  
+Draft PR: `#1 — Scene Foundation + Prepared Scene v1: multi-object room preparation`
 
-Production data confirmed the latest saved guitar arrangement already contained:
-- result/composite asset
-- accepted mask asset
-- photographed-object cutout asset
-- object-free background asset
-- transform JSON with x/y/scale/rotation/bounding box
+Current target flow:
 
-No database migration was required.
+```text
+Immutable source photo
+   ↓ immediate display
+Cache lookup for exact source photo
+   ├── hit → restore private Prepared Scene package
+   └── miss → local preparation
+                 ├── DETR object discovery where available
+                 └── MediaPipe supplemental room sweep
+   ↓
+Per-object masks + photographed-pixel cutouts
+   ↓
+Fast local clean-background plate
+   ↓ interaction available
+Non-blocking Depth Anything V2 Small enrichment
+   ↓
+Optional explicit high-quality background repair
+   ↓
+Private source-bound Prepared Scene version
+```
 
-### Implemented
+Prepared Scene remains derived evidence and never overwrites the source photograph, canonical measurements, or spatial versions.
 
-- `loadLatestPhotoArrangement()` now restores the complete editable asset set rather than only the flattened result image
-- the loader signs and returns the result, background, mask, and cutout assets plus parsed transform metadata
-- when the complete asset set exists, Arrange opens the saved object directly as the active movable selection over its object-free background
-- saved x/y position, scale, rotation, and bounding box are restored without re-segmenting the same object
-- incomplete/legacy saved arrangements still fall back to the flattened composite and may require re-selection
-- a fresh accepted lift now retains the deterministic local object-free background even when AI repair is not used
-- **Keep placement** persists that background, composite result, mask, cutout, transform, and parent lineage
-- after **Keep placement**, the object remains active in the current Arrange session instead of immediately collapsing into non-editable pixels
-- future saves use renderer version `photo-arrange-2.2`
-- restored objects with an already persisted clean background do not offer a redundant background-repair action
-- immutable source-room-photo behavior is unchanged
-- object-centered MediaPipe selection/refinement code was intentionally left unchanged to avoid repeating the v2.1 selection regression
+## Prepared Scene private persistence — deployed database foundation
 
-### Validation and deployment evidence
+Two new Supabase migrations are **deployed** to project `oomtpnqprxykcjzrlfgc`:
 
-- isolated branch: `photo-arrange-editable-restore-v22`
-- exact preview deployment `dpl_Dbadv9gU9bGEVMPn84BCqS6aT9rT` — READY on `5983276ad773ea8abdd1ac03924b67a33b31ccf5`
-- branch comparison against then-current `main` was a clean fast-forward affecting only:
-  - `apps/client/src/components/PhotoArrangeEditorV17.web.tsx`
-  - `apps/client/src/data/photoArrangementPersistence.ts`
-- production deployment `dpl_HgQSnBmuUESfhokvU2uNyfiyBkz3` — READY on the exact functional runtime and serving `formshift-web.vercel.app`
-- production `/arrange` — HTTP 200 smoke-verified
-- API service, database schema, and RLS policies were unchanged
+- `prepared_scenes_v1`
+- `prepared_scenes_performance`
 
-The deployment is verified; **direct iPhone interaction with the restored editable object is not yet confirmed**.
+`public.prepared_scenes` stores immutable, source-bound derived scene packages with:
 
-## Current Arrange capabilities
+- project/space identity;
+- exact `source_asset_id` lineage;
+- optional parent Prepared Scene lineage;
+- private clean-background asset reference;
+- background quality (`quick` / `ai_repaired`);
+- per-object derived metadata/transforms;
+- provider/model metadata;
+- creator/timestamps/status.
 
-The active production runtime now retains:
-- object-centered local segmentation around a new object tap
-- candidate mask preview
-- continuous Add / Remove refinement with Undo / Redo
-- explicit Pan/review mode and two-finger room zoom
-- explicit **Lift object** transition
-- one-finger object movement and two-finger scale/rotation
-- opt-in AI background repair with visible queued/sending/completed/failed state for a fresh lift
-- editable saved photo-placement restoration when background/cutout/mask/transform assets are complete
-- private immutable `photo_arrangements` persistence and parent lineage
-- source-photo integrity
-- iPhone Safari gesture/safe-area hardening
+Security/performance verification after migration:
 
-## Persistence/security baseline
+- RLS enabled;
+- authenticated SELECT + INSERT only;
+- anonymous SELECT denied;
+- project-reader SELECT policy;
+- project-editor INSERT policy with creator/project-space checks;
+- covering indexes for source, space, project, parent, background asset, and creator foreign key;
+- existing private-storage policies authorize paths by the leading project UUID, so the new `${projectId}/${spaceId}/prepared/...` path shape is compatible with the current private bucket contract.
 
-- Supabase private bucket `formshift-private`
-- 26/26 public application tables RLS-enabled
-- anonymous has no `photo_arrangements` table privileges; authenticated has SELECT + INSERT only
-- pixel edits never overwrite the immutable source photo
-- saved composite images remain history/display artifacts rather than the sole source of editability
-- AI background repair remains explicit opt-in and the configured image-provider path is not claimed to be zero-data-retention
+The latest Supabase performance advisor no longer reports an unindexed Prepared Scene foreign key. It still reports older `photo_arrangements` foreign-key indexing debt and expected unused-index notices. The security advisor reports two pre-existing warnings unrelated to Prepared Scene: the shelving acceptance SECURITY DEFINER RPC is executable by authenticated users, and leaked-password protection is disabled.
 
-## Accuracy boundaries
+## Prepared Scene cache behavior implemented
 
-- segmentation/refinement are image-based and remain prototype quality
-- deterministic local removed-object reconstruction is a fast fallback and is not photorealistic
-- a restored cutout/transform is editable image state, not measured geometry
-- free-form photo movement does not establish measured depth, floor contact, perspective, occlusion, relighting, or physical scale
-- canonical room/object dimensions and measurement provenance are not changed by pixel movement
+The candidate now attempts to restore a Prepared Scene for the **exact current room-photo asset** before rerunning perception.
 
-## Next validation
+A cached scene restores:
 
-On the user's iPhone/browser after a hard refresh:
-1. open **Arrange**
-2. confirm the latest saved guitar opens already active with **Arrange object** controls rather than only the idle `Saved arrangement restored` state
-3. drag the guitar substantially downward in the photo
-4. choose **Keep placement**
-5. drag it again immediately and confirm it remains editable after saving
-6. refresh/reopen Arrange and confirm the guitar restores as active at its newly saved position
-7. optionally change scale/rotation, save, refresh, and confirm those transforms restore
-8. for a fresh object, leave AI repair off, lift/save it, refresh, and confirm it still restores editable from the persisted local background
+- clean background;
+- per-object mask and cutout assets;
+- image-space transforms;
+- mobility/support semantics;
+- available relative-depth evidence;
+- provider provenance.
 
-## Next implementation decision
+If no usable cache exists, the room is prepared locally. Fresh preparation becomes interactive before persistence completes, and a private derived version is cached afterward. Users can explicitly **Save scene / Save changes** after manipulating objects.
 
-If v2.2 restore-and-drag works reliably, preserve this editable-derived-scene contract and resume scene-realism work behind a separate rendering boundary. Do not modify the validated selection/gesture core to implement future depth/contact/occlusion features.
+Prepared assets use the existing private bucket and are registered in `assets` with dedicated derived kinds:
 
-Longer term, prefer a real scene model—floor/support planes, coarse depth, occlusion and camera-aware projection—over accumulating additional screen-space heuristics.
+- `prepared_scene_background_quick_v1`
+- `prepared_scene_background_ai_v1`
+- `prepared_scene_object_mask_v1`
+- `prepared_scene_object_cutout_v1`
 
-## Not yet claimed
+Persistence does not write `measurement_observations`, `spatial_versions`, or ordinary Photo Arrange records.
 
-Real-device validation of v2.2 editable restore, calibrated floor snapping, real scene depth, depth-aware occlusion, perspective-aware physical scaling, physically correct contact shadow, calibrated relighting, native iOS continuous photo manipulation, or dedicated persisted blueprint PDF.
+## Broader automatic discovery
+
+The supplemental MediaPipe room sweep was expanded from 12 to 20 probes and the maximum automatic prepared-object count from 14 to 18. This is still a bounded feasibility approach, not a claim of complete household-object recognition. DETR remains a lightweight semantic provider with incomplete COCO vocabulary; **Add missed object** remains the correction path.
+
+## Explicit high-quality clean-background repair
+
+Prepared Scene now exposes **Improve background** as an explicit action rather than silently uploading household imagery.
+
+The repair path:
+
+```text
+immutable source photo
+   +
+union of prepared-object masks
+   ↓
+authenticated image-repair request
+   ↓
+photorealistic reconstruction candidate
+   ↓
+accept only pixels inside expanded prepared-object masks
+   ↓
+clean background plate
+   ↓
+private Prepared Scene version
+```
+
+The image service supports a Prepared Scene multi-object repair task and logs the provider/model/latency. The default configured image model remains `openai/gpt-image-2` unless the server environment overrides it.
+
+Important integrity rule: FormShift does **not** accept the generated image wholesale. Only repaired pixels inside the prepared-object mask union are composited back into the immutable source-photo coordinate frame. Unmasked room pixels remain source pixels even if the provider attempted unrelated changes.
+
+If cloud repair fails, the fast local clean plate remains usable. Adding another missed object intentionally returns the background state to `quick` until that new hidden region is repaired again.
+
+## Safari inference contract
+
+Local Transformers.js providers use the current compatibility rule:
+
+- Apple mobile/WebKit: ONNX WASM, one thread, proxy disabled;
+- non-Apple browsers: WebGPU may be attempted;
+- WebGPU initialization failure falls back to WASM;
+- DETR failure does not abort Prepared Scene; MediaPipe room sweep continues;
+- depth failure never blocks object movement.
+
+## Validation evidence for current candidate
+
+Current exact branch head: `145bee5c9572e840e39fe0f2ff8b7ef8478b0d5a`  
+GitHub Actions run: `32561509006` — **success**  
+Vercel web preview: `dpl_76aAjk8tc1cqZ9kAjHhTgaYwqDF7` — **READY**  
+Vercel API preview: `dpl_AaeekafjQ4DAGxAkDn7FHcvNwfoE` — **READY**
+
+The exact branch head passed:
+
+- repository/security/domain verification;
+- Arrange/Safari regression guards;
+- scene/Prepared Scene boundary guards;
+- dedicated route/auth-return guard;
+- source-photo lineage guards;
+- Safari-safe inference guards;
+- Prepared Scene persistence/source-lineage guards;
+- explicit masked-repair guards;
+- client TypeScript check;
+- API TypeScript check;
+- production web export.
+
+An earlier CI run correctly caught a TypeScript narrowing error in Prepared Scene restore; that defect was corrected before this validated head.
+
+This is **code/build/deployed-database evidence**, not physical proof that cache upload/restore and AI clean-background quality work acceptably on the iPhone.
+
+## Next physical-device acceptance
+
+Use the stable branch preview `/arrange-prepared` route.
+
+Test in this order:
+
+1. let the room reach Ready and allow the initial private cache to finish;
+2. move the TV and at least one other prepared/missed object;
+3. tap **Save changes**;
+4. refresh and verify the object positions restore without repeating the full discovery workflow;
+5. tap **Improve background** and wait for completion;
+6. move the TV away from its original location again;
+7. inspect whether the old-TV ghosting is materially reduced;
+8. tap **Inspect clean background** to evaluate the repaired plate directly;
+9. use **Add missed object** on an object the automatic pass did not prepare;
+10. save, refresh, and verify the added object also restores.
+
+Do not interpret the quick local background as the target photorealistic result; it is the immediate fallback while explicit repair runs.
+
+## Current limitations / not yet claimed
+
+- physical validation of Prepared Scene private cache upload/restore;
+- physical validation of Prepared Scene high-quality background repair;
+- commercial-quality hidden-background reconstruction;
+- comprehensive automatic household-object recognition;
+- perfect automatic masks;
+- Prepared Scene scale/rotate controls;
+- calibrated camera/floor/wall mapping;
+- metric depth;
+- calibrated support relationships;
+- depth-aware production occlusion;
+- gravity / rigid-body physics;
+- production RoomPlan capture/normalization.
+
+## Next decision
+
+If iPhone persistence and masked repair validate, keep Prepared Scene as the shared photo-layer substrate and move next to depth ordering/support surfaces. If repair quality is weak, retain the cache/mask architecture and change the reconstruction provider rather than rebuilding object manipulation. If automatic recognition remains too sparse, evaluate a broader discovery provider behind `ObjectDiscoveryProvider` before increasing client-side complexity.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: updated to revision 0.9.2 for the deployed v2.2 editable-placement runtime and pending real-device validation
-- `ARCHITECTURE.md`: updated to revision 0.5.1 because saved Arrange state is now durably defined as reconstructable background + mask + cutout + transform, with the flattened composite as a convenience/history artifact
-- `DESIGN-SYSTEM.md`: updated to revision 0.5.5 because saved photographed objects are now required to remain directly editable when complete assets exist
-- `PROJECT-CONSTITUTION.md`: unchanged; existing source integrity, privacy, reversibility, and measurement-provenance rules already govern this behavior
+- `CURRENT-STATE.md`: revision 0.9.13 records physical Prepared Scene proof, deployed private persistence foundation, broader discovery, explicit masked background repair, and exact CI/Vercel validation.
+- `ARCHITECTURE.md`: updated separately because Prepared Scene persistence and masked AI-repair boundaries are now durable architecture, not an ephemeral feasibility assumption.
+- `DESIGN-SYSTEM.md`: unchanged; existing photo-first, explicit AI action, and confidence-label rules still apply.
+- `PROJECT-CONSTITUTION.md`: unchanged; this implementation enforces existing immutable-source, privacy, provenance, and reversibility rules.

@@ -1,0 +1,40 @@
+name: FormShift CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - scene-foundation-v1
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Repository, security, domain, and scene guards
+        run: npm run verify
+
+      - name: Client typecheck
+        run: npm run client:typecheck
+
+      - name: API typecheck
+        run: npm run api:typecheck
+
+      - name: Production web export
+        run: npm run client:export

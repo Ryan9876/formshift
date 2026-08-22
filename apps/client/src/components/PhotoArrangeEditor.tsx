@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { PlanCanvas } from './PlanCanvas';
 import { tokens } from '../theme/tokens';
 
-export function PhotoArrangeEditor({ snapshot, onSnapshotChange }: { photoUrl?: string | null; snapshot: SpatialSnapshot; onSnapshotChange?: (snapshot: SpatialSnapshot) => void; projectId?: string; spaceId?: string }) {
+export function PhotoArrangeEditor({ snapshot, onSnapshotChange }: { photoUrl?: string | null; snapshot: SpatialSnapshot; onSnapshotChange?: (snapshot: SpatialSnapshot) => void; projectId?: string; spaceId?: string; baseSpatialVersionId?: string | null }) {
   return (
     <View style={styles.shell}>
       <Text style={styles.title}>Photo object editing is available in the web workspace.</Text>

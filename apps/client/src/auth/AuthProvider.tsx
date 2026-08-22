@@ -9,6 +9,8 @@ WebBrowser.maybeCompleteAuthSession();
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+const WEB_AUTH_RETURN_KEY = 'formshift:web-auth-return';
+
 export const supabase = url && key ? createClient(url, key, {
   auth: {
     ...(Platform.OS === 'web' ? {} : { storage: AsyncStorage }),
@@ -35,12 +37,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [access, setAccess] = useState<AuthState['access']>('unknown');
   const [authError, setAuthError] = useState<string | null>(null);
   const bootstrapAttemptedFor = useRef<string | null>(null);
+
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); }).catch(() => setLoading(false));
     const { data } = supabase.auth.onAuthStateChange((_event, next) => { setSession(next); setLoading(false); });
     return () => data.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !session || typeof window === 'undefined') return;
+    const pending = window.sessionStorage.getItem(WEB_AUTH_RETURN_KEY);
+    if (!pending) return;
+    window.sessionStorage.removeItem(WEB_AUTH_RETURN_KEY);
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (pending !== current) window.location.replace(pending);
+  }, [session]);
+
   useEffect(() => {
     if (!supabase || !session) { setAccess('unknown'); bootstrapAttemptedFor.current = null; return; }
     let cancelled = false;
@@ -60,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void refreshAccess();
     return () => { cancelled = true; };
   }, [session]);
+
   const value = useMemo<AuthState>(() => ({
     configured: !!supabase,
     loading,
@@ -70,6 +84,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthError(null);
       if (!supabase) { const error = new Error('Supabase is not configured'); setAuthError(error.message); throw error; }
       try {
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          window.sessionStorage.setItem(WEB_AUTH_RETURN_KEY, currentWebReturnPath());
+        }
         const redirectTo = Platform.OS === 'web' && typeof window !== 'undefined' ? `${window.location.origin}/` : Linking.createURL('/');
         const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo, skipBrowserRedirect: Platform.OS !== 'web' } });
         if (error) throw error;
@@ -101,8 +118,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     signOut: async () => { setAuthError(null); if (supabase) await supabase.auth.signOut(); }
   }), [access, authError, loading, session]);
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
+
+function currentWebReturnPath() {
+  if (typeof window === 'undefined') return '/';
+  const params = new URLSearchParams(window.location.search);
+  for (const key of ['_vercel_share', 'code', 'error', 'error_code', 'error_description']) params.delete(key);
+  const search = params.toString();
+  return `${window.location.pathname}${search ? `?${search}` : ''}`;
+}
+
 export function useAuth() {
   const value = useContext(AuthContext);
   if (!value) throw new Error('useAuth must be within AuthProvider');

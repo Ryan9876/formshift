@@ -47,11 +47,26 @@ export async function loadLatestPhotoArrangement(
 ): Promise<LoadedPhotoArrangement | null> {
   if (!supabase) return null;
 
+  const sourceAsset = await supabase
+    .from('assets')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('space_id', spaceId)
+    .eq('kind', 'room_photo')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (sourceAsset.error) throw sourceAsset.error;
+  if (!sourceAsset.data?.id) return null;
+
   const latest = await supabase
     .from('photo_arrangements')
     .select('id, result_asset_id, mask_asset_id, cutout_asset_id, background_asset_id, transform_json, created_at')
     .eq('project_id', projectId)
     .eq('space_id', spaceId)
+    .eq('source_asset_id', sourceAsset.data.id)
     .eq('status', 'committed')
     .order('created_at', { ascending: false })
     .limit(1)
@@ -80,12 +95,13 @@ export async function loadLatestPhotoArrangement(
   const byId = new Map((assets.data ?? []).map((asset) => [asset.id as string, asset.storage_path as string]));
   const resultPath = byId.get(latest.data.result_asset_id as string);
   if (!resultPath) return null;
+  const pathFor = (id: string | null | undefined) => id ? byId.get(id) : undefined;
 
   const [sceneUrl, backgroundUrl, maskUrl, cutoutUrl] = await Promise.all([
     signAssetPath(resultPath),
-    signOptionalAssetPath(byId.get(latest.data.background_asset_id as string | undefined)),
-    signOptionalAssetPath(byId.get(latest.data.mask_asset_id as string | undefined)),
-    signOptionalAssetPath(byId.get(latest.data.cutout_asset_id as string | undefined)),
+    signOptionalAssetPath(pathFor(latest.data.background_asset_id)),
+    signOptionalAssetPath(pathFor(latest.data.mask_asset_id)),
+    signOptionalAssetPath(pathFor(latest.data.cutout_asset_id)),
   ]);
 
   return {
@@ -121,6 +137,7 @@ export async function persistPhotoArrangement(input: PersistPhotoArrangementInpu
     .select('id')
     .eq('project_id', input.projectId)
     .eq('space_id', input.spaceId)
+    .eq('source_asset_id', sourceAsset.data.id)
     .eq('status', 'committed')
     .order('created_at', { ascending: false })
     .limit(1)
