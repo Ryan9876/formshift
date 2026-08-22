@@ -13,25 +13,30 @@ export async function repairPreparedSceneBackground(input: {
 
   const prepared = await resizedPair(input.sourceCanvas, input.maskDataUrl, 1100);
   const startedAt = performance.now();
-  const response = await fetch(`${apiBase}/api/ai/repair-background`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${input.accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      projectId: input.projectId,
-      spaceId: input.spaceId,
-      sourceDataUrl: prepared.sourceDataUrl,
-      maskDataUrl: prepared.maskDataUrl,
-      mode: 'prepared-scene',
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase}/api/ai/repair-background`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        projectId: input.projectId,
+        spaceId: input.spaceId,
+        sourceDataUrl: prepared.sourceDataUrl,
+        maskDataUrl: prepared.maskDataUrl,
+        mode: 'prepared-scene',
+      }),
+    });
+  } catch {
+    throw new Error('Background enhancement could not reach the FormShift image service. The fast local background is still available.');
+  }
 
   let body: { imageDataUrl?: string; modelUsed?: string; message?: string; error?: string } = {};
   try { body = await response.json(); } catch { /* handled below */ }
   if (!response.ok || !body.imageDataUrl) {
-    throw new Error(body.message || body.error || `Background repair failed with HTTP ${response.status}.`);
+    throw new Error(body.message || body.error || `Background enhancement failed with HTTP ${response.status}. The fast local background is still available.`);
   }
   return {
     imageDataUrl: body.imageDataUrl,
