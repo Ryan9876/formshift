@@ -1,11 +1,24 @@
 import type { SpatialSnapshot } from '@formshift/domain';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { createDepthProvider } from '../scene/providers/DepthAnythingV2Small.web';
-import { createQuickCleanBackground, loadPreparedSource, sampleDepth } from '../prepared/imageOps.web';
+import { useAuth } from '../auth/AuthProvider';
+import { repairPreparedSceneBackground } from '../prepared/backgroundRepair.web';
+import {
+  compositeRepairedCleanBackground,
+  createPreparedSceneRepairMask,
+  createQuickCleanBackground,
+  loadPreparedSource,
+  sampleDepth,
+} from '../prepared/imageOps.web';
+import {
+  loadLatestPreparedScene,
+  persistPreparedScene,
+  type PreparedBackgroundQuality,
+} from '../prepared/persistence';
 import { createObjectDiscoveryProvider } from '../prepared/providers/DetrObjectDiscovery.web';
 import { segmentPreparedObject } from '../prepared/providers/MediaPipePreparedSegmenter.web';
 import type { ObjectDetectionCandidate, PreparedObjectMobility, PreparedSceneObject, PreparedSupportKind } from '../prepared/types';
+import { createDepthProvider } from '../scene/providers/DepthAnythingV2Small.web';
 import { tokens } from '../theme/tokens';
 
 type Props = {
@@ -20,20 +33,23 @@ type DragSession = { objectId: string; pointerId: number; clientX: number; clien
 type DetectorInfo = { provider: string; model: string; modelVersion: string; processingMs: number } | null;
 type DepthInfo = { provider: string; model: string; modelVersion: string; processingMs: number } | null;
 type NormalizedPoint = { x: number; y: number };
+type CacheState = 'none' | 'restored' | 'saving' | 'saved' | 'dirty' | 'error';
 
-const MAX_AUTOMATIC_OBJECTS = 14;
+const MAX_AUTOMATIC_OBJECTS = 18;
 const IGNORED_LABELS = new Set(['person', 'cat', 'dog', 'bird', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe']);
 const FIXED_LABELS = new Set(['toilet', 'sink', 'oven']);
 const SURFACE_LABELS = new Set(['dining table']);
 const FLOOR_LABELS = new Set(['chair', 'couch', 'bed', 'suitcase', 'potted plant', 'refrigerator']);
 const WALL_LABELS = new Set(['tv', 'clock']);
 const ROOM_SWEEP_SEEDS: NormalizedPoint[] = [
-  { x: 0.16, y: 0.22 }, { x: 0.38, y: 0.22 }, { x: 0.62, y: 0.22 }, { x: 0.84, y: 0.22 },
-  { x: 0.16, y: 0.48 }, { x: 0.38, y: 0.48 }, { x: 0.62, y: 0.48 }, { x: 0.84, y: 0.48 },
-  { x: 0.16, y: 0.74 }, { x: 0.38, y: 0.74 }, { x: 0.62, y: 0.74 }, { x: 0.84, y: 0.74 },
+  { x: 0.08, y: 0.30 }, { x: 0.29, y: 0.30 }, { x: 0.50, y: 0.30 }, { x: 0.71, y: 0.30 }, { x: 0.92, y: 0.30 },
+  { x: 0.08, y: 0.48 }, { x: 0.29, y: 0.48 }, { x: 0.50, y: 0.48 }, { x: 0.71, y: 0.48 }, { x: 0.92, y: 0.48 },
+  { x: 0.08, y: 0.66 }, { x: 0.29, y: 0.66 }, { x: 0.50, y: 0.66 }, { x: 0.71, y: 0.66 }, { x: 0.92, y: 0.66 },
+  { x: 0.08, y: 0.84 }, { x: 0.29, y: 0.84 }, { x: 0.50, y: 0.84 }, { x: 0.71, y: 0.84 }, { x: 0.92, y: 0.84 },
 ];
 
-export function PreparedSceneEditor({ photoUrl }: Props) {
+export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
+  const auth = useAuth();
   const stageRef = useRef<HTMLDivElement | null>(null);
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const maskValuesRef = useRef(new Map<string, Uint8ClampedArray>());
@@ -54,6 +70,13 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
   const [depthInfo, setDepthInfo] = useState<DepthInfo>(null);
   const [ignoredCount, setIgnoredCount] = useState(0);
   const [sweepCount, setSweepCount] = useState(0);
+  const [backgroundQuality, setBackgroundQuality] = useState<PreparedBackgroundQuality>('quick');
+  const [preparedSceneId, setPreparedSceneId] = useState<string | null>(null);
+  const [cleanBackgroundAssetId, setCleanBackgroundAssetId] = useState<string | null>(null);
+  const [cacheState, setCacheState] = useState<CacheState>('none');
+  const [repairing, setRepairing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [repairInfo, setRepairInfo] = useState<{ model: string; processingMs: number } | null>(null);
 
   const selected = useMemo(() => objects.find((object) => object.id === selectedId) ?? null, [objects, selectedId]);
 
@@ -70,7 +93,9 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
       setObjects((current) => current.map((object) => object.id === drag.objectId ? { ...object, position: { x: nextX, y: nextY } } : object));
     };
     const onEnd = (event: PointerEvent) => {
-      if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+      if (dragRef.current?.pointerId !== event.pointerId) return;
+      dragRef.current = null;
+      setCacheState((current) => current === 'none' ? current : 'dirty');
     };
     const blockScroll = (event: TouchEvent) => {
       if (dragRef.current && event.cancelable) event.preventDefault();
@@ -103,6 +128,13 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
     setError(null);
     setAddMode(false);
     setShowCleanPlate(false);
+    setBackgroundQuality('quick');
+    setPreparedSceneId(null);
+    setCleanBackgroundAssetId(null);
+    setCacheState('none');
+    setRepairInfo(null);
+    setRepairing(false);
+    setSaving(false);
 
     if (!photoUrl) {
       setPhase('idle');
@@ -110,97 +142,113 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
       return;
     }
 
-    void prepare(photoUrl, generation);
+    void restoreOrPrepare(photoUrl, generation);
     return () => { if (generationRef.current === generation) generationRef.current += 1; };
-  }, [photoUrl]);
+  }, [photoUrl, projectId, spaceId]);
 
-  async function prepare(url: string, generation: number) {
+  async function restoreOrPrepare(url: string, generation: number) {
     try {
       setPhase('loading');
-      setStatus('Photo ready. Preparing the room locally…');
+      setStatus('Photo ready. Checking for a prepared room…');
       const source = await loadPreparedSource(url);
       if (generationRef.current !== generation) return;
       sourceCanvasRef.current = source.canvas;
       setSourcePreview(source.canvas.toDataURL('image/jpeg', 0.92));
 
-      setPhase('discovering');
-      setStatus('Finding moveable objects…');
-      let chosen: ObjectDetectionCandidate[] = [];
-      try {
-        const discovery = await createObjectDiscoveryProvider().discover(url);
-        if (generationRef.current !== generation) return;
-        setDetectorInfo({ provider: discovery.provider, model: discovery.model, modelVersion: discovery.modelVersion, processingMs: discovery.processingMs });
-        chosen = chooseCandidates(discovery.candidates, source.originalWidth, source.originalHeight);
-        setIgnoredCount(Math.max(0, discovery.candidates.length - chosen.length));
-      } catch {
-        if (generationRef.current !== generation) return;
-        setDetectorInfo(null);
-        setIgnoredCount(0);
-        setStatus('Object labels are unavailable on this device. Scanning room shapes instead…');
-      }
-      setProgress({ complete: 0, total: chosen.length + ROOM_SWEEP_SEEDS.length });
-
-      setPhase('segmenting');
-      const prepared: PreparedSceneObject[] = [];
-      let completed = 0;
-
-      for (let index = 0; index < chosen.length; index += 1) {
-        if (generationRef.current !== generation) return;
-        const candidate = chosen[index]!;
-        setStatus(`Preparing ${candidate.label} · ${index + 1} of ${chosen.length}`);
-        const seed = {
-          x: clamp(((candidate.box.xmin + candidate.box.xmax) / 2) / Math.max(source.originalWidth, 1), 0, 1),
-          y: clamp(((candidate.box.ymin + candidate.box.ymax) / 2) / Math.max(source.originalHeight, 1), 0, 1),
-        };
+      if (projectId && spaceId) {
         try {
-          const segment = await segmentPreparedObject(source.canvas, seed);
-          if (segment && segment.bbox.width * segment.bbox.height <= 0.62 && !overlapsPrepared(segment.bbox, prepared, 0.74)) {
-            const id = crypto.randomUUID();
-            maskValuesRef.current.set(id, segment.maskValues);
-            const semantics = classify(candidate.label);
-            prepared.push({
-              id,
-              label: candidate.label,
-              detectionScore: candidate.score,
-              mobility: semantics.mobility,
-              expectedSupport: semantics.support,
-              bbox: segment.bbox,
-              maskDataUrl: segment.maskDataUrl,
-              cutoutDataUrl: segment.cutoutDataUrl,
-              position: { x: segment.centerX, y: segment.centerY },
-              scale: 1,
-              rotationDeg: 0,
-              source: 'automatic',
-            });
-            setObjects([...prepared]);
+          const cached = await loadLatestPreparedScene(projectId, spaceId);
+          if (generationRef.current !== generation) return;
+          if (cached?.objects.length) {
+            const restored: PreparedSceneObject[] = [];
+            maskValuesRef.current.clear();
+            for (const object of cached.objects) {
+              try {
+                const mask = await loadMaskValues(object.maskDataUrl, source.canvas.width, source.canvas.height);
+                if (generationRef.current !== generation) return;
+                maskValuesRef.current.set(object.id, mask);
+                restored.push(object);
+              } catch {
+                // A single damaged cached object should not make the entire room unusable.
+              }
+            }
+            if (restored.length) {
+              setObjects(restored);
+              setCleanBackground(cached.cleanBackgroundUrl);
+              setBackgroundQuality(cached.backgroundQuality);
+              setPreparedSceneId(cached.id);
+              setCleanBackgroundAssetId(cached.cleanBackgroundAssetId);
+              setCacheState('restored');
+              setPhase('ready');
+              setStatus(`${restored.length} cached object${restored.length === 1 ? '' : 's'} restored. Tap any prepared object and move it.`);
+              if (restored.some((object) => typeof object.approximateDepth !== 'number')) void enrichDepth(url, generation);
+              return;
+            }
           }
         } catch {
-          // One weak detector candidate must not stop room preparation.
+          if (generationRef.current !== generation) return;
+          setCacheState('error');
+          setStatus('Prepared cache unavailable. Rebuilding the room locally…');
         }
-        completed += 1;
-        setProgress({ complete: completed, total: chosen.length + ROOM_SWEEP_SEEDS.length });
       }
 
-      let supplemental = 0;
-      for (let index = 0; index < ROOM_SWEEP_SEEDS.length && prepared.length < MAX_AUTOMATIC_OBJECTS; index += 1) {
-        if (generationRef.current !== generation) return;
-        const seed = ROOM_SWEEP_SEEDS[index]!;
-        completed += 1;
-        setProgress({ complete: completed, total: chosen.length + ROOM_SWEEP_SEEDS.length });
-        if (seedCovered(seed, maskValuesRef.current, source.canvas.width, source.canvas.height)) continue;
-        setStatus(`Scanning remaining room areas · ${index + 1} of ${ROOM_SWEEP_SEEDS.length}`);
-        try {
-          const segment = await segmentPreparedObject(source.canvas, seed);
-          const area = segment ? segment.bbox.width * segment.bbox.height : 1;
-          if (!segment || area < 0.0015 || area > 0.2 || overlapsPrepared(segment.bbox, prepared, 0.52)) continue;
+      await prepareFresh(url, source, generation);
+    } catch (cause) {
+      if (generationRef.current !== generation) return;
+      setPhase('error');
+      setError(cause instanceof Error ? cause.message : 'Prepared Scene could not analyze this room.');
+      setStatus('The original Arrange editor is still available when Prepared Scene is disabled.');
+    }
+  }
+
+  async function prepareFresh(
+    url: string,
+    source: Awaited<ReturnType<typeof loadPreparedSource>>,
+    generation: number,
+  ) {
+    setPhase('discovering');
+    setStatus('Finding moveable objects…');
+    let chosen: ObjectDetectionCandidate[] = [];
+    let discoveryInfo: DetectorInfo = null;
+    try {
+      const discovery = await createObjectDiscoveryProvider().discover(url);
+      if (generationRef.current !== generation) return;
+      discoveryInfo = { provider: discovery.provider, model: discovery.model, modelVersion: discovery.modelVersion, processingMs: discovery.processingMs };
+      setDetectorInfo(discoveryInfo);
+      chosen = chooseCandidates(discovery.candidates, source.originalWidth, source.originalHeight);
+      setIgnoredCount(Math.max(0, discovery.candidates.length - chosen.length));
+    } catch {
+      if (generationRef.current !== generation) return;
+      setDetectorInfo(null);
+      setIgnoredCount(0);
+      setStatus('Object labels are unavailable on this device. Scanning room shapes instead…');
+    }
+    setProgress({ complete: 0, total: chosen.length + ROOM_SWEEP_SEEDS.length });
+
+    setPhase('segmenting');
+    const prepared: PreparedSceneObject[] = [];
+    let completed = 0;
+
+    for (let index = 0; index < chosen.length; index += 1) {
+      if (generationRef.current !== generation) return;
+      const candidate = chosen[index]!;
+      setStatus(`Preparing ${candidate.label} · ${index + 1} of ${chosen.length}`);
+      const seed = {
+        x: clamp(((candidate.box.xmin + candidate.box.xmax) / 2) / Math.max(source.originalWidth, 1), 0, 1),
+        y: clamp(((candidate.box.ymin + candidate.box.ymax) / 2) / Math.max(source.originalHeight, 1), 0, 1),
+      };
+      try {
+        const segment = await segmentPreparedObject(source.canvas, seed);
+        if (segment && segment.bbox.width * segment.bbox.height <= 0.62 && !overlapsPrepared(segment.bbox, prepared, 0.74)) {
           const id = crypto.randomUUID();
           maskValuesRef.current.set(id, segment.maskValues);
+          const semantics = classify(candidate.label);
           prepared.push({
             id,
-            label: 'object',
-            detectionScore: 0.5,
-            mobility: 'movable',
-            expectedSupport: 'unknown',
+            label: candidate.label,
+            detectionScore: candidate.score,
+            mobility: semantics.mobility,
+            expectedSupport: semantics.support,
             bbox: segment.bbox,
             maskDataUrl: segment.maskDataUrl,
             cutoutDataUrl: segment.cutoutDataUrl,
@@ -209,30 +257,74 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
             rotationDeg: 0,
             source: 'automatic',
           });
-          supplemental += 1;
           setObjects([...prepared]);
-        } catch {
-          // The sweep is opportunistic; uncertain regions are left for manual correction.
         }
+      } catch {
+        // One weak detector candidate must not stop room preparation.
       }
-      setSweepCount(supplemental);
-
-      if (generationRef.current !== generation) return;
-      setPhase('cleaning');
-      setStatus('Building one shared clean background plate…');
-      const clean = createQuickCleanBackground(source.canvas, [...maskValuesRef.current.values()]);
-      if (generationRef.current !== generation) return;
-      setCleanBackground(clean);
-      setPhase('ready');
-      setStatus(prepared.length ? `${prepared.length} objects ready. Tap any prepared object and move it.` : 'No reliable automatic objects were found. Use Add missed object to teach this room.');
-
-      void enrichDepth(url, generation);
-    } catch (cause) {
-      if (generationRef.current !== generation) return;
-      setPhase('error');
-      setError(cause instanceof Error ? cause.message : 'Prepared Scene could not analyze this room.');
-      setStatus('The original Arrange editor is still available when Prepared Scene is disabled.');
+      completed += 1;
+      setProgress({ complete: completed, total: chosen.length + ROOM_SWEEP_SEEDS.length });
     }
+
+    let supplemental = 0;
+    for (let index = 0; index < ROOM_SWEEP_SEEDS.length && prepared.length < MAX_AUTOMATIC_OBJECTS; index += 1) {
+      if (generationRef.current !== generation) return;
+      const seed = ROOM_SWEEP_SEEDS[index]!;
+      completed += 1;
+      setProgress({ complete: completed, total: chosen.length + ROOM_SWEEP_SEEDS.length });
+      if (seedCovered(seed, maskValuesRef.current, source.canvas.width, source.canvas.height)) continue;
+      setStatus(`Scanning remaining room areas · ${index + 1} of ${ROOM_SWEEP_SEEDS.length}`);
+      try {
+        const segment = await segmentPreparedObject(source.canvas, seed);
+        const area = segment ? segment.bbox.width * segment.bbox.height : 1;
+        if (!segment || area < 0.0012 || area > 0.24 || overlapsPrepared(segment.bbox, prepared, 0.48)) continue;
+        const id = crypto.randomUUID();
+        maskValuesRef.current.set(id, segment.maskValues);
+        prepared.push({
+          id,
+          label: 'object',
+          detectionScore: 0.5,
+          mobility: 'movable',
+          expectedSupport: 'unknown',
+          bbox: segment.bbox,
+          maskDataUrl: segment.maskDataUrl,
+          cutoutDataUrl: segment.cutoutDataUrl,
+          position: { x: segment.centerX, y: segment.centerY },
+          scale: 1,
+          rotationDeg: 0,
+          source: 'automatic',
+        });
+        supplemental += 1;
+        setObjects([...prepared]);
+      } catch {
+        // The sweep is opportunistic; uncertain regions are left for manual correction.
+      }
+    }
+    setSweepCount(supplemental);
+
+    if (generationRef.current !== generation) return;
+    setPhase('cleaning');
+    setStatus('Building one shared clean background plate…');
+    const clean = createQuickCleanBackground(source.canvas, [...maskValuesRef.current.values()]);
+    if (generationRef.current !== generation) return;
+    setCleanBackground(clean);
+    setBackgroundQuality('quick');
+    setPhase('ready');
+    setStatus(prepared.length ? `${prepared.length} objects ready. Tap any prepared object and move it.` : 'No reliable automatic objects were found. Use Add missed object to teach this room.');
+
+    if (prepared.length) {
+      void persistVersion({
+        sceneObjects: prepared,
+        backgroundDataUrl: clean,
+        quality: 'quick',
+        parentId: null,
+        backgroundAssetId: null,
+        provider: { discovery: discoveryInfo, supplementalSweep: supplemental, automaticCache: true },
+        quiet: true,
+        generation,
+      });
+    }
+    void enrichDepth(url, generation);
   }
 
   async function enrichDepth(url: string, generation: number) {
@@ -244,9 +336,133 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
         approximateDepth: sampleDepth(estimate.normalized, estimate.width, estimate.height, object.position.x, object.position.y),
       })));
       setDepthInfo({ provider: estimate.provider, model: estimate.model, modelVersion: estimate.modelVersion, processingMs: estimate.processingMs });
+      setCacheState((current) => current === 'none' ? current : 'dirty');
     } catch {
       // Depth is enrichment. Object manipulation remains available if it cannot run on this device.
     }
+  }
+
+  async function improveBackground() {
+    const source = sourceCanvasRef.current;
+    const masks = [...maskValuesRef.current.values()];
+    if (!source || !masks.length || phase !== 'ready' || repairing) return;
+    if (!projectId || !spaceId || !auth.session?.access_token) {
+      setError('Sign in with edit access before requesting high-quality background repair.');
+      return;
+    }
+
+    setRepairing(true);
+    setError(null);
+    setStatus('Improving the hidden room areas…');
+    try {
+      const repairMask = createPreparedSceneRepairMask(masks, source.width, source.height);
+      const repaired = await repairPreparedSceneBackground({
+        projectId,
+        spaceId,
+        accessToken: auth.session.access_token,
+        sourceCanvas: source,
+        maskDataUrl: repairMask,
+      });
+      const clean = await compositeRepairedCleanBackground(source, repaired.imageDataUrl, masks);
+      setCleanBackground(clean);
+      setBackgroundQuality('ai_repaired');
+      setCleanBackgroundAssetId(null);
+      setRepairInfo({ model: repaired.modelUsed, processingMs: repaired.processingMs });
+      setShowCleanPlate(false);
+      setCacheState('dirty');
+      setStatus('High-quality clean background ready. Object movement remains instant.');
+
+      await persistVersion({
+        sceneObjects: objects,
+        backgroundDataUrl: clean,
+        quality: 'ai_repaired',
+        parentId: preparedSceneId,
+        backgroundAssetId: null,
+        provider: providerMetadata({ repairModel: repaired.modelUsed, repairMs: repaired.processingMs }),
+        quiet: true,
+        generation: generationRef.current,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'High-quality background repair failed.');
+      setStatus('The quick local clean background remains available.');
+    } finally {
+      setRepairing(false);
+    }
+  }
+
+  async function savePreparedScene() {
+    if (!cleanBackground || !objects.length || saving) return;
+    setSaving(true);
+    setError(null);
+    setStatus('Saving the prepared room…');
+    try {
+      await persistVersion({
+        sceneObjects: objects,
+        backgroundDataUrl: cleanBackground,
+        quality: backgroundQuality,
+        parentId: preparedSceneId,
+        backgroundAssetId: cleanBackgroundAssetId,
+        provider: providerMetadata(),
+        quiet: false,
+        generation: generationRef.current,
+      });
+      setStatus('Prepared room saved. This photo can reopen without repeating object discovery.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Prepared Scene could not be saved.');
+      setStatus('Your current in-memory scene is still usable.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function persistVersion(input: {
+    sceneObjects: PreparedSceneObject[];
+    backgroundDataUrl: string;
+    quality: PreparedBackgroundQuality;
+    parentId: string | null;
+    backgroundAssetId: string | null;
+    provider: Record<string, unknown>;
+    quiet: boolean;
+    generation: number;
+  }) {
+    if (!projectId || !spaceId || !auth.session?.user.id || !input.sceneObjects.length) return null;
+    if (!input.quiet) setSaving(true);
+    setCacheState('saving');
+    try {
+      const saved = await persistPreparedScene({
+        projectId,
+        spaceId,
+        userId: auth.session.user.id,
+        objects: input.sceneObjects,
+        cleanBackgroundDataUrl: input.backgroundDataUrl,
+        backgroundQuality: input.quality,
+        provider: input.provider,
+        parentPreparedSceneId: input.parentId,
+        cleanBackgroundAssetId: input.backgroundAssetId,
+      });
+      if (generationRef.current !== input.generation) return saved;
+      setPreparedSceneId(saved.id);
+      setCleanBackgroundAssetId(saved.cleanBackgroundAssetId);
+      setObjects((current) => mergePersistedAssetIds(current, saved.objects));
+      setCacheState('saved');
+      return saved;
+    } catch (cause) {
+      if (generationRef.current === input.generation) setCacheState('error');
+      if (!input.quiet) throw cause;
+      return null;
+    } finally {
+      if (!input.quiet) setSaving(false);
+    }
+  }
+
+  function providerMetadata(extra: Record<string, unknown> = {}) {
+    return {
+      discovery: detectorInfo,
+      depth: depthInfo,
+      supplementalSweep: sweepCount,
+      backgroundQuality,
+      ...extra,
+    };
   }
 
   async function addMissedObjectAt(event: React.PointerEvent<HTMLDivElement>) {
@@ -279,8 +495,12 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
       setObjects((current) => [...current, object]);
       setSelectedId(id);
       setCleanBackground(createQuickCleanBackground(sourceCanvasRef.current, [...maskValuesRef.current.values()]));
+      setCleanBackgroundAssetId(null);
+      setBackgroundQuality('quick');
+      setRepairInfo(null);
+      setCacheState('dirty');
       setAddMode(false);
-      setStatus('Object added and ready to move.');
+      setStatus('Object added and ready to move. Improve background again if the new hidden region needs cleanup.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'That object could not be prepared.');
       setStatus('Tap nearer the center of the object and try again.');
@@ -305,6 +525,7 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
 
   function resetPositions() {
     setObjects((current) => current.map((object) => ({ ...object, position: { x: object.bbox.x + object.bbox.width / 2, y: object.bbox.y + object.bbox.height / 2 }, scale: 1, rotationDeg: 0 })));
+    setCacheState((current) => current === 'none' ? current : 'dirty');
     setStatus('Prepared objects returned to their original photo positions.');
   }
 
@@ -328,6 +549,12 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
           </Pressable>
           <Pressable disabled={phase !== 'ready' || !cleanBackground} onPress={() => setShowCleanPlate((value) => !value)} style={buttonStyle(showCleanPlate)}>
             <Text style={buttonTextStyle}>{showCleanPlate ? 'Show layered room' : 'Inspect clean background'}</Text>
+          </Pressable>
+          <Pressable disabled={phase !== 'ready' || !objects.length || repairing} onPress={improveBackground} style={buttonStyle(false)}>
+            <Text style={buttonTextStyle}>{repairing ? 'Improving…' : backgroundQuality === 'ai_repaired' ? 'Improve background again' : 'Improve background'}</Text>
+          </Pressable>
+          <Pressable disabled={phase !== 'ready' || !objects.length || saving || cacheState === 'saving'} onPress={savePreparedScene} style={buttonStyle(cacheState === 'saved' || cacheState === 'restored')}>
+            <Text style={buttonTextStyle}>{saving || cacheState === 'saving' ? 'Saving…' : cacheState === 'dirty' ? 'Save changes' : 'Save scene'}</Text>
           </Pressable>
           <Pressable disabled={!objects.length} onPress={resetPositions} style={buttonStyle(false)}><Text style={buttonTextStyle}>Reset positions</Text></Pressable>
         </View>
@@ -380,8 +607,10 @@ export function PreparedSceneEditor({ photoUrl }: Props) {
         <Text style={{ fontSize: 10, lineHeight: 15, color: tokens.color.muted }}>
           {objects.length} editable object{objects.length === 1 ? '' : 's'} · {sweepCount} discovered by the supplemental room sweep · {ignoredCount} detector candidate{ignoredCount === 1 ? '' : 's'} filtered or deferred. {selected ? `Selected: ${selected.label} · expected support ${selected.expectedSupport}${typeof selected.approximateDepth === 'number' ? ` · relative depth ${selected.approximateDepth.toFixed(2)}` : ''}.` : 'Tap an object to select it.'}
         </Text>
+        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Background: {backgroundQuality === 'ai_repaired' ? 'AI-repaired masked regions' : 'fast local approximation'} · Cache: {cacheLabel(cacheState)}</Text>
         {detectorInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Discovery: {detectorInfo.model} · {detectorInfo.processingMs} ms</Text> : null}
         {depthInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth: {depthInfo.model} · {depthInfo.processingMs} ms</Text> : <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth enrichment runs after objects become moveable so it does not block interaction.</Text>}
+        {repairInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Background repair: {repairInfo.model} · {repairInfo.processingMs} ms · only masked source regions are accepted back into the clean plate.</Text> : null}
       </View>
     </View>
   );
@@ -443,6 +672,39 @@ function iou(a: ObjectDetectionCandidate, b: ObjectDetectionCandidate) {
   return intersection / Math.max(1, areaA + areaB - intersection);
 }
 
+async function loadMaskValues(url: string, width: number, height: number) {
+  const image = await loadImage(url);
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('Cached Prepared Scene mask could not be restored.');
+  context.drawImage(image, 0, 0, width, height);
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const values = new Uint8ClampedArray(width * height);
+  for (let index = 0; index < values.length; index += 1) values[index] = pixels[index * 4 + 3] ?? 0;
+  return values;
+}
+
+function mergePersistedAssetIds(current: PreparedSceneObject[], persisted: PreparedSceneObject[]) {
+  const byId = new Map(persisted.map((object) => [object.id, object]));
+  return current.map((object) => {
+    const stored = byId.get(object.id);
+    return stored ? { ...object, maskAssetId: stored.maskAssetId, cutoutAssetId: stored.cutoutAssetId } : object;
+  });
+}
+
+function cacheLabel(state: CacheState) {
+  switch (state) {
+    case 'restored': return 'restored from private cache';
+    case 'saving': return 'saving privately';
+    case 'saved': return 'saved privately';
+    case 'dirty': return 'changes not yet saved';
+    case 'error': return 'cache unavailable';
+    default: return 'not cached yet';
+  }
+}
+
 function buttonStyle(active: boolean) {
   return { minHeight: 40, paddingHorizontal: 11, alignItems: 'center' as const, justifyContent: 'center' as const, borderRadius: 11, borderWidth: 1, borderColor: active ? tokens.color.blue : tokens.color.line, backgroundColor: active ? 'rgba(40,199,232,.09)' : '#fff' };
 }
@@ -450,6 +712,16 @@ const buttonTextStyle = { fontSize: 10, fontWeight: '800' as const, color: token
 
 function StateCard({ title, body }: { title: string; body: string }) {
   return <View style={{ minHeight: 360, padding: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 22, borderWidth: 1, borderColor: tokens.color.line, backgroundColor: 'rgba(255,255,255,.72)' }}><Text style={{ fontSize: 16, fontWeight: '800', color: tokens.color.text }}>{title}</Text><Text style={{ marginTop: 6, fontSize: 11, color: tokens.color.muted }}>{body}</Text></View>;
+}
+
+function loadImage(url: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Cached Prepared Scene image could not be loaded.'));
+    image.src = url;
+  });
 }
 
 function clamp(value: number, min: number, max: number) {
