@@ -6,12 +6,24 @@ import { PhotoArrangeEditor } from '../components/PhotoArrangeEditor';
 import { PreparedSceneEditor } from '../components/PreparedSceneEditor';
 import { useRoomWorkspace } from '../data/useRoomWorkspace';
 import { SceneIntelligencePanel } from '../scene/SceneIntelligencePanel';
-import { sceneFeatureFlags } from '../scene/featureFlags';
+import { preparedSceneQueryEnabled, sceneFeatureFlags } from '../scene/featureFlags';
 import { tokens } from '../theme/tokens';
 
 export function PhotoArrangeWorkspace() {
   const workspace = useRoomWorkspace();
   const flags = sceneFeatureFlags();
+  const [queryPrepared, setQueryPrepared] = React.useState<boolean | null>(flags.preparedSceneV1 ? true : null);
+
+  React.useEffect(() => {
+    if (flags.preparedSceneV1) {
+      setQueryPrepared(true);
+      return;
+    }
+    setQueryPrepared(preparedSceneQueryEnabled());
+  }, [flags.preparedSceneV1]);
+
+  const editorChoiceResolved = flags.preparedSceneV1 || queryPrepared !== null;
+  const preparedSceneEnabled = flags.preparedSceneV1 || queryPrepared === true;
 
   return (
     <SafeAreaView style={styles.page}>
@@ -23,16 +35,16 @@ export function PhotoArrangeWorkspace() {
           </View>
           <View style={styles.headerCopy}>
             <Text style={styles.h1}>Move what is actually in the room.</Text>
-            <Text style={styles.sub}>{flags.preparedSceneV1 ? 'FormShift prepares recognized objects as independent photo layers while the room loads, so you can tap and move them without repeating the lift workflow.' : 'Tap a photographed object to isolate its real pixels, review the focused selection, lift it, and rearrange it directly in the room photo.'}</Text>
+            <Text style={styles.sub}>{preparedSceneEnabled ? 'FormShift prepares recognized objects as independent photo layers while the room loads, so you can tap and move them without repeating the lift workflow.' : 'Tap a photographed object to isolate its real pixels, review the focused selection, lift it, and rearrange it directly in the room photo.'}</Text>
           </View>
           <Pressable style={styles.back} onPress={() => router.replace('/')}><Text style={styles.backText}>Back to Studio</Text></Pressable>
         </View>
 
-        {workspace.loading ? (
-          <View style={styles.state}><ActivityIndicator color={tokens.color.blue}/><Text style={styles.stateText}>Loading room photo…</Text></View>
+        {workspace.loading || !editorChoiceResolved ? (
+          <View style={styles.state}><ActivityIndicator color={tokens.color.blue}/><Text style={styles.stateText}>{workspace.loading ? 'Loading room photo…' : 'Opening Arrange…'}</Text></View>
         ) : !workspace.workingSnapshot ? (
           <View style={styles.state}><Text style={styles.stateTitle}>Create the room first.</Text><Text style={styles.stateText}>Arrange keeps the photo primary, but the room still needs a canonical spatial version underneath it.</Text></View>
-        ) : flags.preparedSceneV1 ? (
+        ) : preparedSceneEnabled ? (
           <PreparedSceneEditor
             photoUrl={workspace.photoUrl}
             snapshot={workspace.workingSnapshot}
@@ -58,8 +70,8 @@ export function PhotoArrangeWorkspace() {
         )}
 
         <View style={styles.note}>
-          <Text style={styles.noteStrong}>{flags.preparedSceneV1 ? 'Prepared Scene v1 · Automatic object layers + shared clean background' : 'Photo Arrange v2.2 · Canonical editor + isolated scene foundation'}</Text>
-          <Text style={styles.noteText}>{flags.preparedSceneV1 ? 'This preview analyzes the source photo locally, prepares recognized moveable objects, builds one derived clean background plate, and enriches object evidence with relative depth after interaction becomes available. Missed objects can still be added by tapping them. The source photo and canonical measurements remain unchanged.' : 'The validated v2.2 interaction core is preserved behind one canonical PhotoArrangeEditor boundary. Object-centered segmentation and visual treatment are now composed without the active V19/V20 DOM-observer wrapper chain. Scene Intelligence v1 remains feature-flagged and cannot mutate canonical measurements.'}</Text>
+          <Text style={styles.noteStrong}>{preparedSceneEnabled ? 'Prepared Scene v1 · Automatic object layers + shared clean background' : 'Photo Arrange v2.2 · Canonical editor + isolated scene foundation'}</Text>
+          <Text style={styles.noteText}>{preparedSceneEnabled ? 'This preview analyzes the source photo locally, prepares recognized moveable objects, builds one derived clean background plate, and enriches object evidence with relative depth after interaction becomes available. Missed objects can still be added by tapping them. The source photo and canonical measurements remain unchanged.' : 'The validated v2.2 interaction core is preserved behind one canonical PhotoArrangeEditor boundary. Object-centered segmentation and visual treatment are now composed without the active V19/V20 DOM-observer wrapper chain. Scene Intelligence v1 remains feature-flagged and cannot mutate canonical measurements.'}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
