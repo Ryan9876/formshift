@@ -1,4 +1,5 @@
 const MAX_JSON_BYTES = 2 * 1024 * 1024;
+const FORMSHIFT_VERCEL_PREVIEW_ORIGIN = /^https:\/\/formshift-web-git-[a-z0-9-]+-lew7\.vercel\.app$/;
 
 function allowedOrigin(request: Request): string | null {
   const origin = request.headers.get('origin');
@@ -6,6 +7,10 @@ function allowedOrigin(request: Request): string | null {
   const configured = (process.env.FORMSHIFT_ALLOWED_WEB_ORIGINS ?? '')
     .split(',').map((value) => value.trim()).filter(Boolean);
   if (configured.includes(origin)) return origin;
+  // Branch preview aliases are controlled by the FormShift Vercel project/team.
+  // CORS is only an origin gate; every protected API route still verifies the
+  // bearer identity and project/space authorization before doing any work.
+  if (FORMSHIFT_VERCEL_PREVIEW_ORIGIN.test(origin)) return origin;
   const nonProduction = process.env.VERCEL_ENV !== 'production';
   if (nonProduction && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
   return null;
