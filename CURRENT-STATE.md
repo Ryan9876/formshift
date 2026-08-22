@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.9.12  
+**Revision:** 0.9.13  
 **Date:** 2026-08-22  
-**Milestone:** Prepared Scene reaches the correct source photo on iPhone; Safari WebGPU runtime defect corrected with WASM fallback; exact candidate passes CI and preview build; physical re-test pending
+**Milestone:** Prepared Scene is physically proven on iPhone; source-bound private caching and explicit masked high-quality background repair are implemented and build-validated; database support is deployed; device validation of persistence/repair remains pending
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
 
@@ -12,156 +12,211 @@ Production remains on `main` with the validated Photo Arrange v2.2 baseline. Pre
 
 The production baseline retains short-tap object selection, Add/Remove refinement, room pan/zoom, object lift, move/scale/rotate, local background reconstruction, explicit GPT Image background repair, editable saved-placement persistence, and immutable source-photo preservation.
 
-## Confirmed production/candidate interaction behavior
+## Physical iPhone evidence
 
-Physical-iPhone testing on 2026-08-22 confirmed the selected guitar can be dragged freely across the full room photograph without the object gesture handing off to page scrolling. Normal page scrolling resumes when the object drag ends.
+Physical testing on 2026-08-22 has now established:
 
-The candidate also now preserves the requested `/arrange-prepared` route through Google authentication and scopes arrangement restore/parent lineage to the exact `source_asset_id` of the current room photo.
+- the validated guitar can be dragged across the full photo without Safari handing the gesture to page scrolling;
+- `/arrange-prepared` survives preview authentication and opens the Prepared Scene editor;
+- the newest uploaded room photo remains the active source rather than being replaced by a saved arrangement from an older photo;
+- Safari-safe WASM inference reaches Prepared Scene instead of failing in the ONNX WebGPU initialization path;
+- at least one real photographed object (the TV) was automatically prepared as an independent layer and could be moved on the iPhone.
 
-Database evidence confirmed the user's newer room photo was uploaded successfully as asset `38684ffa-ccd5-4333-93d8-7e3f06ff0333`, while prior guitar arrangements referenced older source asset `18a3c504-fd4d-4173-84ba-3bd70b63ada5`. Cross-photo arrangement restore is now blocked.
+The TV test materially validates the **Prepared Scene interaction architecture**, but not its commercial quality. The same screenshot showed two remaining quality gaps clearly: the quick clean-background plate left visible ghosting at the TV's original location, and automatic object coverage remained sparse.
 
-## Prepared Scene v1 candidate
+GitHub Issue `#3` remains the physical-device acceptance record.
+
+## Prepared Scene candidate
 
 Branch: `scene-foundation-v1`  
 Draft PR: `#1 — Scene Foundation + Prepared Scene v1: multi-object room preparation`
 
-Prepared Scene v1 remains a derived, reversible multi-object acceleration path:
+Current target flow:
 
 ```text
 Immutable source photo
+   ↓ immediate display
+Cache lookup for exact source photo
+   ├── hit → restore private Prepared Scene package
+   └── miss → local preparation
+                 ├── DETR object discovery where available
+                 └── MediaPipe supplemental room sweep
    ↓
-Object discovery
-   ├── local DETR ResNet-50
-   └── supplemental MediaPipe room sweep
+Per-object masks + photographed-pixel cutouts
    ↓
-Per-object MediaPipe masks + photographed-pixel cutouts
-   ↓
-One shared deterministic clean-background plate
-   ↓
-Multiple independent moveable photo layers
-   ↓
+Fast local clean-background plate
+   ↓ interaction available
 Non-blocking Depth Anything V2 Small enrichment
+   ↓
+Optional explicit high-quality background repair
+   ↓
+Private source-bound Prepared Scene version
 ```
 
-Current v1 is intentionally move-only and in-memory. Scale/rotate/save and explicit AI background repair remain in the validated fallback editor until Prepared Scene feasibility is proven on the target iPhone.
+Prepared Scene remains derived evidence and never overwrites the source photograph, canonical measurements, or spatial versions.
 
-## Physical test: Prepared Scene route/source-photo fixes confirmed
+## Prepared Scene private persistence — deployed database foundation
 
-A physical-iPhone screenshot on 2026-08-22 confirmed two important corrections:
+Two new Supabase migrations are **deployed** to project `oomtpnqprxykcjzrlfgc`:
 
-1. the page visibly identifies itself as **Prepared Scene v1**, proving the dedicated route now survives the preview/authentication flow;
-2. the newly uploaded room photo is visible, proving the older guitar arrangement is no longer replacing a newer source photograph.
+- `prepared_scenes_v1`
+- `prepared_scenes_performance`
 
-The screenshot also exposed the next concrete failure before object preparation completed.
+`public.prepared_scenes` stores immutable, source-bound derived scene packages with:
 
-## Safari WebGPU runtime defect
+- project/space identity;
+- exact `source_asset_id` lineage;
+- optional parent Prepared Scene lineage;
+- private clean-background asset reference;
+- background quality (`quick` / `ai_repaired`);
+- per-object derived metadata/transforms;
+- provider/model metadata;
+- creator/timestamps/status.
 
-The iPhone displayed a local inference error equivalent to:
+Security/performance verification after migration:
+
+- RLS enabled;
+- authenticated SELECT + INSERT only;
+- anonymous SELECT denied;
+- project-reader SELECT policy;
+- project-editor INSERT policy with creator/project-space checks;
+- covering indexes for source, space, project, parent, background asset, and creator foreign key;
+- existing private-storage policies authorize paths by the leading project UUID, so the new `${projectId}/${spaceId}/prepared/...` path shape is compatible with the current private bucket contract.
+
+The latest Supabase performance advisor no longer reports an unindexed Prepared Scene foreign key. It still reports older `photo_arrangements` foreign-key indexing debt and expected unused-index notices. The security advisor reports two pre-existing warnings unrelated to Prepared Scene: the shelving acceptance SECURITY DEFINER RPC is executable by authenticated users, and leaked-password protection is disabled.
+
+## Prepared Scene cache behavior implemented
+
+The candidate now attempts to restore a Prepared Scene for the **exact current room-photo asset** before rerunning perception.
+
+A cached scene restores:
+
+- clean background;
+- per-object mask and cutout assets;
+- image-space transforms;
+- mobility/support semantics;
+- available relative-depth evidence;
+- provider provenance.
+
+If no usable cache exists, the room is prepared locally. Fresh preparation becomes interactive before persistence completes, and a private derived version is cached afterward. Users can explicitly **Save scene / Save changes** after manipulating objects.
+
+Prepared assets use the existing private bucket and are registered in `assets` with dedicated derived kinds:
+
+- `prepared_scene_background_quick_v1`
+- `prepared_scene_background_ai_v1`
+- `prepared_scene_object_mask_v1`
+- `prepared_scene_object_cutout_v1`
+
+Persistence does not write `measurement_observations`, `spatial_versions`, or ordinary Photo Arrange records.
+
+## Broader automatic discovery
+
+The supplemental MediaPipe room sweep was expanded from 12 to 20 probes and the maximum automatic prepared-object count from 14 to 18. This is still a bounded feasibility approach, not a claim of complete household-object recognition. DETR remains a lightweight semantic provider with incomplete COCO vocabulary; **Add missed object** remains the correction path.
+
+## Explicit high-quality clean-background repair
+
+Prepared Scene now exposes **Improve background** as an explicit action rather than silently uploading household imagery.
+
+The repair path:
 
 ```text
-no available backend found
-ERR: [webgpu] TypeError ... webgpuInit ... is undefined
+immutable source photo
+   +
+union of prepared-object masks
+   ↓
+authenticated image-repair request
+   ↓
+photorealistic reconstruction candidate
+   ↓
+accept only pixels inside expanded prepared-object masks
+   ↓
+clean background plate
+   ↓
+private Prepared Scene version
 ```
 
-Root cause: the local Transformers.js providers treated the existence of `navigator.gpu` as sufficient evidence that the ONNX WebGPU backend was usable. Mobile Safari can expose WebGPU while the particular ONNX/Transformers.js WebGPU initialization path is not compatible enough for this workload.
+The image service supports a Prepared Scene multi-object repair task and logs the provider/model/latency. The default configured image model remains `openai/gpt-image-2` unless the server environment overrides it.
 
-### Correction
+Important integrity rule: FormShift does **not** accept the generated image wholesale. Only repaired pixels inside the prepared-object mask union are composited back into the immutable source-photo coordinate frame. Unmasked room pixels remain source pixels even if the provider attempted unrelated changes.
 
-Both local Transformers.js providers now use an explicit backend strategy:
+If cloud repair fails, the fast local clean plate remains usable. Adding another missed object intentionally returns the background state to `quick` until that new hidden region is repaired again.
 
-- Apple mobile/WebKit does **not** attempt WebGPU for this candidate;
-- iPhone/Safari uses local ONNX **WASM** with one thread and proxy disabled;
-- non-Apple browsers may attempt WebGPU;
-- if WebGPU initialization fails, the provider retries with WASM instead of aborting.
+## Safari inference contract
 
-Affected providers:
-- DETR ResNet-50 object discovery
-- Depth Anything V2 Small depth estimation
+Local Transformers.js providers use the current compatibility rule:
 
-Provider telemetry now identifies whether `transformers.js-webgpu` or `transformers.js-wasm` executed.
+- Apple mobile/WebKit: ONNX WASM, one thread, proxy disabled;
+- non-Apple browsers: WebGPU may be attempted;
+- WebGPU initialization failure falls back to WASM;
+- DETR failure does not abort Prepared Scene; MediaPipe room sweep continues;
+- depth failure never blocks object movement.
 
-### Pipeline resilience correction
+## Validation evidence for current candidate
 
-Prepared Scene no longer treats DETR object-label discovery as a required step.
+Current exact branch head: `145bee5c9572e840e39fe0f2ff8b7ef8478b0d5a`  
+GitHub Actions run: `32561509006` — **success**  
+Vercel web preview: `dpl_76aAjk8tc1cqZ9kAjHhTgaYwqDF7` — **READY**  
+Vercel API preview: `dpl_AaeekafjQ4DAGxAkDn7FHcvNwfoE` — **READY**
 
-If DETR still cannot initialize on a device:
+The exact branch head passed:
 
-```text
-DETR unavailable
-   ↓
-continue, do not fail scene
-   ↓
-MediaPipe supplemental room sweep
-   ↓
-shared clean background
-   ↓
-ready state
-   ↓
-Add missed object remains available
-```
+- repository/security/domain verification;
+- Arrange/Safari regression guards;
+- scene/Prepared Scene boundary guards;
+- dedicated route/auth-return guard;
+- source-photo lineage guards;
+- Safari-safe inference guards;
+- Prepared Scene persistence/source-lineage guards;
+- explicit masked-repair guards;
+- client TypeScript check;
+- API TypeScript check;
+- production web export.
 
-Depth remains non-blocking enrichment; a depth failure does not disable object manipulation.
+An earlier CI run correctly caught a TypeScript narrowing error in Prepared Scene restore; that defect was corrected before this validated head.
 
-## Validation evidence for Safari-safe candidate
+This is **code/build/deployed-database evidence**, not physical proof that cache upload/restore and AI clean-background quality work acceptably on the iPhone.
 
-Application commit: `3576dfea6ae447c4e6daeeda58fb112003cb0f74`  
-GitHub Actions run: `32557339314` — **success**  
-Vercel web preview: `dpl_F6uw3Ueh55ockpKCERsXkxzyPdy5` — **READY**
+## Next physical-device acceptance
 
-The exact application commit passed:
-- repository/security/domain verification
-- Arrange/Safari contract guards
-- scene/Prepared Scene boundary guards
-- dedicated-route/auth-return guard
-- source-photo arrangement-lineage guard
-- Safari-safe detector/depth backend guards
-- client TypeScript check
-- API TypeScript check
-- production web export
+Use the stable branch preview `/arrange-prepared` route.
 
-Production remains unchanged. This is build evidence, not physical proof that WASM inference performance and memory use are acceptable on the iPhone.
+Test in this order:
 
-## Prepared Scene physical-device acceptance — next test
+1. let the room reach Ready and allow the initial private cache to finish;
+2. move the TV and at least one other prepared/missed object;
+3. tap **Save changes**;
+4. refresh and verify the object positions restore without repeating the full discovery workflow;
+5. tap **Improve background** and wait for completion;
+6. move the TV away from its original location again;
+7. inspect whether the old-TV ghosting is materially reduced;
+8. tap **Inspect clean background** to evaluate the repaired plate directly;
+9. use **Add missed object** on an object the automatic pass did not prepare;
+10. save, refresh, and verify the added object also restores.
 
-Use the exact Safari-safe `/arrange-prepared` preview candidate.
-
-Expected behavior:
-1. `/arrange-prepared` remains active after authentication;
-2. the newest room photo remains visible;
-3. the prior red WebGPU initialization error does not appear;
-4. FormShift progresses from `Finding moveable objects` into segmentation/room-sweep progress;
-5. object chips/count appear when preparation finishes;
-6. at least two prepared objects can be moved independently;
-7. if DETR is unavailable but MediaPipe works, the page still reaches ready state rather than error state;
-8. **Add missed object** can prepare a manually indicated object;
-9. **Inspect clean background** exposes the shared background plate;
-10. Safari remains responsive and does not reload under memory pressure.
-
-GitHub Issue `#3` tracks the physical-device acceptance pass.
+Do not interpret the quick local background as the target photorealistic result; it is the immediate fallback while explicit repair runs.
 
 ## Current limitations / not yet claimed
 
-- completed physical-iPhone Prepared Scene acceptance
-- acceptable iPhone WASM latency/memory
-- comprehensive household-object recognition
-- perfect automatic masks
-- photorealistic shared clean-background reconstruction
-- persisted multi-object Prepared Scenes
-- Prepared Scene scale/rotate/save
-- calibrated camera/floor/wall mapping
-- metric depth
-- calibrated support relationships
-- depth-aware production occlusion
-- gravity / rigid-body physics
-- production RoomPlan capture/normalization
+- physical validation of Prepared Scene private cache upload/restore;
+- physical validation of Prepared Scene high-quality background repair;
+- commercial-quality hidden-background reconstruction;
+- comprehensive automatic household-object recognition;
+- perfect automatic masks;
+- Prepared Scene scale/rotate controls;
+- calibrated camera/floor/wall mapping;
+- metric depth;
+- calibrated support relationships;
+- depth-aware production occlusion;
+- gravity / rigid-body physics;
+- production RoomPlan capture/normalization.
 
 ## Next decision
 
-If the Safari-safe candidate completes object preparation with acceptable latency and memory use, continue with multi-object persistence and selective high-quality background reconstruction. If local DETR/Depth WASM is too slow or memory-heavy on iPhone, preserve the provider/Prepared Scene architecture and move the heavy automatic perception workload to a controlled server or native execution path rather than weakening the editor.
+If iPhone persistence and masked repair validate, keep Prepared Scene as the shared photo-layer substrate and move next to depth ordering/support surfaces. If repair quality is weak, retain the cache/mask architecture and change the reconstruction provider rather than rebuilding object manipulation. If automatic recognition remains too sparse, evaluate a broader discovery provider behind `ObjectDiscoveryProvider` before increasing client-side complexity.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision 0.9.12 records the physical screenshot evidence, Safari WebGPU incompatibility, WASM/fallback correction, pipeline resilience change, and exact CI/preview validation.
-- `ARCHITECTURE.md`: unchanged at revision 0.5.3; provider abstraction and local/cloud/native execution flexibility were already architectural requirements. The backend fallback is an implementation correction within that contract.
-- `DESIGN-SYSTEM.md`: unchanged; no durable visual-language change.
-- `PROJECT-CONSTITUTION.md`: unchanged; existing spatial-truth, privacy, reversibility, and immutable-source rules continue to govern the implementation.
+- `CURRENT-STATE.md`: revision 0.9.13 records physical Prepared Scene proof, deployed private persistence foundation, broader discovery, explicit masked background repair, and exact CI/Vercel validation.
+- `ARCHITECTURE.md`: updated separately because Prepared Scene persistence and masked AI-repair boundaries are now durable architecture, not an ephemeral feasibility assumption.
+- `DESIGN-SYSTEM.md`: unchanged; existing photo-first, explicit AI action, and confidence-label rules still apply.
+- `PROJECT-CONSTITUTION.md`: unchanged; this implementation enforces existing immutable-source, privacy, provenance, and reversibility rules.
