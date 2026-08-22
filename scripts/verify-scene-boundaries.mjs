@@ -8,6 +8,9 @@ const canonicalArrange = path.join(root, 'apps/client/src/components/PhotoArrang
 const preparedEditor = path.join(root, 'apps/client/src/components/PreparedSceneEditor.web.tsx');
 const segmentationProvider = path.join(root, 'apps/client/src/vision/MediaPipeObjectSegmenter.web.ts');
 const arrangeWorkspace = path.join(root, 'apps/client/src/screens/PhotoArrangeWorkspace.tsx');
+const arrangePreparedRoute = path.join(root, 'apps/client/app/arrange-prepared.tsx');
+const authProvider = path.join(root, 'apps/client/src/auth/AuthProvider.tsx');
+const photoArrangementPersistence = path.join(root, 'apps/client/src/data/photoArrangementPersistence.ts');
 const forbiddenRuntimeCoupling = ['new MutationObserver(', 'querySelector(', 'root.textContent', '.click('];
 let failures = 0;
 
@@ -45,6 +48,21 @@ if (!workspace.includes("from '../components/PreparedSceneEditor'")) fail('Arran
 if (!workspace.includes('flags.preparedSceneV1')) fail('Prepared Scene route is not feature-flagged in Arrange');
 if (/PhotoArrangeEditorV\d+/.test(workspace)) fail('Arrange workspace still imports a versioned editor wrapper');
 else pass('Arrange workspace preserves canonical fallback and feature-flagged Prepared Scene boundary');
+
+const forcedRoute = fs.readFileSync(arrangePreparedRoute, 'utf8');
+if (!forcedRoute.includes('forcePreparedScene')) fail('Dedicated Prepared Scene route does not force the Prepared Scene editor');
+else pass('Dedicated Prepared Scene route cannot silently fall back to the normal Arrange editor');
+
+const authSource = fs.readFileSync(authProvider, 'utf8');
+for (const required of ['WEB_AUTH_RETURN_KEY', 'sessionStorage.setItem', 'sessionStorage.getItem', 'window.location.replace']) {
+  if (!authSource.includes(required)) fail(`web authentication route restoration missing ${required}`);
+}
+if (!failures) pass('web authentication preserves and restores the requested preview route');
+
+const arrangementSource = fs.readFileSync(photoArrangementPersistence, 'utf8');
+const lineageMatches = arrangementSource.match(/\.eq\('source_asset_id', sourceAsset\.data\.id\)/g) ?? [];
+if (lineageMatches.length < 2) fail('photo arrangement restore/parent lineage is not scoped to the current source room photo');
+else pass('photo arrangement restore and parent lineage are scoped to the current source room photo');
 
 const flags = fs.readFileSync(path.join(sceneRoot, 'featureFlags.ts'), 'utf8');
 if (!flags.includes('EXPO_PUBLIC_SCENE_INTELLIGENCE_V1')) fail('scene intelligence feature flag missing');
