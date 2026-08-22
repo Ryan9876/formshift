@@ -32,7 +32,6 @@ type Phase = 'idle' | 'loading' | 'discovering' | 'segmenting' | 'cleaning' | 'r
 type DragSession = { objectId: string; pointerId: number; clientX: number; clientY: number; startX: number; startY: number };
 type DetectorInfo = { provider: string; model: string; modelVersion: string; processingMs: number } | null;
 type DepthInfo = { provider: string; model: string; modelVersion: string; processingMs: number } | null;
-type NormalizedPoint = { x: number; y: number };
 type CacheState = 'none' | 'restored' | 'saving' | 'saved' | 'dirty' | 'error';
 
 const MAX_AUTOMATIC_OBJECTS = 18;
@@ -41,12 +40,6 @@ const FIXED_LABELS = new Set(['toilet', 'sink', 'oven']);
 const SURFACE_LABELS = new Set(['dining table']);
 const FLOOR_LABELS = new Set(['chair', 'couch', 'bed', 'suitcase', 'potted plant', 'refrigerator']);
 const WALL_LABELS = new Set(['tv', 'clock']);
-const ROOM_SWEEP_SEEDS: NormalizedPoint[] = [
-  { x: 0.08, y: 0.30 }, { x: 0.29, y: 0.30 }, { x: 0.50, y: 0.30 }, { x: 0.71, y: 0.30 }, { x: 0.92, y: 0.30 },
-  { x: 0.08, y: 0.48 }, { x: 0.29, y: 0.48 }, { x: 0.50, y: 0.48 }, { x: 0.71, y: 0.48 }, { x: 0.92, y: 0.48 },
-  { x: 0.08, y: 0.66 }, { x: 0.29, y: 0.66 }, { x: 0.50, y: 0.66 }, { x: 0.71, y: 0.66 }, { x: 0.92, y: 0.66 },
-  { x: 0.08, y: 0.84 }, { x: 0.29, y: 0.84 }, { x: 0.50, y: 0.84 }, { x: 0.71, y: 0.84 }, { x: 0.92, y: 0.84 },
-];
 
 export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   const auth = useAuth();
@@ -221,9 +214,10 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       if (generationRef.current !== generation) return;
       setDetectorInfo(null);
       setIgnoredCount(0);
-      setStatus('Object labels are unavailable on this device. Scanning room shapes instead…');
+      setStatus('Automatic object labels are unavailable on this device. You can still use Add missed object.');
     }
-    setProgress({ complete: 0, total: chosen.length + ROOM_SWEEP_SEEDS.length });
+    setSweepCount(0);
+    setProgress({ complete: 0, total: chosen.length });
 
     setPhase('segmenting');
     const prepared: PreparedSceneObject[] = [];
@@ -239,7 +233,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       };
       try {
         const segment = await segmentPreparedObject(source.canvas, seed);
-        if (segment && segment.bbox.width * segment.bbox.height <= 0.62 && !overlapsPrepared(segment.bbox, prepared, 0.74)) {
+        if (segment && segment.bbox.width * segment.bbox.height <= 0.62 && !overlapsLabeledPrepared(segment.bbox, candidate.label, prepared)) {
           const id = crypto.randomUUID();
           maskValuesRef.current.set(id, segment.maskValues);
           const semantics = classify(candidate.label);
@@ -263,44 +257,8 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         // One weak detector candidate must not stop room preparation.
       }
       completed += 1;
-      setProgress({ complete: completed, total: chosen.length + ROOM_SWEEP_SEEDS.length });
+      setProgress({ complete: completed, total: chosen.length });
     }
-
-    let supplemental = 0;
-    for (let index = 0; index < ROOM_SWEEP_SEEDS.length && prepared.length < MAX_AUTOMATIC_OBJECTS; index += 1) {
-      if (generationRef.current !== generation) return;
-      const seed = ROOM_SWEEP_SEEDS[index]!;
-      completed += 1;
-      setProgress({ complete: completed, total: chosen.length + ROOM_SWEEP_SEEDS.length });
-      if (seedCovered(seed, maskValuesRef.current, source.canvas.width, source.canvas.height)) continue;
-      setStatus(`Scanning remaining room areas · ${index + 1} of ${ROOM_SWEEP_SEEDS.length}`);
-      try {
-        const segment = await segmentPreparedObject(source.canvas, seed);
-        const area = segment ? segment.bbox.width * segment.bbox.height : 1;
-        if (!segment || area < 0.0012 || area > 0.24 || overlapsPrepared(segment.bbox, prepared, 0.48)) continue;
-        const id = crypto.randomUUID();
-        maskValuesRef.current.set(id, segment.maskValues);
-        prepared.push({
-          id,
-          label: 'object',
-          detectionScore: 0.5,
-          mobility: 'movable',
-          expectedSupport: 'unknown',
-          bbox: segment.bbox,
-          maskDataUrl: segment.maskDataUrl,
-          cutoutDataUrl: segment.cutoutDataUrl,
-          position: { x: segment.centerX, y: segment.centerY },
-          scale: 1,
-          rotationDeg: 0,
-          source: 'automatic',
-        });
-        supplemental += 1;
-        setObjects([...prepared]);
-      } catch {
-        // The sweep is opportunistic; uncertain regions are left for manual correction.
-      }
-    }
-    setSweepCount(supplemental);
 
     if (generationRef.current !== generation) return;
     setPhase('cleaning');
@@ -310,7 +268,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     setCleanBackground(clean);
     setBackgroundQuality('quick');
     setPhase('ready');
-    setStatus(prepared.length ? `${prepared.length} objects ready. Tap any prepared object and move it.` : 'No reliable automatic objects were found. Use Add missed object to teach this room.');
+    setStatus(prepared.length ? `${prepared.length} detector-backed object${prepared.length === 1 ? '' : 's'} ready. Tap an object and move it, or add a missed object.` : 'No reliable automatic objects were found. Use Add missed object to prepare the items you want to move.');
 
     if (prepared.length) {
       void persistVersion({
@@ -319,7 +277,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         quality: 'quick',
         parentId: null,
         backgroundAssetId: null,
-        provider: { discovery: discoveryInfo, supplementalSweep: supplemental, automaticCache: true },
+        provider: { discovery: discoveryInfo, supplementalSweep: 0, automaticAcceptance: 'detector-backed-only', automaticCache: true },
         quiet: true,
         generation,
       });
@@ -460,6 +418,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       discovery: detectorInfo,
       depth: depthInfo,
       supplementalSweep: sweepCount,
+      automaticAcceptance: 'detector-backed-only',
       backgroundQuality,
       ...extra,
     };
@@ -542,7 +501,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
           <Text style={{ fontSize: 13, fontWeight: '800', color: tokens.color.text }}>Prepared Scene v1</Text>
           <Text style={{ flex: 1, minWidth: 180, fontSize: 11, lineHeight: 16, color: tokens.color.muted }}>{status}</Text>
         </View>
-        {phase === 'segmenting' && progress.total ? <Text style={{ fontSize: 10, color: tokens.color.muted }}>{progress.complete}/{progress.total} preparation probes complete</Text> : null}
+        {phase === 'segmenting' && progress.total ? <Text style={{ fontSize: 10, color: tokens.color.muted }}>{progress.complete}/{progress.total} detector-backed objects processed</Text> : null}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
           <Pressable disabled={phase !== 'ready'} onPress={() => { setAddMode((value) => !value); setError(null); }} style={buttonStyle(addMode)}>
             <Text style={buttonTextStyle}>{addMode ? 'Tap object in photo' : 'Add missed object'}</Text>
@@ -605,8 +564,9 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       <View style={{ padding: 10, borderRadius: 14, backgroundColor: 'rgba(250,249,246,.82)', borderWidth: 1, borderColor: tokens.color.line, gap: 3 }}>
         <Text style={{ fontSize: 10, fontWeight: '800', color: tokens.color.text }}>Estimated prepared scene · source photo remains immutable</Text>
         <Text style={{ fontSize: 10, lineHeight: 15, color: tokens.color.muted }}>
-          {objects.length} editable object{objects.length === 1 ? '' : 's'} · {sweepCount} discovered by the supplemental room sweep · {ignoredCount} detector candidate{ignoredCount === 1 ? '' : 's'} filtered or deferred. {selected ? `Selected: ${selected.label} · expected support ${selected.expectedSupport}${typeof selected.approximateDepth === 'number' ? ` · relative depth ${selected.approximateDepth.toFixed(2)}` : ''}.` : 'Tap an object to select it.'}
+          {objects.length} editable object{objects.length === 1 ? '' : 's'} · {sweepCount} unlabeled room-region mask{sweepCount === 1 ? '' : 's'} auto-promoted · {ignoredCount} detector candidate{ignoredCount === 1 ? '' : 's'} filtered or deferred. {selected ? `Selected: ${selected.label} · expected support ${selected.expectedSupport}${typeof selected.approximateDepth === 'number' ? ` · relative depth ${selected.approximateDepth.toFixed(2)}` : ''}.` : 'Tap an object to select it.'}
         </Text>
+        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Automatic layers require detector evidence. Use Add missed object for household items outside the current detector vocabulary.</Text>
         <Text style={{ fontSize: 9, color: tokens.color.muted }}>Background: {backgroundQuality === 'ai_repaired' ? 'AI-repaired masked regions' : 'fast local approximation'} · Cache: {cacheLabel(cacheState)}</Text>
         {detectorInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Discovery: {detectorInfo.model} · {detectorInfo.processingMs} ms</Text> : null}
         {depthInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth: {depthInfo.model} · {depthInfo.processingMs} ms</Text> : <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth enrichment runs after objects become moveable so it does not block interaction.</Text>}
@@ -629,7 +589,7 @@ function chooseCandidates(candidates: ObjectDetectionCandidate[], width: number,
   const chosen: ObjectDetectionCandidate[] = [];
   for (const candidate of normalized) {
     if (FIXED_LABELS.has(candidate.label)) continue;
-    if (chosen.some((existing) => existing.label === candidate.label && iou(existing, candidate) > 0.62)) continue;
+    if (chosen.some((existing) => existing.label === candidate.label && iou(existing, candidate) > 0.55)) continue;
     chosen.push(candidate);
     if (chosen.length >= MAX_AUTOMATIC_OBJECTS) break;
   }
@@ -644,16 +604,21 @@ function classify(label: string): { mobility: PreparedObjectMobility; support: P
   return { mobility: 'movable', support: 'surface' };
 }
 
-function seedCovered(seed: NormalizedPoint, masks: Map<string, Uint8ClampedArray>, width: number, height: number) {
-  const x = clamp(Math.round(seed.x * (width - 1)), 0, width - 1);
-  const y = clamp(Math.round(seed.y * (height - 1)), 0, height - 1);
-  const index = y * width + x;
-  for (const mask of masks.values()) if ((mask[index] ?? 0) >= 96) return true;
-  return false;
+function overlapsLabeledPrepared(bbox: { x: number; y: number; width: number; height: number }, label: string, objects: PreparedSceneObject[]) {
+  const center = boxCenter(bbox);
+  return objects.some((object) => {
+    if (object.label !== label) return false;
+    if (normalizedIou(bbox, object.bbox) >= 0.55) return true;
+    return pointInBox(center, object.bbox) || pointInBox(boxCenter(object.bbox), bbox);
+  });
 }
 
-function overlapsPrepared(bbox: { x: number; y: number; width: number; height: number }, objects: PreparedSceneObject[], threshold: number) {
-  return objects.some((object) => normalizedIou(bbox, object.bbox) >= threshold);
+function boxCenter(bbox: { x: number; y: number; width: number; height: number }) {
+  return { x: bbox.x + bbox.width / 2, y: bbox.y + bbox.height / 2 };
+}
+
+function pointInBox(point: { x: number; y: number }, bbox: { x: number; y: number; width: number; height: number }) {
+  return point.x >= bbox.x && point.x <= bbox.x + bbox.width && point.y >= bbox.y && point.y <= bbox.y + bbox.height;
 }
 
 function normalizedIou(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) {
