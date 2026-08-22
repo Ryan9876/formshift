@@ -9,21 +9,21 @@ import { SceneIntelligencePanel } from '../scene/SceneIntelligencePanel';
 import { preparedSceneQueryEnabled, sceneFeatureFlags } from '../scene/featureFlags';
 import { tokens } from '../theme/tokens';
 
-export function PhotoArrangeWorkspace() {
+export function PhotoArrangeWorkspace({ forcePreparedScene = false }: { forcePreparedScene?: boolean } = {}) {
   const workspace = useRoomWorkspace();
   const flags = sceneFeatureFlags();
-  const [queryPrepared, setQueryPrepared] = React.useState<boolean | null>(flags.preparedSceneV1 ? true : null);
+  const [queryPrepared, setQueryPrepared] = React.useState<boolean | null>(forcePreparedScene || flags.preparedSceneV1 ? true : null);
 
   React.useEffect(() => {
-    if (flags.preparedSceneV1) {
+    if (forcePreparedScene || flags.preparedSceneV1) {
       setQueryPrepared(true);
       return;
     }
     setQueryPrepared(preparedSceneQueryEnabled());
-  }, [flags.preparedSceneV1]);
+  }, [forcePreparedScene, flags.preparedSceneV1]);
 
-  const editorChoiceResolved = flags.preparedSceneV1 || queryPrepared !== null;
-  const preparedSceneEnabled = flags.preparedSceneV1 || queryPrepared === true;
+  const editorChoiceResolved = forcePreparedScene || flags.preparedSceneV1 || queryPrepared !== null;
+  const preparedSceneEnabled = forcePreparedScene || flags.preparedSceneV1 || queryPrepared === true;
 
   return (
     <SafeAreaView style={styles.page}>
