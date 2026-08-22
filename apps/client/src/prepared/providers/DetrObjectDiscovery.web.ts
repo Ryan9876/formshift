@@ -11,19 +11,53 @@ type RawDetection = {
   box?: { xmin?: number; ymin?: number; xmax?: number; ymax?: number };
 };
 type Detector = (input: string, options?: { threshold?: number }) => Promise<RawDetection[]>;
+type InferenceBackend = 'webgpu' | 'wasm';
 
-let detectorPromise: Promise<Detector> | null = null;
+let detectorPromise: Promise<{ detector: Detector; backend: InferenceBackend }> | null = null;
 
-async function getDetector(): Promise<Detector> {
+function isAppleWebKit() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent ?? '';
+  const appleMobile = /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const safari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR|Firefox|CriOS|FxiOS/i.test(ua);
+  return appleMobile || safari;
+}
+
+function canAttemptWebGpu() {
+  return typeof navigator !== 'undefined' && !!(navigator as any).gpu && !isAppleWebKit();
+}
+
+function configureWasm(transformers: any) {
+  const wasm = transformers?.env?.backends?.onnx?.wasm;
+  if (!wasm) return;
+  wasm.numThreads = 1;
+  wasm.proxy = false;
+}
+
+async function buildDetector(transformers: any, backend: InferenceBackend): Promise<Detector> {
+  if (backend === 'wasm') configureWasm(transformers);
+  return transformers.pipeline('object-detection', MODEL_ID, {
+    device: backend,
+    dtype: backend === 'webgpu' ? 'fp16' : 'q8',
+  }) as Promise<Detector>;
+}
+
+async function getDetector(): Promise<{ detector: Detector; backend: InferenceBackend }> {
   if (detectorPromise) return detectorPromise;
   detectorPromise = (async () => {
     const dynamicImport = new Function('url', 'return import(url)') as (url: string) => Promise<any>;
     const transformers = await dynamicImport(TRANSFORMERS_ESM);
-    const webGpu = typeof navigator !== 'undefined' && !!(navigator as any).gpu;
-    return transformers.pipeline('object-detection', MODEL_ID, {
-      device: webGpu ? 'webgpu' : 'wasm',
-      dtype: webGpu ? 'fp16' : 'q8',
-    }) as Promise<Detector>;
+
+    if (canAttemptWebGpu()) {
+      try {
+        return { detector: await buildDetector(transformers, 'webgpu'), backend: 'webgpu' as const };
+      } catch {
+        // Some browsers expose navigator.gpu before ONNX WebGPU is usable.
+        // Fall back to the portable path instead of aborting Prepared Scene.
+      }
+    }
+
+    return { detector: await buildDetector(transformers, 'wasm'), backend: 'wasm' as const };
   })().catch((error) => {
     detectorPromise = null;
     throw error;
@@ -65,12 +99,12 @@ export function createObjectDiscoveryProvider(): ObjectDiscoveryProvider {
     discover: async (imageUrl: string): Promise<ObjectDiscoveryResult> => {
       if (!imageUrl) throw new Error('A source room photo is required for object discovery.');
       const startedAt = performance.now();
-      const detector = await getDetector();
-      const raw = await detector(imageUrl, { threshold: 0.52 });
+      const runtime = await getDetector();
+      const raw = await runtime.detector(imageUrl, { threshold: 0.52 });
       const candidates = raw.map(normalize).filter((value): value is ObjectDetectionCandidate => !!value);
       return {
         candidates,
-        provider: 'transformers.js',
+        provider: `transformers.js-${runtime.backend}`,
         model: MODEL_ID,
         modelVersion: MODEL_VERSION,
         processingMs: Math.round(performance.now() - startedAt),
