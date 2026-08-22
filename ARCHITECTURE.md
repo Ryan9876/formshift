@@ -1,9 +1,9 @@
 # FormShift Architecture
 
 **Status:** Authoritative architecture  
-**Revision:** 0.5.2  
+**Revision:** 0.5.3  
 **Established:** 2026-08-19  
-**Last material architecture decision:** 2026-08-21
+**Last material architecture decision:** 2026-08-22
 
 ## 1. Architecture decision
 
@@ -29,6 +29,7 @@ Private user
           │
           ├── Deterministic geometry / BOM / blueprint engines
           ├── Derived SceneAnalysis providers
+          ├── Derived PreparedScene object/background layers
           ├── Photo-scene calibration / projection / occlusion pipeline
           └── Server AI orchestration (Vercel AI SDK / AI Gateway)
 ```
@@ -58,6 +59,7 @@ Primary capabilities:
 - technical Plan view
 - Build brief/design/BOM/blueprint review
 - derived scene analysis where a browser-local provider is appropriate
+- progressive Prepared Scene generation where mobile/browser memory permits
 - exports/sharing
 
 The browser is not required to reproduce RoomPlan capture.
@@ -95,6 +97,7 @@ Project
     │   ├── constraints
     │   └── measurement references
     ├── Scene Analyses
+    ├── Prepared Scenes (derived)
     ├── Organize proposals
     ├── Arrange alternatives
     ├── Build requests/plans
@@ -106,7 +109,7 @@ Project
     └── Exports
 ```
 
-Photos, depth maps, masks and renders are not canonical coordinates. They are source evidence or derived scene products.
+Photos, depth maps, masks, Prepared Scene layers and renders are not canonical coordinates. They are source evidence or derived scene products.
 
 ## 5. Coordinate and measurement model
 
@@ -146,31 +149,84 @@ Future revisions may add:
 
 Scene-analysis changes never mutate a source image, measurement observation or spatial version implicitly.
 
+### 6.1 PreparedScene contract
+
+`PreparedScene` is a derived, photo-editing acceleration layer built from one immutable source photo. Its purpose is to do expensive perception work once so Arrange, Organize and later Build visualizations can reuse the result instead of segmenting/reconstructing on every interaction.
+
+Prepared Scene v1 contains:
+- source photo identity
+- automatic object-discovery provenance
+- per-object semantic label/confidence
+- per-object mask and photographed-pixel cutout
+- independent image-space transform
+- mobility classification: movable / conditional / fixed
+- expected support class: floor / wall / surface / unknown
+- optional relative-depth evidence
+- one shared derived clean-background plate
+- explicit notes/limitations
+
+The target flow is:
+
+```text
+Immutable room photo
+   ↓ immediate display
+Automatic object discovery
+   ↓
+Per-object segmentation / cutout preparation
+   ↓
+Shared clean-background reconstruction
+   ↓ object interaction becomes available
+Relative depth + support enrichment in background
+   ↓
+Prepared Scene
+   ├── object layer A
+   ├── object layer B
+   ├── object layer C
+   └── clean room plate
+```
+
+Preparation is progressive: users should see the source photo immediately; slower depth/refinement work must not unnecessarily block basic object manipulation.
+
+Prepared Scene is **not canonical spatial truth**. Image-space transforms, inferred support and relative depth do not update verified dimensions or canonical coordinates unless a later calibrated mapping explicitly validates that transition.
+
+Prepared Scene v1 is intentionally ephemeral during feasibility testing. Persistence is added only after multi-object preparation quality, memory use and latency are validated on the target iPhone/browser. The immutable source photo remains unchanged regardless of Prepared Scene lifecycle.
+
 ## 7. Scene provider architecture
 
 Commodity vision capability is accessed through provider boundaries rather than embedded directly into product state or UI logic.
 
 ```text
-SceneAnalysis orchestration
+Scene / PreparedScene orchestration
+   │
+   ├── ObjectDiscoveryProvider
+   │    ├── DETR ResNet-50 local/browser candidate
+   │    └── future open-vocabulary/native provider
+   │
+   ├── Segmentation provider
+   │    ├── current object-centered MediaPipe path
+   │    ├── isolated Prepared Scene batch MediaPipe path
+   │    └── future SAM/native alternatives
    │
    ├── DepthProvider
    │    ├── Depth Anything V2 Small (web/local candidate)
    │    └── future device/native provider
-   │
-   ├── Segmentation provider
-   │    ├── current object-centered MediaPipe path
-   │    └── future SAM/native alternatives
    │
    └── future calibration / semantics providers
 ```
 
 Provider output must include provenance and confidence. Providers may be replaced without changing canonical room contracts.
 
+### Object discovery v1
+
+The first Prepared Scene browser candidate uses a quantized ONNX conversion of DETR ResNet-50 through Transformers.js. It is deliberately a lightweight feasibility provider rather than the final semantic vocabulary. Because DETR is COCO-trained, automatic discovery will miss household classes outside that vocabulary. The editor therefore retains an explicit user-added-object path through interactive segmentation.
+
+An open-vocabulary detector may supplement/replace DETR only after mobile memory and latency are measured. That change remains behind `ObjectDiscoveryProvider`.
+
 ### Depth v1
 
 The initial browser candidate uses Depth Anything V2 Small locally through a pinned Transformers.js/ONNX path. Its output is relative monocular depth, not metric distance. It remains **Estimated augmentation** until calibrated against known scene/device evidence.
 
-Feature flags default scene intelligence and diagnostics off until preview/device acceptance.
+Feature flags default scene intelligence, diagnostics and Prepared Scene off until preview/device acceptance.
 
 ## 8. Visualization architecture
 
@@ -180,6 +236,7 @@ FormShift has three visual classes.
 
 Used for normal user decisions:
 - original room photo
+- prepared multi-object room scene
 - augmented room with proposed Build object
 - Arrange visual manipulation
 - Organize before/after scene
@@ -212,11 +269,13 @@ Target pipeline:
 ```text
 Immutable source photo
    ↓
+Object discovery + masks + Prepared Scene clean plate
+   ↓
 Camera / floor / wall calibration
    ↓
-Scene understanding + depth + masks
+Scene understanding + depth + support relationships
    ↓
-Canonical spatial object placement
+Canonical spatial object placement where calibrated
    ↓
 Geometry-faithful projection/render
    ↓
@@ -243,9 +302,15 @@ A committed photo arrangement is an **editable derived-scene version**, not only
 
 Complete saved arrangements reopen as movable objects over their object-free background. Legacy/incomplete arrangements may fall back to the flattened composite and require re-selection.
 
+### Prepared Scene fast path
+
+When Prepared Scene is enabled and validated, Arrange should prefer a precomputed layered room so recognized objects are immediately selectable/movable and share one clean background plate. Missing/incorrect objects retain interactive add/refine correction rather than forcing full scene preparation to be perfect.
+
+The validated single-object editor remains the fallback until Prepared Scene meets device-quality gates. Disabling `EXPO_PUBLIC_PREPARED_SCENE_V1` must restore that fallback without data migration or source-photo mutation.
+
 ### Canonical editor boundary
 
-The application route owns one canonical `PhotoArrangeEditor` boundary. Versioned experimental wrappers must not remain the normal coordination mechanism.
+The application route owns one canonical `PhotoArrangeEditor` boundary for the validated fallback. Versioned experimental wrappers must not remain the normal coordination mechanism.
 
 The currently validated v2.2 gesture/selection implementation may remain frozen behind that boundary while refactoring proceeds. New providers/rendering behavior must compose through explicit interfaces or semantic component boundaries rather than:
 - `MutationObserver` state detection
@@ -253,19 +318,21 @@ The currently validated v2.2 gesture/selection implementation may remain frozen 
 - programmatic control clicks
 - inline-style substring matching
 
-The current object-centered MediaPipe selector is isolated behind a transitional provider adapter. This allows later SAM/native evaluation without coupling the room editor to a specific model.
+The current object-centered MediaPipe selector is isolated behind a transitional provider adapter. Prepared Scene uses a distinct MediaPipe module instance so its batch preparation cannot inherit or mutate that compatibility adapter.
 
 Scene realism work must remain isolated from the validated short-tap/pan/pinch/refinement gesture contract.
 
 ## 11. Organize architecture
 
 Inputs:
-- source photo / scene analysis
+- source photo / scene analysis / Prepared Scene
 - active spatial version
 - object semantics and constraints
 - prior accepted/rejected proposals
 
 AI proposes strategy/actions. Deterministic geometry validates them. The primary result is a before/after real-room visualization; Plan is secondary verification.
+
+Prepared Scene should become the reusable photo-layer substrate for Organize once its object discovery and correction workflow is validated.
 
 ## 12. Build architecture
 
@@ -308,6 +375,8 @@ Authorization:
 
 Scene records are append-oriented derived evidence. Supersession/recalculation must preserve provenance rather than overwrite source truth.
 
+Prepared Scene v1 does not add a database table during feasibility testing. When persistence is adopted, prepared object masks/cutouts/clean plates must remain private derived assets with project-scoped RLS/Storage authorization and explicit source lineage.
+
 ### Vercel
 
 Vercel hosts the Expo web export, separate TypeScript API/functions project and server AI orchestration. Long-running vision/image work may move to a worker architecture if runtime/cost becomes material.
@@ -320,6 +389,8 @@ State-changing AI output must use versioned schemas and pass entity/unit/range/g
 
 Provider/API keys remain server-only. Private images are not logged into ordinary observability streams.
 
+Local open-source perception models may run in the browser/device when privacy, latency and memory budgets are acceptable. Their outputs remain derived evidence subject to the same provenance/confidence boundaries.
+
 ## 16. Security and privacy
 
 - Google through Supabase Auth for current private release
@@ -331,6 +402,8 @@ Provider/API keys remain server-only. Private images are not logged into ordinar
 - project deletion must include derived scene artifacts
 - no service-role dependency in normal client runtime
 
+Prepared Scene processing should prefer local/browser execution where practical. No derived object layer may overwrite the immutable source photo.
+
 ## 17. Versioning and reversibility
 
 Preserve:
@@ -338,6 +411,7 @@ Preserve:
 - spatial-version lineage
 - measurement corrections
 - scene-analysis revisions/provider provenance
+- Prepared Scene provider/model provenance once persisted
 - accepted/rejected Organize metadata
 - editable Arrange alternatives/assets/transforms
 - Build versions
@@ -348,9 +422,11 @@ Feature-flagged scene providers must have a clean fallback to the last validated
 
 ## 18. Reliability and observability
 
-Record privacy-safe correlation IDs and relevant task/provider/model versions, latency, geometry validation failures, scene-analysis failures, export failures and auth denials.
+Record privacy-safe correlation IDs and relevant task/provider/model versions, latency, geometry validation failures, scene-analysis failures, Prepared Scene discovery/segmentation failures, export failures and auth denials.
 
 Release gates should include repository/security/domain checks, client/API typechecks, production web export, interaction regression coverage where available, preview deployment and physical-device acceptance for gesture-sensitive changes.
+
+Prepared Scene evaluation must separately measure object discovery coverage, per-object segmentation quality, time-to-first-editable-object, full preparation latency, memory pressure and clean-background quality.
 
 Do not infer device acceptance from a successful build.
 
@@ -359,29 +435,34 @@ Do not infer device acceptance from a successful build.
 1. preserve/validate editable Photo Arrange v2.2 baseline
 2. canonical Arrange boundary + regression gates
 3. persistent SceneAnalysis/provider contract
-4. local depth/support evaluation behind feature flag
-5. calibrated camera/floor/wall mapping and depth ordering
-6. depth-aware occlusion/contact rendering
-7. physical constraint engine / Rapier or RealityKit integration where supported
-8. photo-first Organize visualization using the shared scene engine
-9. calibrated Build visualization
-10. RoomPlan/RealityKit production capture/AR path
-11. local/cloud image-provider routing
-12. private-beta hardening and broader Build archetypes
+4. Prepared Scene v1 progressive multi-object feasibility behind independent feature flag
+5. broaden object discovery/correction workflow based on device evidence
+6. local depth/support evaluation and Prepared Scene enrichment
+7. calibrated camera/floor/wall mapping and depth ordering
+8. depth-aware occlusion/contact rendering
+9. physical constraint engine / Rapier or RealityKit integration where supported
+10. photo-first Organize visualization using Prepared Scene/shared scene engine
+11. calibrated Build visualization
+12. RoomPlan/RealityKit production capture/AR path
+13. local/cloud image-provider routing
+14. private-beta hardening and broader Build archetypes
 
 ## 20. Reconsideration triggers
 
 Revisit architecture if:
 - browser rendering cannot provide acceptable calibrated augmentation fidelity
+- local Prepared Scene model loading exceeds iPhone memory/latency budgets
 - RealityKit/RoomPlan requires stronger iOS-native separation
 - segmentation/depth/inpainting workloads exceed browser/Vercel limits or cost
 - scene-derived storage materially exceeds private-group assumptions
 - public distribution becomes a goal
 - live retail/catalog integration becomes core
 
-## 21. Revision note — 0.5.2
+## 21. Revision note — 0.5.3
 
-Revision 0.5.2 establishes `SceneAnalysis` as versioned derived evidence with provider/model provenance, relative depth and support-surface contracts, private RLS-protected persistence, and feature-flagged provider execution. It also establishes a single canonical Photo Arrange boundary: scene/vision providers may evolve without coordinating editor behavior through DOM observers, rendered-text scraping, programmatic UI clicks, or version-wrapper chains. The validated v2.2 interaction core remains protected until replacement behavior passes real-device acceptance.
+Revision 0.5.3 establishes `PreparedScene` as a derived multi-object acceleration layer: automatic object discovery, independent masks/cutouts, a shared clean-background plate, mobility/support semantics and background depth enrichment are prepared progressively from the immutable source photo. Prepared Scene is independently feature-flagged, ephemeral during feasibility testing, cannot mutate canonical measurements, and must fall back cleanly to the validated single-object editor. Commodity object discovery is now explicitly behind `ObjectDiscoveryProvider`; the first local/browser candidate is DETR ResNet-50, with interactive MediaPipe retained for missed-object correction.
+
+Revision 0.5.2 established `SceneAnalysis` as versioned derived evidence with provider/model provenance, relative depth and support-surface contracts, private RLS-protected persistence, and feature-flagged provider execution. It also established a single canonical Photo Arrange boundary: scene/vision providers may evolve without coordinating editor behavior through DOM observers, rendered-text scraping, programmatic UI clicks, or version-wrapper chains. The validated v2.2 interaction core remains protected until replacement behavior passes real-device acceptance.
 
 Revision 0.5.1 made committed Photo Arrange results explicitly reconstructable editing state: background + mask + photographed-object cutout + transform + lineage remain editable while the flattened composite is a convenience/history artifact.
 
