@@ -3,8 +3,10 @@ import path from 'node:path';
 
 const coreFile = path.join(process.cwd(), 'apps/client/src/components/PhotoArrangeEditorV17.web.tsx');
 const canonicalFile = path.join(process.cwd(), 'apps/client/src/components/PhotoArrangeEditor.web.tsx');
+const coordinatesFile = path.join(process.cwd(), 'apps/client/src/arrange/refinementCoordinates.ts');
 const source = fs.readFileSync(coreFile, 'utf8');
 const canonical = fs.readFileSync(canonicalFile, 'utf8');
+const coordinates = fs.readFileSync(coordinatesFile, 'utf8');
 const required = [
   ['short-tap selection gate', source, '!tap.moved && Date.now() - tap.startedAt < 650'],
   ['editable saved restore', source, 'Saved object restored and editable.'],
@@ -16,6 +18,9 @@ const required = [
   ['refinement maps layout-stage pixels into normalized source coordinates', source, 'stageToImagePoint'],
   ['live stroke uses the same image-to-stage transform', source, 'imageToStagePoint'],
   ['refinement exposes the actual brush footprint under the finger', source, 'BrushFootprint'],
+  ['iOS visual viewport offset is part of runtime coordinate mapping', coordinates, 'viewportOffset: ArrangeViewportOffset = currentClientViewportOffset()'],
+  ['iOS visual viewport is read directly at pointer-mapping time', coordinates, 'window.visualViewport.offsetTop'],
+  ['visual viewport compensation is limited to iOS WebKit', coordinates, 'isIOSFamily'],
   ['Safari object drag is tracked from the move handle', canonical, 'activeMovePointersRef.current.add(event.pointerId)'],
   ['Safari object drag forwards pointer movement after capture loss', canonical, 'window.addEventListener(\'pointermove\', forwardPointer, true)'],
   ['page scrolling is blocked only during an active object drag', canonical, "document.addEventListener('touchmove', blockPageScrollDuringObjectDrag, { capture: true, passive: false })"],
