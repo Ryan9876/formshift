@@ -1,5 +1,5 @@
 import type { DepthEstimate } from '../scene/types';
-import { DEFAULT_PREPARED_SUPPORT_MODEL, type PreparedSupportModel } from './support';
+import { DEFAULT_PREPARED_SUPPORT_MODEL, type PreparedSupportModel } from './support.ts';
 
 type BoundarySample = { x: number; y: number; strength: number };
 
