@@ -15,10 +15,10 @@ function close(actual, expected, message) {
   assert.ok(Math.abs(actual - expected) <= EPSILON, `${message}: expected ${expected}, got ${actual}`);
 }
 
-function roundTrip(rect, viewScale, viewOffset) {
-  const client = imageToClientPoint(imagePoint, rect, stage, viewScale, viewOffset);
+function roundTrip(rect, viewScale, viewOffset, clientViewportOffset = { x: 0, y: 0 }) {
+  const client = imageToClientPoint(imagePoint, rect, stage, viewScale, viewOffset, clientViewportOffset);
   assert.ok(client, 'inverse client point should exist');
-  const layout = clientToStagePoint(client, rect, stage);
+  const layout = clientToStagePoint(client, rect, stage, clientViewportOffset);
   assert.ok(layout, 'client point should map into layout-stage coordinates');
   const restored = stageToImagePoint(layout, viewScale, viewOffset, stage);
   assert.ok(restored, 'layout-stage point should map back into source-image coordinates');
@@ -33,13 +33,45 @@ roundTrip({ left: 20, top: 400, width: 390, height: 650 }, 1, { x: 0, y: 0 });
 // rect, but the normalized source point must not.
 roundTrip({ left: 20, top: -275, width: 390, height: 650 }, 1, { x: 0, y: 0 });
 
-// Rendered rect is scaled relative to RN layout dimensions. This is the exact
-// mixed-space failure the iPhone screenshot exposed.
+// Rendered rect is scaled relative to RN layout dimensions.
 roundTrip({ left: 14, top: 182, width: 327.6, height: 546 }, 1, { x: 0, y: 0 });
 
 // App-level photo zoom and pan must compose with browser/page scale rather than
 // introducing another coordinate space.
 roundTrip({ left: 8, top: 96, width: 351, height: 585 }, 2.4, { x: -188, y: -214 });
+
+// iOS WebKit visual viewport can pan independently from the layout viewport.
+// getBoundingClientRect remains layout-relative while clientY/clientX can be
+// visual-viewport-relative. The same source point must survive a large browser-
+// chrome/visual-viewport displacement.
+roundTrip(
+  { left: 14, top: 182, width: 327.6, height: 546 },
+  1,
+  { x: 0, y: 0 },
+  { x: 0, y: 148 },
+);
+
+// The hardest composition: page/render scaling + independent visual viewport +
+// FormShift zoom/pan. This models the physical-iPhone screenshot failure.
+roundTrip(
+  { left: 8, top: 96, width: 351, height: 585 },
+  2.4,
+  { x: -188, y: -214 },
+  { x: 11, y: 126 },
+);
+
+// Changing only the visual viewport origin must change browser clientY while
+// resolving to the exact same source coordinate.
+const rect = { left: 12, top: 164, width: 343.2, height: 572 };
+const clientA = imageToClientPoint(imagePoint, rect, stage, 1.7, { x: -96, y: -132 }, { x: 0, y: 0 });
+const clientB = imageToClientPoint(imagePoint, rect, stage, 1.7, { x: -96, y: -132 }, { x: 0, y: 154 });
+assert.ok(clientA && clientB);
+assert.notEqual(clientA.y, clientB.y, 'visual viewport pan must materially change raw browser clientY');
+const stageA = clientToStagePoint(clientA, rect, stage, { x: 0, y: 0 });
+const stageB = clientToStagePoint(clientB, rect, stage, { x: 0, y: 154 });
+assert.ok(stageA && stageB);
+close(stageA.x, stageB.x, 'visual viewport pan must not change layout-stage x');
+close(stageA.y, stageB.y, 'visual viewport pan must not change layout-stage y');
 
 const stagePoint = imageToStagePoint(imagePoint, 2.4, { x: -188, y: -214 }, stage);
 const restored = stageToImagePoint(stagePoint, 2.4, { x: -188, y: -214 }, stage);
@@ -50,4 +82,4 @@ close(restored.y, imagePoint.y, 'image/stage y transform must be inverse');
 assert.ok(refinementBrushRadius(stage, 2) > refinementBrushRadius(stage, 1), 'brush footprint should visually grow with image zoom');
 assert.equal(clientToStagePoint({ x: 0, y: 0 }, { left: 0, top: 0, width: 0, height: 100 }, stage), null, 'zero-size DOM rect must fail closed');
 
-console.log('PASS Arrange refinement coordinates remain source-stable across page scroll, rendered scaling, zoom/pan, and brush preview transforms');
+console.log('PASS Arrange refinement coordinates remain source-stable across page scroll, rendered scaling, iOS visual-viewport panning, zoom/pan, and brush preview transforms');
