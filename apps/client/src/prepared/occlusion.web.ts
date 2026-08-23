@@ -8,6 +8,12 @@ export type DestinationOcclusionResult = {
   hiddenFraction: number;
 };
 
+type SourceExclusion = {
+  masks: Uint8ClampedArray[];
+  width: number;
+  height: number;
+};
+
 const OCCLUSION_MARGIN = 0.1;
 
 export function shouldOccludeDepthSample(sourceNearness: number, objectNearness: number, margin = OCCLUSION_MARGIN) {
@@ -18,6 +24,7 @@ export async function createDestinationOccludedCutout(
   object: PreparedSceneObject,
   depth: DepthEstimate,
   direction: DepthNearDirection,
+  exclusion?: SourceExclusion,
 ): Promise<DestinationOcclusionResult | null> {
   if (direction === 'unknown' || !object.cutoutDataUrl || typeof object.approximateDepth !== 'number') return null;
   const image = await loadImage(object.cutoutDataUrl);
@@ -45,6 +52,7 @@ export async function createDestinationOccludedCutout(
       const destinationX = object.position.x + (u - 0.5) * object.bbox.width * object.scale;
       const destinationY = object.position.y + (v - 0.5) * object.bbox.height * object.scale;
       if (destinationX < 0 || destinationX > 1 || destinationY < 0 || destinationY > 1) continue;
+      if (exclusion && isExcluded(destinationX, destinationY, exclusion)) continue;
       const sourceRaw = sampleDepth(depth.normalized, depth.width, depth.height, destinationX, destinationY);
       const sourceNearness = depthValueToNearness(sourceRaw, direction);
       if (!shouldOccludeDepthSample(sourceNearness, objectNearness)) continue;
@@ -61,6 +69,13 @@ export async function createDestinationOccludedCutout(
     dataUrl: canvas.toDataURL('image/png'),
     hiddenFraction: hidden / eligible,
   };
+}
+
+function isExcluded(x: number, y: number, exclusion: SourceExclusion) {
+  const px = clamp(Math.round(clamp(x, 0, 1) * (exclusion.width - 1)), 0, exclusion.width - 1);
+  const py = clamp(Math.round(clamp(y, 0, 1) * (exclusion.height - 1)), 0, exclusion.height - 1);
+  const index = py * exclusion.width + px;
+  return exclusion.masks.some((mask) => (mask[index] ?? 0) >= 48);
 }
 
 function sampleDepth(values: Uint8ClampedArray, width: number, height: number, x: number, y: number) {
