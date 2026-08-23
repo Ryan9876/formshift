@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.9.19  
-**Date:** 2026-08-22  
-**Milestone:** Prepared Scene feasibility/restore is physically proven; Wave 3 room-perception hardening is implemented and exact-head build-validated, with physical iPhone acceptance still required
+**Revision:** 0.9.20  
+**Date:** 2026-08-23  
+**Milestone:** Prepared Scene feasibility/restore is physically proven; Wave 3 room-perception hardening is exact-head build-validated and now has first iPhone screenshot evidence, with direct support-drag and depth-provenance acceptance still open
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
 
@@ -42,6 +42,24 @@ Validated device evidence remains:
 - immutable source photography and canonical measurements/spatial versions remain unchanged.
 
 A still screenshot does **not** prove support drag mechanics; Support assist on/off and correction behavior still require direct interaction evidence.
+
+## First Wave 3 iPhone screenshot evidence — 2026-08-23
+
+The first screenshot from the documented Wave 3 preview confirms the new candidate is rendering successfully in iPhone Safari after the fail-closed build gate.
+
+Confirmed from the screenshot:
+- `Prepared Scene v1` is loaded on the branch preview;
+- **Support assist on** is active;
+- the Estimated floor region diagnostic is rendered across the real room photo;
+- the visible support boundary is currently effectively horizontal in this scene;
+- **Add missed object** completed successfully and returned the status `Object added and ready to move`;
+- a manually added small wall-photo/art object is selected as an independent layer with a compact cyan selection box;
+- the selected manual object does not visually encompass the TV or the broader wall region;
+- the room photo remains visible and undimmed beneath the derived layer.
+
+This is useful evidence for the manual correction path and scene rendering, but it is **not** yet acceptance of the Wave 3 automatic TV-mask improvement because the TV is not selected in this screenshot. It also does not reveal the diagnostic provenance text below the image, so this screenshot cannot establish whether support evidence is `depth-profile`, `hybrid`, detector-only, or fallback.
+
+The displayed floor boundary is visually plausible relative to the visible floor/baseboard transition, but a still image cannot validate whether the TV is actually constrained against it during drag.
 
 ## Wave 3 implementation — room perception and autonomous gates
 
@@ -122,8 +140,9 @@ The new gate caught and corrected multiple issues that the old web bundle did no
 Current functional exact head before documentation: `62676ca8e8158273b74be6ad727d3bdc24481f25`.
 
 Exact-head evidence:
-- web Vercel deployment `dpl_58ARzhwxq8THJA51uWQbKjDfE69w` — **READY**;
-- API Vercel status on the same commit — **success**;
+- documented branch head `77698e3b1f81e9a5cf16ba2f35753d1ab50daf72` reached READY after running the enforced web gate;
+- web Vercel deployment `dpl_4bJ88xzeGLYF2nmgdB1LzYPSqy9e` — **READY**;
+- API Vercel status on the same documented head — **success**;
 - repository structure verification — pass;
 - security verification — pass;
 - domain test suite — pass;
@@ -152,18 +171,16 @@ Prepared Scene remains derived-only:
 
 ## Immediate physical-device acceptance
 
-Use the stable branch `/arrange-prepared` route after the final documentation head reaches READY.
+Use the stable branch `/arrange-prepared` route.
 
-1. Hard refresh once. Because support model version moved to 2, expect one refinement/rebuild rather than trusting the prior support-v1 cache.
-2. Confirm the TV is still the reliable automatic object and the couch/person composite remains deferred.
-3. Inspect the TV cutout closely, especially its upper edge. The detector-guided connected-component mask should contain less wall/decor than the prior screenshot.
-4. Allow depth enrichment to finish. Inspect the diagnostic provenance: `depth-profile` or `hybrid` means independent depth-surface evidence was usable; `detector-anchors`/`fallback` means the depth profile correctly failed its confidence/coherence gate.
-5. If a non-zero slope is shown, move the TV left/right while pressing down and inspect whether the estimated allowed boundary follows the displayed line.
-6. With **Support assist on**, drag the TV clearly below the estimated wall/floor boundary and confirm the object itself is constrained.
-7. Turn Support assist off and confirm free placement returns.
-8. Leave the TV unsupported, re-enable Support assist, and confirm the position is corrected.
-9. Save changes, refresh, and confirm the support-model-v2 scene restores without unnecessarily rerunning detector work.
-10. Verify normal Safari page scrolling returns immediately after object drag release.
+1. Scroll below the room image and capture the diagnostic text showing **Support assist: ... center boundary ... slope ... confidence ... source**. This resolves whether the new depth-profile/hybrid support evidence is active in this room.
+2. Select the **TV** automatic layer rather than the manually added wall-photo/art object and capture one screenshot. Inspect the TV cutout closely, especially above and around its screen, to judge whether detector-guided component refinement reduced captured wall/decor pixels.
+3. With **Support assist on**, drag the selected TV straight downward until the finger is clearly below the displayed Estimated floor region. Confirm the TV itself stops at the permitted wall boundary.
+4. Turn **Support assist off** and repeat. Confirm free placement returns.
+5. Leave the TV below the boundary, re-enable Support assist, and confirm it is corrected.
+6. If a non-zero slope is reported, drag the TV left/right while pressing downward and inspect whether its permitted region tracks the displayed line.
+7. Save changes, refresh, and confirm the support-model-v2 scene restores without unnecessarily rerunning detector work.
+8. Verify normal Safari page scrolling returns immediately after object drag release.
 
 ## Not yet claimed
 
@@ -177,15 +194,15 @@ Use the stable branch `/arrange-prepared` route after the final documentation he
 - gravity / rigid-body physics;
 - production RoomPlan capture/normalization;
 - Prepared Scene scale/rotate controls;
-- physical-device acceptance of the new depth-profile/hybrid support model or refined automatic TV mask.
+- physical-device acceptance of the new automatic TV mask, depth-profile/hybrid support provenance, or support-drag constraint behavior.
 
 ## Next decision
 
-Do **not** add Rapier/RealityKit physics yet. If the support-model-v2 device test confirms tighter masks and useful depth/hybrid support evidence, the next engineering slice is source-scene occlusion/destination-depth behavior and broader commercially-cleared object discovery. Calibrated floor/support persistence follows only when a real calibration source exists; physics follows reliable collision/support geometry.
+Do **not** add Rapier/RealityKit physics yet. The first Wave 3 screenshot confirms the new candidate is functioning on iPhone and that manual object correction remains usable. The remaining acceptance target is now narrow: automatic TV-mask quality, support provenance, and actual support-drag behavior. If those pass, the next engineering slice is source-scene occlusion/destination-depth behavior and broader commercially-cleared object discovery. Calibrated floor/support persistence follows only when a real calibration source exists; physics follows reliable collision/support geometry.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision **0.9.19** records the Wave 3 room-perception implementation and exact-head validation boundary.
-- `ARCHITECTURE.md`: revision **0.5.5** records detector-guided mask acceptance, independent depth-profile/hybrid support evidence, bounded inference recovery, commercial model-license gating, and fail-closed web preview validation.
+- `CURRENT-STATE.md`: revision **0.9.20** records the first Wave 3 iPhone screenshot evidence and narrows the remaining physical acceptance steps.
+- `ARCHITECTURE.md`: remains revision **0.5.5**; no new durable architecture decision was introduced by this screenshot.
 - `DESIGN-SYSTEM.md`: unchanged; existing Estimated augmentation, diagnostic confidence, and reversible-assist rules already govern this behavior.
 - `PROJECT-CONSTITUTION.md`: unchanged; immutable source, privacy, provenance, reversibility, and canonical-spatial-truth rules remain intact.
