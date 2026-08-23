@@ -35,6 +35,7 @@ const MEDIAPIPE_WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0
 const MAGIC_TOUCH_MODEL = 'https://storage.googleapis.com/mediapipe-models/interactive_segmenter_v2/magic_touch/int8/1/interactive_segmentation.task';
 const MAX_CROP_DIMENSION = 820;
 const THRESHOLD = 0.48;
+const COMPONENT_THRESHOLD = 48;
 
 let segmenterPromise: Promise<{ module: SegmenterModule; segmenter: any }> | null = null;
 
@@ -57,7 +58,7 @@ async function getSegmenter() {
   return segmenterPromise;
 }
 
-export async function segmentPreparedObject(source: HTMLCanvasElement, seed: Point): Promise<PreparedSegment | null> {
+export async function segmentPreparedObject(source: HTMLCanvasElement, seed: Point, guideBox?: PreparedBox): Promise<PreparedSegment | null> {
   const { module, segmenter } = await getSegmenter();
   const crop = createSeedCrop(source, seed);
   segmenter.setImage(crop.canvas);
@@ -68,7 +69,7 @@ export async function segmentPreparedObject(source: HTMLCanvasElement, seed: Poi
 
   try {
     const raw = mask.getAsFloat32Array() as Float32Array;
-    const values = projectMask({
+    let values = projectMask({
       raw,
       maskWidth: mask.width as number,
       maskHeight: mask.height as number,
@@ -76,6 +77,7 @@ export async function segmentPreparedObject(source: HTMLCanvasElement, seed: Poi
       sourceHeight: source.height,
       crop,
     });
+    if (guideBox) values = refineMaskWithGuide(values, source.width, source.height, seed, guideBox);
     const pixelBounds = boundsFor(values, source.width, source.height);
     if (!pixelBounds) return null;
     const pixelCount = (pixelBounds.x1 - pixelBounds.x0 + 1) * (pixelBounds.y1 - pixelBounds.y0 + 1);
@@ -100,6 +102,89 @@ export async function segmentPreparedObject(source: HTMLCanvasElement, seed: Poi
   } finally {
     mask.close?.();
   }
+}
+
+function refineMaskWithGuide(values: Uint8ClampedArray, width: number, height: number, seed: Point, guideBox: PreparedBox) {
+  const guide = expandGuide(guideBox, 0.22);
+  const x0 = clamp(Math.floor(guide.x * width), 0, width - 1);
+  const y0 = clamp(Math.floor(guide.y * height), 0, height - 1);
+  const x1 = clamp(Math.ceil((guide.x + guide.width) * width), x0 + 1, width);
+  const y1 = clamp(Math.ceil((guide.y + guide.height) * height), y0 + 1, height);
+  const regionWidth = x1 - x0;
+  const regionHeight = y1 - y0;
+  const visited = new Uint8Array(regionWidth * regionHeight);
+  const seedX = clamp(Math.round(seed.x * (width - 1)), 0, width - 1);
+  const seedY = clamp(Math.round(seed.y * (height - 1)), 0, height - 1);
+  const guidePixels = Math.max(1, Math.round(guideBox.width * width) * Math.round(guideBox.height * height));
+
+  let best: number[] | null = null;
+  let bestScore = -Infinity;
+
+  for (let y = y0; y < y1; y += 1) {
+    for (let x = x0; x < x1; x += 1) {
+      const localIndex = (y - y0) * regionWidth + (x - x0);
+      if (visited[localIndex] || (values[y * width + x] ?? 0) < COMPONENT_THRESHOLD) continue;
+      const queue: number[] = [y * width + x];
+      const component: number[] = [];
+      visited[localIndex] = 1;
+      let insideGuide = 0;
+      let minDistanceSquared = Number.POSITIVE_INFINITY;
+
+      for (let cursor = 0; cursor < queue.length; cursor += 1) {
+        const sourceIndex = queue[cursor]!;
+        const px = sourceIndex % width;
+        const py = Math.floor(sourceIndex / width);
+        component.push(sourceIndex);
+        if (pointInGuide(px, py, width, height, guideBox)) insideGuide += 1;
+        const dx = px - seedX;
+        const dy = py - seedY;
+        minDistanceSquared = Math.min(minDistanceSquared, dx * dx + dy * dy);
+
+        visitNeighbor(px - 1, py);
+        visitNeighbor(px + 1, py);
+        visitNeighbor(px, py - 1);
+        visitNeighbor(px, py + 1);
+      }
+
+      if (component.length < 16) continue;
+      const overlapRatio = insideGuide / component.length;
+      const sizeRatio = component.length / guidePixels;
+      const guideDiagonal = Math.max(1, Math.hypot(guideBox.width * width, guideBox.height * height));
+      const distanceRatio = Math.sqrt(minDistanceSquared) / guideDiagonal;
+      const score = overlapRatio * 3 + Math.min(sizeRatio, 1.6) - Math.min(distanceRatio, 1.5) * 1.4;
+      if (score > bestScore) {
+        bestScore = score;
+        best = component;
+      }
+
+      function visitNeighbor(nx: number, ny: number) {
+        if (nx < x0 || nx >= x1 || ny < y0 || ny >= y1) return;
+        const neighborLocal = (ny - y0) * regionWidth + (nx - x0);
+        if (visited[neighborLocal]) return;
+        visited[neighborLocal] = 1;
+        const neighborIndex = ny * width + nx;
+        if ((values[neighborIndex] ?? 0) >= COMPONENT_THRESHOLD) queue.push(neighborIndex);
+      }
+    }
+  }
+
+  if (!best?.length || bestScore < 0.5) return values;
+  const refined = new Uint8ClampedArray(values.length);
+  for (const sourceIndex of best) {
+    refined[sourceIndex] = values[sourceIndex] ?? 0;
+    const px = sourceIndex % width;
+    const py = Math.floor(sourceIndex / width);
+    for (let oy = -1; oy <= 1; oy += 1) {
+      for (let ox = -1; ox <= 1; ox += 1) {
+        const nx = px + ox;
+        const ny = py + oy;
+        if (nx < x0 || nx >= x1 || ny < y0 || ny >= y1) continue;
+        const neighbor = ny * width + nx;
+        if ((values[neighbor] ?? 0) > refined[neighbor]!) refined[neighbor] = values[neighbor] ?? 0;
+      }
+    }
+  }
+  return refined;
 }
 
 function createSeedCrop(source: HTMLCanvasElement, seed: Point): Crop {
@@ -207,6 +292,22 @@ function cutoutUrl(source: HTMLCanvasElement, values: Uint8ClampedArray, bounds:
   if (!context) throw new Error('Prepared-scene cutout canvas is unavailable.');
   context.putImageData(pixels, 0, 0);
   return canvas.toDataURL('image/png');
+}
+
+function expandGuide(box: PreparedBox, fraction: number): PreparedBox {
+  const padX = box.width * fraction;
+  const padY = box.height * fraction;
+  const x = clamp(box.x - padX, 0, 1);
+  const y = clamp(box.y - padY, 0, 1);
+  const x1 = clamp(box.x + box.width + padX, 0, 1);
+  const y1 = clamp(box.y + box.height + padY, 0, 1);
+  return { x, y, width: Math.max(0, x1 - x), height: Math.max(0, y1 - y) };
+}
+
+function pointInGuide(x: number, y: number, width: number, height: number, guide: PreparedBox) {
+  const nx = x / Math.max(1, width);
+  const ny = y / Math.max(1, height);
+  return nx >= guide.x && nx <= guide.x + guide.width && ny >= guide.y && ny <= guide.y + guide.height;
 }
 
 function clamp(value: number, min: number, max: number) {
