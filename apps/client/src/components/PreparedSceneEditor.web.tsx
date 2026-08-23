@@ -3,7 +3,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { useAuth } from '../auth/AuthProvider';
 import { repairPreparedSceneBackground } from '../prepared/backgroundRepair.web';
-import { estimateSupportModelFromDepth, mergePreparedSupportModels } from '../prepared/depthSupport';
+import {
+  analyzeSupportModelFromDepth,
+  depthValueToNearness,
+  mergePreparedSupportModelsWithDiagnostics,
+  type DepthNearDirection,
+  type DepthSupportDiagnostics,
+  type SupportMergeDecision,
+} from '../prepared/depthSupport';
 import {
   compositeRepairedCleanBackground,
   createPreparedSceneRepairMask,
@@ -11,6 +18,7 @@ import {
   loadPreparedSource,
   sampleDepth,
 } from '../prepared/imageOps.web';
+import { createDestinationOccludedCutout } from '../prepared/occlusion.web';
 import {
   loadLatestPreparedScene,
   persistPreparedScene,
@@ -36,6 +44,7 @@ import {
 } from '../prepared/support';
 import type { ObjectDetectionCandidate, PreparedBox, PreparedSceneObject } from '../prepared/types';
 import { createDepthProvider } from '../scene/providers/DepthAnythingV2Small.web';
+import type { DepthEstimate } from '../scene/types';
 import { tokens } from '../theme/tokens';
 
 type Props = {
@@ -50,10 +59,12 @@ type DragSession = { objectId: string; pointerId: number; clientX: number; clien
 type DetectorInfo = { provider: string; model: string; modelVersion: string; processingMs: number } | null;
 type DepthInfo = { provider: string; model: string; modelVersion: string; processingMs: number } | null;
 type CacheState = 'none' | 'restored' | 'saving' | 'saved' | 'dirty' | 'error';
+type DepthSupportInfo = { diagnostics: DepthSupportDiagnostics; mergeDecision: SupportMergeDecision; disagreement: number | null } | null;
+type OccludedCutout = { dataUrl: string; hiddenFraction: number };
 
 const MAX_AUTOMATIC_OBJECTS = 18;
 const IGNORED_LABELS = new Set(['person', 'cat', 'dog', 'bird', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe']);
-const SUPPORT_MODEL_VERSION = 2;
+const SUPPORT_MODEL_VERSION = 3;
 
 export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   const auth = useAuth();
@@ -64,6 +75,9 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   const generationRef = useRef(0);
   const supportModelRef = useRef<PreparedSupportModel>(DEFAULT_PREPARED_SUPPORT_MODEL);
   const supportAssistRef = useRef(true);
+  const objectsRef = useRef<PreparedSceneObject[]>([]);
+  const depthEstimateRef = useRef<DepthEstimate | null>(null);
+  const depthDirectionRef = useRef<DepthNearDirection>('unknown');
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [status, setStatus] = useState('Waiting for a room photo.');
@@ -77,6 +91,8 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [detectorInfo, setDetectorInfo] = useState<DetectorInfo>(null);
   const [depthInfo, setDepthInfo] = useState<DepthInfo>(null);
+  const [depthSupportInfo, setDepthSupportInfo] = useState<DepthSupportInfo>(null);
+  const [occludedCutouts, setOccludedCutouts] = useState<Record<string, OccludedCutout>>({});
   const [ignoredCount, setIgnoredCount] = useState(0);
   const [personDeferredCount, setPersonDeferredCount] = useState(0);
   const [backgroundQuality, setBackgroundQuality] = useState<PreparedBackgroundQuality>('quick');
@@ -96,6 +112,18 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     setSupportModel(model);
   }
 
+  function commitObjects(next: PreparedSceneObject[] | ((current: PreparedSceneObject[]) => PreparedSceneObject[])) {
+    setObjects((current) => {
+      const resolved = typeof next === 'function' ? next(current) : next;
+      objectsRef.current = resolved;
+      return resolved;
+    });
+  }
+
+  useEffect(() => {
+    objectsRef.current = objects;
+  }, [objects]);
+
   useEffect(() => {
     supportAssistRef.current = supportAssistEnabled;
   }, [supportAssistEnabled]);
@@ -112,14 +140,17 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         x: drag.startX + (event.clientX - drag.clientX) / rect.width,
         y: drag.startY + (event.clientY - drag.clientY) / rect.height,
       };
-      setObjects((current) => current.map((object) => object.id === drag.objectId
+      commitObjects((current) => current.map((object) => object.id === drag.objectId
         ? { ...object, position: constrainPreparedPosition(object, desired, supportModelRef.current, supportAssistRef.current) }
         : object));
     };
     const onEnd = (event: PointerEvent) => {
-      if (dragRef.current?.pointerId !== event.pointerId) return;
+      const drag = dragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const objectId = drag.objectId;
       dragRef.current = null;
       setCacheState((current) => current === 'none' ? current : 'dirty');
+      window.setTimeout(() => void refreshDestinationOcclusion(objectId, generationRef.current), 0);
     };
     const blockScroll = (event: TouchEvent) => {
       if (dragRef.current && event.cancelable) event.preventDefault();
@@ -141,12 +172,17 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     generationRef.current = generation;
     maskValuesRef.current.clear();
     dragRef.current = null;
+    objectsRef.current = [];
+    depthEstimateRef.current = null;
+    depthDirectionRef.current = 'unknown';
     setObjects([]);
     setSelectedId(null);
     setCleanBackground(null);
     setSourcePreview(photoUrl ?? null);
     setDetectorInfo(null);
     setDepthInfo(null);
+    setDepthSupportInfo(null);
+    setOccludedCutouts({});
     setIgnoredCount(0);
     setPersonDeferredCount(0);
     setError(null);
@@ -205,7 +241,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
               applySupportModel(restoredSupport);
               const constrained = constrainPreparedObjects(restored, restoredSupport, true);
               const corrected = positionsDiffer(restored, constrained);
-              setObjects(constrained);
+              commitObjects(constrained);
               setCleanBackground(cached.cleanBackgroundUrl);
               setBackgroundQuality(cached.backgroundQuality);
               setPreparedSceneId(cached.id);
@@ -215,7 +251,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
               setStatus(corrected
                 ? `${constrained.length} cached objects restored. Estimated support assist corrected an unsupported saved placement.`
                 : `${constrained.length} cached object${constrained.length === 1 ? '' : 's'} restored. Tap any prepared object and move it.`);
-              if (constrained.some((object) => typeof object.approximateDepth !== 'number') || restoredSupport.source !== 'hybrid') void enrichDepth(url, generation);
+              void enrichDepth(url, generation);
               return;
             }
           }
@@ -300,7 +336,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
           };
           next.position = constrainPreparedPosition(next, next.position, nextSupport, true);
           prepared.push(next);
-          setObjects([...prepared]);
+          commitObjects([...prepared]);
         }
       } catch {
         // One weak detector candidate must not stop room preparation.
@@ -347,21 +383,72 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     try {
       const estimate = await createDepthProvider().estimate(url);
       if (generationRef.current !== generation) return;
-      const depthSupport = estimateSupportModelFromDepth(estimate);
-      const mergedSupport = mergePreparedSupportModels(supportModelRef.current, depthSupport);
-      applySupportModel(mergedSupport);
-      setObjects((current) => {
-        const enriched = current.map((object) => ({
-          ...object,
-          approximateDepth: sampleDepth(estimate.normalized, estimate.width, estimate.height, object.position.x, object.position.y),
-        }));
-        return constrainPreparedObjects(enriched, mergedSupport, supportAssistRef.current);
+      const analysis = analyzeSupportModelFromDepth(estimate);
+      const merge = mergePreparedSupportModelsWithDiagnostics(supportModelRef.current, analysis.model);
+      depthEstimateRef.current = estimate;
+      depthDirectionRef.current = analysis.diagnostics.nearDirection;
+      setDepthSupportInfo({ diagnostics: analysis.diagnostics, mergeDecision: merge.decision, disagreement: merge.disagreement });
+      applySupportModel(merge.model);
+      commitObjects((current) => {
+        const enriched = current.map((object) => {
+          const sourceX = object.bbox.x + object.bbox.width / 2;
+          const sourceY = object.bbox.y + object.bbox.height / 2;
+          const rawDepth = sampleDepth(estimate.normalized, estimate.width, estimate.height, sourceX, sourceY);
+          return {
+            ...object,
+            approximateDepth: analysis.diagnostics.nearDirection === 'unknown'
+              ? undefined
+              : depthValueToNearness(rawDepth, analysis.diagnostics.nearDirection),
+          };
+        });
+        return constrainPreparedObjects(enriched, merge.model, supportAssistRef.current);
       });
       setDepthInfo({ provider: estimate.provider, model: estimate.model, modelVersion: estimate.modelVersion, processingMs: estimate.processingMs });
       setCacheState((current) => current === 'none' ? current : 'dirty');
-      if (depthSupport) setStatus('Depth surface evidence refined the estimated support boundary. Save changes to cache the updated scene.');
+      if (!analysis.model) {
+        setStatus(`Depth completed, but support evidence was rejected: ${depthReasonLabel(analysis.diagnostics.reason)}. Existing support evidence remains in control.`);
+      } else if (merge.decision === 'hybrid-agreement' || merge.decision === 'depth-replaces-fallback' || merge.decision === 'depth-wins-disagreement') {
+        setStatus('Depth surface evidence refined the estimated support boundary and enabled destination occlusion. Save changes to cache the updated scene.');
+      } else {
+        setStatus(`Depth support was usable but did not replace the current boundary (${mergeDecisionLabel(merge.decision)}). Destination occlusion is still available.`);
+      }
+      window.setTimeout(() => void refreshAllDestinationOcclusion(generation), 0);
+    } catch (cause) {
+      if (generationRef.current !== generation) return;
+      setDepthSupportInfo(null);
+      setStatus(cause instanceof Error && cause.message.includes('timed out')
+        ? 'Depth enrichment timed out. Object movement remains available.'
+        : 'Depth enrichment is unavailable. Object movement remains available.');
+    }
+  }
+
+  async function refreshDestinationOcclusion(objectId: string, generation: number) {
+    const depth = depthEstimateRef.current;
+    const source = sourceCanvasRef.current;
+    const direction = depthDirectionRef.current;
+    const object = objectsRef.current.find((candidate) => candidate.id === objectId);
+    if (!depth || !source || !object || direction === 'unknown') {
+      setOccludedCutouts((current) => removeKey(current, objectId));
+      return;
+    }
+    try {
+      const result = await createDestinationOccludedCutout(object, depth, direction, {
+        masks: [...maskValuesRef.current.values()],
+        width: source.width,
+        height: source.height,
+      });
+      if (generationRef.current !== generation) return;
+      setOccludedCutouts((current) => result ? { ...current, [objectId]: result } : removeKey(current, objectId));
     } catch {
-      // Depth is enrichment; movement remains available if it fails or times out.
+      if (generationRef.current !== generation) return;
+      setOccludedCutouts((current) => removeKey(current, objectId));
+    }
+  }
+
+  async function refreshAllDestinationOcclusion(generation: number) {
+    for (const object of objectsRef.current) {
+      if (generationRef.current !== generation) return;
+      await refreshDestinationOcclusion(object.id, generation);
     }
   }
 
@@ -467,7 +554,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       if (generationRef.current !== input.generation) return saved;
       setPreparedSceneId(saved.id);
       setCleanBackgroundAssetId(saved.cleanBackgroundAssetId);
-      setObjects((current) => mergePersistedAssetIds(current, saved.objects));
+      commitObjects((current) => mergePersistedAssetIds(current, saved.objects));
       setCacheState('saved');
       return saved;
     } catch (cause) {
@@ -483,6 +570,10 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     return {
       discovery: detectorInfo,
       depth: depthInfo,
+      depthSupportDiagnostics: depthSupportInfo?.diagnostics ?? null,
+      supportMergeDecision: depthSupportInfo?.mergeDecision ?? null,
+      supportMergeDisagreement: depthSupportInfo?.disagreement ?? null,
+      depthNearDirection: depthDirectionRef.current,
       automaticAcceptance: 'detector-guided-component-v2',
       personOverlapPolicy: 'defer',
       supportModelVersion: SUPPORT_MODEL_VERSION,
@@ -505,6 +596,9 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       if (!segment || segment.bbox.width * segment.bbox.height > 0.62) throw new Error('That area did not produce a reliable object mask.');
       const id = crypto.randomUUID();
       maskValuesRef.current.set(id, segment.maskValues);
+      const depth = depthEstimateRef.current;
+      const direction = depthDirectionRef.current;
+      const rawDepth = depth ? sampleDepth(depth.normalized, depth.width, depth.height, segment.centerX, segment.centerY) : null;
       const object: PreparedSceneObject = {
         id,
         label: 'object',
@@ -517,9 +611,10 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         position: { x: segment.centerX, y: segment.centerY },
         scale: 1,
         rotationDeg: 0,
+        approximateDepth: rawDepth !== null && direction !== 'unknown' ? depthValueToNearness(rawDepth, direction) : undefined,
         source: 'user_added',
       };
-      setObjects((current) => [...current, object]);
+      commitObjects((current) => [...current, object]);
       setSelectedId(id);
       setCleanBackground(createQuickCleanBackground(sourceCanvasRef.current, [...maskValuesRef.current.values()]));
       setCleanBackgroundAssetId(null);
@@ -528,6 +623,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       setCacheState('dirty');
       setAddMode(false);
       setStatus('Object added and ready to move. Improve background again if the new hidden region needs cleanup.');
+      window.setTimeout(() => void refreshDestinationOcclusion(id, generationRef.current), 0);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'That object could not be prepared.');
       setStatus('Tap nearer the center of the object and try again.');
@@ -540,6 +636,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     event.stopPropagation();
     setSelectedId(object.id);
     setAddMode(false);
+    setOccludedCutouts((current) => removeKey(current, object.id));
     dragRef.current = {
       objectId: object.id,
       pointerId: event.pointerId,
@@ -556,21 +653,23 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     supportAssistRef.current = next;
     setSupportAssistEnabled(next);
     if (next) {
-      setObjects((current) => constrainPreparedObjects(current, supportModelRef.current, true));
+      commitObjects((current) => constrainPreparedObjects(current, supportModelRef.current, true));
       setCacheState((current) => current === 'none' ? current : 'dirty');
       setStatus('Estimated support assist enabled. Floor and wall objects are kept on plausible support regions.');
+      window.setTimeout(() => void refreshAllDestinationOcclusion(generationRef.current), 0);
     } else {
       setStatus('Estimated support assist disabled. Free placement is available for comparison.');
     }
   }
 
   function resetPositions() {
-    setObjects((current) => current.map((object) => {
+    commitObjects((current) => current.map((object) => {
       const original = { ...object, position: { x: object.bbox.x + object.bbox.width / 2, y: object.bbox.y + object.bbox.height / 2 }, scale: 1, rotationDeg: 0 };
       return { ...original, position: constrainPreparedPosition(original, original.position, supportModelRef.current, supportAssistRef.current) };
     }));
     setCacheState((current) => current === 'none' ? current : 'dirty');
     setStatus('Prepared objects returned to their original photo positions.');
+    window.setTimeout(() => void refreshAllDestinationOcclusion(generationRef.current), 0);
   }
 
   const background = showCleanPlate ? cleanBackground : (cleanBackground ?? sourcePreview ?? photoUrl ?? null);
@@ -578,6 +677,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   const floorLeftY = floorBoundaryAtX(supportModel, 0);
   const floorRightY = floorBoundaryAtX(supportModel, 1);
   const floorLabelY = floorBoundaryAtX(supportModel, 0.84);
+  const occludedCount = Object.keys(occludedCutouts).length;
 
   if (!photoUrl) return <StateCard title="No room photo" body="Load a room photo to create a Prepared Scene." />;
 
@@ -632,6 +732,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         ) : null}
         {phase === 'ready' && !showCleanPlate ? ordered.map((object, index) => {
           const selectedObject = selectedId === object.id;
+          const occluded = occludedCutouts[object.id];
           return (
             <div
               key={object.id}
@@ -645,7 +746,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
                 outline: selectedObject ? '2px solid rgba(40,199,232,.9)' : '1px solid transparent', borderRadius: 4,
               }}
             >
-              <img src={object.cutoutDataUrl} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none', userSelect: 'none', filter: selectedObject ? 'drop-shadow(0 6px 8px rgba(0,0,0,.18))' : 'none' }} />
+              <img src={occluded?.dataUrl ?? object.cutoutDataUrl} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none', userSelect: 'none', filter: selectedObject ? 'drop-shadow(0 6px 8px rgba(0,0,0,.18))' : 'none' }} />
             </div>
           );
         }) : null}
@@ -663,11 +764,12 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       <View style={{ padding: 10, borderRadius: 14, backgroundColor: 'rgba(250,249,246,.82)', borderWidth: 1, borderColor: tokens.color.line, gap: 3 }}>
         <Text style={{ fontSize: 10, fontWeight: '800', color: tokens.color.text }}>Estimated prepared scene · source photo remains immutable</Text>
         <Text style={{ fontSize: 10, lineHeight: 15, color: tokens.color.muted }}>
-          {objects.length} editable object{objects.length === 1 ? '' : 's'} · {ignoredCount} detector candidate{ignoredCount === 1 ? '' : 's'} filtered/deferred · {personDeferredCount} candidate{personDeferredCount === 1 ? '' : 's'} deferred because a person overlaps it. {selected ? `Selected: ${selected.label} · expected support ${selected.expectedSupport}${typeof selected.approximateDepth === 'number' ? ` · relative depth ${selected.approximateDepth.toFixed(2)}` : ''}.` : 'Tap an object to select it.'}
+          {objects.length} editable object{objects.length === 1 ? '' : 's'} · {ignoredCount} detector candidate{ignoredCount === 1 ? '' : 's'} filtered/deferred · {personDeferredCount} candidate{personDeferredCount === 1 ? '' : 's'} deferred because a person overlaps it. {selected ? `Selected: ${selected.label} · expected support ${selected.expectedSupport}${typeof selected.approximateDepth === 'number' ? ` · relative nearness ${selected.approximateDepth.toFixed(2)}` : ''}.` : 'Tap an object to select it.'}
         </Text>
         <Text style={{ fontSize: 9, color: tokens.color.muted }}>Support assist: {supportAssistEnabled ? 'on' : 'off'} · center boundary {(supportModel.floorRegionStartY * 100).toFixed(0)}% · slope {(supportModel.floorBoundarySlope * 100).toFixed(1)} points across photo · confidence {(supportModel.confidence * 100).toFixed(0)}% · {supportModel.source}.</Text>
+        {depthSupportInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth support: {depthReasonLabel(depthSupportInfo.diagnostics.reason)} · strong {depthSupportInfo.diagnostics.strongSamples}/{depthSupportInfo.diagnostics.columns} · coherent {depthSupportInfo.diagnostics.robustSamples} · residual {formatNumber(depthSupportInfo.diagnostics.residual)} · near direction {depthSupportInfo.diagnostics.nearDirection} ({Math.round(depthSupportInfo.diagnostics.nearDirectionConfidence * 100)}%) · merge {mergeDecisionLabel(depthSupportInfo.mergeDecision)}{depthSupportInfo.disagreement === null ? '' : ` · disagreement ${(depthSupportInfo.disagreement * 100).toFixed(1)} pts`}.</Text> : null}
         <Text style={{ fontSize: 9, color: tokens.color.muted }}>Automatic masks use the detector as a guide and retain one connected MediaPipe component. Person-overlapped furniture is deferred instead of moving the person with it.</Text>
-        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Prepared layers use relative depth for front/back order when depth evidence exists; this is still estimated, not calibrated occlusion.</Text>
+        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Prepared layers use normalized relative nearness for front/back order. Destination occlusion is conservative and settles after drag release; {occludedCount} layer{occludedCount === 1 ? '' : 's'} currently depth-masked.</Text>
         <Text style={{ fontSize: 9, color: tokens.color.muted }}>Background: {backgroundQuality === 'ai_repaired' ? 'AI-repaired masked regions' : 'fast local approximation'} · Cache: {cacheLabel(cacheState)}</Text>
         {detectorInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Discovery: {detectorInfo.model} · {detectorInfo.processingMs} ms</Text> : null}
         {depthInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth/surfaces: {depthInfo.model} · {depthInfo.processingMs} ms</Text> : <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth/surface enrichment runs after objects become moveable so it does not block interaction.</Text>}
@@ -753,6 +855,38 @@ function mergePersistedAssetIds(current: PreparedSceneObject[], persisted: Prepa
     const stored = byId.get(object.id);
     return stored ? { ...object, maskAssetId: stored.maskAssetId, cutoutAssetId: stored.cutoutAssetId } : object;
   });
+}
+
+function removeKey<T>(record: Record<string, T>, key: string) {
+  if (!(key in record)) return record;
+  const next = { ...record };
+  delete next[key];
+  return next;
+}
+
+function depthReasonLabel(reason: DepthSupportDiagnostics['reason']) {
+  switch (reason) {
+    case 'accepted': return 'accepted';
+    case 'invalid-depth': return 'invalid depth field';
+    case 'insufficient-strong-transitions': return 'too few strong transitions';
+    case 'incoherent-transitions': return 'transitions disagree across the image';
+    case 'high-residual': return 'perspective fit residual too high';
+  }
+}
+
+function mergeDecisionLabel(decision: SupportMergeDecision) {
+  switch (decision) {
+    case 'anchor-only-no-depth': return 'anchors retained; no depth model';
+    case 'anchor-only-weak-depth': return 'anchors retained; depth confidence too low';
+    case 'depth-replaces-fallback': return 'depth replaced fallback';
+    case 'anchor-wins-disagreement': return 'anchors retained after disagreement';
+    case 'depth-wins-disagreement': return 'depth won after disagreement';
+    case 'hybrid-agreement': return 'detector/depth hybrid';
+  }
+}
+
+function formatNumber(value: number | null) {
+  return value === null ? 'n/a' : value.toFixed(3);
 }
 
 function cacheLabel(state: CacheState) {
