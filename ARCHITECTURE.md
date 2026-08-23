@@ -1,7 +1,7 @@
 # FormShift Architecture
 
 **Status:** Authoritative architecture  
-**Revision:** 0.5.6  
+**Revision:** 0.5.7  
 **Established:** 2026-08-19  
 **Last material architecture decision:** 2026-08-23
 
@@ -171,7 +171,7 @@ Source-bound cache lookup
                    ↓
              object layers
                    ↓
-          quick clean background
+      ghost-resistant quick clean plate
                    ↓ interaction available
              depth/support enrichment
                    ↓
@@ -195,9 +195,11 @@ A Prepared Scene may restore only onto the exact `source_asset_id` from which it
 Prepared Scene persistence is append-oriented and private:
 - `public.prepared_scenes` stores source lineage, parent lineage, background quality, object metadata/transforms and provider metadata;
 - masks, cutouts and clean-background images are private `assets` stored in `formshift-private`;
-- later versions may reuse immutable mask/cutout/background assets rather than duplicate unchanged bytes;
+- later versions may reuse immutable mask/cutout/background assets rather than duplicate unchanged bytes when their semantic generation remains compatible;
 - saving movement creates a new derived version rather than overwriting the source photograph;
 - Prepared Scene persistence never writes canonical measurement or spatial-version tables.
+
+The current Prepared Scene cache schema is **`prepared-scene-1.3`**. A material change to clean-background semantics, depth interpretation, object-layer meaning or another persisted derived contract must advance the appropriate generation/schema marker rather than silently reinterpret old derived artifacts. Historical packages remain historical evidence; they are not automatically treated as current.
 
 Provider metadata may retain bounded perception diagnostics and normalized-nearness provenance. Destination-occluded cutouts are currently recomputable rendering artifacts rather than canonical spatial state.
 
@@ -332,28 +334,55 @@ This is an **Estimated augmentation** effect, not calibrated occlusion. Calibrat
 
 ## 9. Background reconstruction integrity
 
-Prepared Scene maintains a fast local clean-background approximation so interaction can start without a remote generation round trip.
+Prepared Scene needs an immediate local clean-background approximation so object manipulation never depends on a remote image-generation round trip. However, the approximation must not visibly reproduce the object being removed.
 
-High-quality reconstruction is an **explicit** action. The user-visible scene must remain usable if the remote model fails.
+### Quick clean-plate contract
 
-For high-quality repair:
+The fast deterministic path must:
+- derive its replacement evidence only from **unmasked** source pixels around the removed region;
+- never use pixels inside the removed-object mask as fill evidence for that same region;
+- preserve every unaffected source pixel outside the bounded removal/feather region;
+- remain deterministic, local and inexpensive enough for mobile interaction;
+- be treated as an approximate interaction background, not photorealistic reconstruction.
+
+The current implementation uses nearest unmasked horizontal/vertical boundary evidence with interpolation and bounded edge feathering. It intentionally prefers a bland but non-duplicated approximation over a visually recognizable ghost of the removed object.
+
+### Removal-mask coverage
+
+Object masks may be expanded by a small image-scale-aware bounded radius before quick fill or high-quality reconstruction. Expansion exists to cover segmentation edge uncertainty, thin bezels, halos and small source shadows; it must not become a broad scene-edit license.
+
+High-quality generated pixels are accepted through a feathered bounded removal region so seams can soften without replacing unrelated source pixels.
+
+### Explicit high-quality repair
+
+High-quality reconstruction remains an **explicit** user action. The user-visible scene must remain usable if the remote model fails.
 
 ```text
 immutable source photo
-   + derived object-mask union
+   + bounded expanded object-mask union
    ↓
 authenticated image-repair provider
    ↓
 generated repaired candidate
    ↓
-mask-bounded acceptance/compositing
+feathered mask-bounded acceptance/compositing
    ↓
 derived clean background
 ```
 
-The generated candidate is never accepted wholesale. Only pixels inside the expanded prepared-object mask union may replace source-photo pixels in the clean background. Unmasked pixels remain the source photograph even if the provider modifies them.
+The generated candidate is never accepted wholesale. Unmasked/unaffected pixels remain the source photograph even if the provider modifies them.
+
+The Prepared Scene repair prompt must treat masked source content as **removal evidence**, not as semantic content to reproduce. The current prompt generation explicitly forbids copying/redrawing/ghosting recognizable removed screens, logos, text, reflected content, edges and object details inside the reconstructed region.
 
 This preserves spatial/source integrity while allowing a generative model to infer pixels that never existed in the original photograph.
+
+### Background-generation versioning
+
+Because clean backgrounds are persisted derived artifacts, a material change to the removal/fill/acceptance semantics requires a new Prepared Scene/background generation. An old ghost-prone clean plate must not silently restore merely because its source photo and object masks are otherwise valid.
+
+Current background artifact kinds are:
+- `prepared_scene_background_quick_v2`;
+- `prepared_scene_background_ai_v2`.
 
 ## 10. Scene augmentation pipeline
 
@@ -362,7 +391,7 @@ Target pipeline:
 ```text
 Immutable source photo
    ↓
-Prepared Scene object discovery + masks + clean plate
+Prepared Scene object discovery + masks + ghost-resistant clean plate
    ↓
 Camera / floor / wall calibration
    ↓
@@ -464,7 +493,7 @@ AI is server-side through Vercel AI SDK / AI Gateway for tasks requiring remote 
 
 State-changing structured AI output must use versioned schemas and pass entity/unit/range/geometry/authorization validation.
 
-Prepared Scene high-quality background repair is a distinct image task with provider/model/latency provenance. It does not mutate source imagery or canonical geometry.
+Prepared Scene high-quality background repair is a distinct image task with versioned prompt/provider/model/latency provenance. It does not mutate source imagery or canonical geometry. Prompt changes that materially alter image semantics are versioned so output evidence can be traced to the exact behavior requested.
 
 Provider/API keys remain server-only. Private images are not logged into ordinary observability streams.
 
@@ -492,7 +521,7 @@ Preserve:
 - measurement corrections
 - SceneAnalysis revisions/provider provenance
 - Prepared Scene source/parent lineage and provider provenance
-- reusable derived asset identity for masks/cutouts/backgrounds
+- reusable derived asset identity for masks/cutouts/backgrounds when generation-compatible
 - accepted/rejected Organize metadata
 - editable Arrange alternatives/assets/transforms
 - Build versions
@@ -501,15 +530,15 @@ Preserve:
 
 Feature-flagged scene providers retain a clean fallback to the last validated photo-editing behavior.
 
-Support/depth behavior uses a generation/version marker when its semantic interpretation changes. Older ambiguous raw-depth evidence must be recomputed or explicitly migrated rather than silently reinterpreted.
+Support/depth behavior uses a generation/version marker when its semantic interpretation changes. Clean-background behavior likewise advances its persisted generation when the fill/removal/acceptance contract materially changes. Older ambiguous or known-defective derived evidence must be recomputed or explicitly migrated rather than silently reinterpreted.
 
 ## 19. Reliability and observability
 
-Record privacy-safe correlation IDs plus relevant task/provider/model versions, latency, geometry-validation failures, scene-analysis failures, Prepared Scene discovery/segmentation/cache failures, image-repair failures, export failures and auth denials.
+Record privacy-safe correlation IDs plus relevant task/provider/model/prompt versions, latency, geometry-validation failures, scene-analysis failures, Prepared Scene discovery/segmentation/cache failures, image-repair failures, export failures and auth denials.
 
-Release gates include repository/security/domain checks, client/API typechecks, production web export, interaction regression coverage where available, preview deployment and physical-device acceptance for gesture-sensitive changes.
+Release gates include repository/security/domain checks, client/API typechecks, production web export, interaction regression coverage where available, preview deployment and physical-device acceptance for gesture-sensitive or visually critical changes.
 
-Wave 3 preview gating adds a fail-closed build boundary for the web candidate: the Vercel web preview runs repository/security/domain/Arrange/scene/Prepared-Support verification plus the client TypeScript check **before** Expo export. A failed guard or client typecheck prevents the preview from becoming READY. The separate API Vercel project remains independently required to build READY; GitHub CI retains the full cross-workspace API typecheck where all workspace dependencies are installed.
+Wave 3 preview gating adds a fail-closed build boundary for the web candidate: the Vercel web preview runs repository/security/domain/Arrange/scene/Prepared-Support verification plus the client TypeScript check **before** Expo export. A failed guard or client typecheck prevents the preview from becoming READY. The separate API Vercel project remains independently required to build successfully; GitHub CI retains the full cross-workspace API typecheck where all workspace dependencies are installed.
 
 Prepared Scene evaluation measures:
 - object discovery coverage
@@ -518,15 +547,16 @@ Prepared Scene evaluation measures:
 - full preparation latency
 - private-cache save/restore behavior
 - mobile memory pressure
-- clean-background quality
-- remote repair latency/quality
+- quick clean-plate ghost/duplicate-object rejection
+- clean-background boundary/seam quality
+- remote repair latency/quality and removed-object reappearance rate
 - support-evidence provenance/confidence and detector-vs-depth agreement
 - depth-profile rejection reason/sample counts/residual
 - inferred depth-direction confidence
 - destination-occlusion hidden fraction/stability
 - provider timeout/fallback behavior
 
-Do not infer device acceptance from a successful build.
+Do not infer physical/device acceptance from a successful build.
 
 ## 20. Rollout sequence
 
@@ -538,14 +568,15 @@ Do not infer device acceptance from a successful build.
 6. detector-backed object discovery/correction workflow based on device evidence
 7. detector-guided masks + relative-depth support-profile/hybrid enrichment
 8. diagnosable normalized-nearness + conservative destination-depth occlusion
-9. stronger source-scene semantics and calibrated camera/floor/wall mapping
-10. calibrated depth-aware occlusion/contact rendering
-11. physical constraint engine / Rapier or RealityKit integration where supported
-12. photo-first Organize visualization using Prepared Scene/shared scene engine
-13. calibrated Build visualization
-14. RoomPlan/RealityKit production capture/AR path
-15. local/cloud image-provider routing and quality/cost optimization
-16. private-beta hardening and broader Build archetypes
+9. ghost-resistant clean plate + bounded high-quality reconstruction acceptance
+10. stronger source-scene semantics and calibrated camera/floor/wall mapping
+11. calibrated depth-aware occlusion/contact rendering
+12. physical constraint engine / Rapier or RealityKit integration where supported
+13. photo-first Organize visualization using Prepared Scene/shared scene engine
+14. calibrated Build visualization
+15. RoomPlan/RealityKit production capture/AR path
+16. local/cloud image-provider routing and quality/cost optimization
+17. private-beta hardening and broader Build archetypes
 
 ## 21. Reconsideration triggers
 
@@ -554,12 +585,14 @@ Revisit architecture if:
 - local Prepared Scene model loading exceeds iPhone memory/latency budgets
 - automatic household-object coverage remains inadequate after a broader provider evaluation
 - relative-depth direction cannot be inferred robustly enough for stable destination occlusion
+- deterministic local clean plates remain visually unacceptable even as an interaction placeholder
+- remote repair repeatedly recreates masked source objects despite bounded masks/prompting
 - RealityKit/RoomPlan requires stronger iOS-native separation
 - segmentation/depth/inpainting workloads exceed browser/Vercel limits or cost
 - Prepared Scene derived storage materially exceeds private-group assumptions
 - public distribution becomes a goal
 - live retail/catalog integration becomes core
 
-## 22. Revision note — 0.5.6
+## 22. Revision note — 0.5.7
 
-Revision 0.5.6 makes relative depth semantically explicit and diagnosable before it is allowed to affect rendering. Depth-support rejection and detector/depth merge outcomes now retain evidence rather than silently falling back; raw provider depth is normalized to a single relative-nearness convention only when direction confidence is sufficient. Prepared Scene may use that derived nearness for conservative destination-depth occlusion after drag release, with a material depth margin, original prepared-mask exclusions, and fail-soft fallback to the unoccluded cutout. These effects remain Estimated augmentation and are not physical geometry. Support-model generation is advanced so older ambiguous depth evidence is recomputed. Physics remains gated behind calibrated/confirmed support and collision geometry.
+Revision 0.5.7 hardens the clean-background contract after physical iPhone evidence showed that shifted-source quick filling could reproduce a recognizable ghost of a moved TV. Quick clean plates must now derive replacement evidence only from unmasked boundary pixels and preserve unaffected source pixels. Removal regions use bounded scale-aware expansion, while high-quality generated repair remains explicit and is accepted only through a bounded feathered mask. The Prepared Scene image-repair prompt treats masked content as removal evidence and explicitly forbids recreating recognizable removed-object content. Because the persisted clean-background semantics materially changed, Prepared Scene cache generation advances to `prepared-scene-1.3` with v2 background asset kinds rather than silently restoring known-defective derived plates. Physics remains gated behind calibrated/confirmed support and collision geometry.
