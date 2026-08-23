@@ -69,7 +69,7 @@ export async function segmentPreparedObject(source: HTMLCanvasElement, seed: Poi
 
   try {
     const raw = mask.getAsFloat32Array() as Float32Array;
-    let values = projectMask({
+    let values: Uint8ClampedArray = projectMask({
       raw,
       maskWidth: mask.width as number,
       maskHeight: mask.height as number,
@@ -180,7 +180,7 @@ function refineMaskWithGuide(values: Uint8ClampedArray, width: number, height: n
         const ny = py + oy;
         if (nx < x0 || nx >= x1 || ny < y0 || ny >= y1) continue;
         const neighbor = ny * width + nx;
-        if ((values[neighbor] ?? 0) > refined[neighbor]!) refined[neighbor] = values[neighbor] ?? 0;
+        if ((values[neighbor] ?? 0) > (refined[neighbor] ?? 0)) refined[neighbor] = values[neighbor] ?? 0;
       }
     }
   }
