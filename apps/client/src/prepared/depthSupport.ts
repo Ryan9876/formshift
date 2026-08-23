@@ -2,6 +2,15 @@ import type { DepthEstimate } from '../scene/types';
 import { DEFAULT_PREPARED_SUPPORT_MODEL, type PreparedSupportModel } from './support.ts';
 
 type BoundarySample = { x: number; y: number; strength: number; contextStrength: number };
+type BoundaryCluster = {
+  samples: BoundarySample[];
+  centerY: number;
+  slope: number;
+  residual: number;
+  xCoverage: number;
+  averageStrength: number;
+  averageContextStrength: number;
+};
 export type DepthNearDirection = 'higher-is-nearer' | 'lower-is-nearer' | 'unknown';
 export type DepthSupportReason = 'accepted' | 'invalid-depth' | 'insufficient-strong-transitions' | 'incoherent-transitions' | 'high-residual';
 export type DepthSupportDiagnostics = {
@@ -27,6 +36,8 @@ const MIN_SAMPLE_STRENGTH = 5.5;
 const MIN_SAMPLES = 4;
 const MIN_ROBUST_SAMPLES = 5;
 const MIN_X_COVERAGE = 0.34;
+const CLUSTER_Y_TOLERANCE = 0.105;
+const CLUSTER_RESIDUAL_TOLERANCE = 0.065;
 
 export function analyzeSupportModelFromDepth(estimate: DepthEstimate): DepthSupportAnalysis {
   const direction = estimateDepthNearDirection(estimate);
@@ -48,65 +59,53 @@ export function analyzeSupportModelFromDepth(estimate: DepthEstimate): DepthSupp
     return { model: null, diagnostics: { ...base, reason: 'invalid-depth' } };
   }
 
-  const samples: BoundarySample[] = [];
+  const columnCandidates: BoundarySample[][] = [];
   for (let index = 0; index < COLUMN_COUNT; index += 1) {
     const x = 0.06 + (index / Math.max(1, COLUMN_COUNT - 1)) * 0.88;
-    const sample = strongestBoundaryAtX(estimate.normalized, estimate.width, estimate.height, x, direction.direction);
-    if (sample && sample.strength >= MIN_SAMPLE_STRENGTH) samples.push(sample);
+    columnCandidates.push(boundaryCandidatesAtX(estimate.normalized, estimate.width, estimate.height, x, direction.direction));
   }
-  if (samples.length < MIN_SAMPLES) {
-    return { model: null, diagnostics: { ...base, reason: 'insufficient-strong-transitions', strongSamples: samples.length } };
+  const strongColumns = columnCandidates.filter((samples) => samples.length > 0).length;
+  if (strongColumns < MIN_SAMPLES) {
+    return { model: null, diagnostics: { ...base, reason: 'insufficient-strong-transitions', strongSamples: strongColumns } };
   }
 
-  const medianY = median(samples.map((sample) => sample.y));
-  const robust = samples.filter((sample) => Math.abs(sample.y - medianY) <= 0.12);
-  const xCoverage = robust.length > 1
-    ? Math.max(...robust.map((sample) => sample.x)) - Math.min(...robust.map((sample) => sample.x))
-    : 0;
-  const averageStrength = robust.length
-    ? robust.reduce((sum, sample) => sum + sample.strength, 0) / robust.length
-    : null;
-  const averageContextStrength = robust.length
-    ? robust.reduce((sum, sample) => sum + sample.contextStrength, 0) / robust.length
-    : null;
+  const clusters = buildBoundaryClusters(columnCandidates);
+  const viable = clusters
+    .filter((cluster) => cluster.samples.length >= MIN_ROBUST_SAMPLES)
+    .filter((cluster) => cluster.xCoverage >= MIN_X_COVERAGE)
+    .filter((cluster) => cluster.residual <= 0.09)
+    .sort((a, b) => a.centerY - b.centerY || b.samples.length - a.samples.length);
 
-  if (robust.length < MIN_ROBUST_SAMPLES || xCoverage < MIN_X_COVERAGE) {
+  if (!viable.length) {
+    const best = [...clusters].sort((a, b) => b.samples.length - a.samples.length || b.xCoverage - a.xCoverage || a.residual - b.residual)[0];
     return {
       model: null,
       diagnostics: {
         ...base,
-        reason: 'incoherent-transitions',
-        strongSamples: samples.length,
-        robustSamples: robust.length,
-        xCoverage,
-        averageStrength,
-        averageContextStrength,
+        reason: best && best.samples.length >= MIN_ROBUST_SAMPLES && best.xCoverage >= MIN_X_COVERAGE ? 'high-residual' : 'incoherent-transitions',
+        strongSamples: strongColumns,
+        robustSamples: best?.samples.length ?? 0,
+        xCoverage: best?.xCoverage ?? null,
+        averageStrength: best?.averageStrength ?? null,
+        averageContextStrength: best?.averageContextStrength ?? null,
+        residual: best?.residual ?? null,
+        centerY: best?.centerY ?? null,
+        slope: best?.slope ?? null,
       },
     };
   }
 
-  const fit = fitBoundary(robust);
-  const residual = robust.reduce((sum, sample) => sum + Math.abs(sample.y - boundaryAt(fit.centerY, fit.slope, sample.x)), 0) / robust.length;
-  const detail = {
-    ...base,
-    strongSamples: samples.length,
-    robustSamples: robust.length,
-    xCoverage,
-    averageStrength,
-    averageContextStrength,
-    residual: Number.isFinite(residual) ? residual : null,
-    centerY: fit.centerY,
-    slope: fit.slope,
-  };
-  if (!Number.isFinite(residual) || residual > 0.09) {
-    return { model: null, diagnostics: { ...detail, reason: 'high-residual' } };
-  }
-
-  const coverage = robust.length / COLUMN_COUNT;
-  const spatialCoverage = clamp((xCoverage - MIN_X_COVERAGE) / Math.max(0.01, 0.88 - MIN_X_COVERAGE), 0, 1);
-  const strengthConfidence = clamp(((averageStrength ?? MIN_SAMPLE_STRENGTH) - MIN_SAMPLE_STRENGTH) / 28, 0, 1);
-  const contextConfidence = clamp(((averageContextStrength ?? 0) - 2) / 45, 0, 1);
-  const residualConfidence = clamp(1 - residual / 0.09, 0, 1);
+  // A single room photo can contain multiple coherent nearward transitions:
+  // wall→floor, hardwood→rug, floor→foreground furniture, etc. The support
+  // cutoff for wall-mounted objects is the farthest/upper room-wide floor
+  // transition, not the strongest later material edge. Choose the earliest
+  // coherent band that already satisfies the same coverage/residual gates.
+  const selected = viable[0]!;
+  const coverage = selected.samples.length / COLUMN_COUNT;
+  const spatialCoverage = clamp((selected.xCoverage - MIN_X_COVERAGE) / Math.max(0.01, 0.88 - MIN_X_COVERAGE), 0, 1);
+  const strengthConfidence = clamp((selected.averageStrength - MIN_SAMPLE_STRENGTH) / 28, 0, 1);
+  const contextConfidence = clamp((selected.averageContextStrength - 2) / 45, 0, 1);
+  const residualConfidence = clamp(1 - selected.residual / 0.09, 0, 1);
   const confidence = clamp(
     0.22
       + coverage * 0.2
@@ -118,10 +117,22 @@ export function analyzeSupportModelFromDepth(estimate: DepthEstimate): DepthSupp
     0.78,
   );
 
+  const detail = {
+    ...base,
+    strongSamples: strongColumns,
+    robustSamples: selected.samples.length,
+    xCoverage: selected.xCoverage,
+    averageStrength: selected.averageStrength,
+    averageContextStrength: selected.averageContextStrength,
+    residual: selected.residual,
+    centerY: selected.centerY,
+    slope: selected.slope,
+  };
+
   return {
     model: {
-      floorRegionStartY: clamp(fit.centerY, 0.44, 0.78),
-      floorBoundarySlope: clamp(fit.slope, -0.22, 0.22),
+      floorRegionStartY: clamp(selected.centerY, 0.44, 0.78),
+      floorBoundarySlope: clamp(selected.slope, -0.22, 0.22),
       confidence,
       source: 'depth-profile',
     },
@@ -186,13 +197,13 @@ export function estimateDepthNearDirection(estimate: Pick<DepthEstimate, 'width'
   return { direction: difference > 0 ? 'higher-is-nearer' as const : 'lower-is-nearer' as const, confidence };
 }
 
-function strongestBoundaryAtX(
+function boundaryCandidatesAtX(
   values: Uint8ClampedArray,
   width: number,
   height: number,
   normalizedX: number,
   direction: DepthNearDirection,
-): BoundarySample | null {
+): BoundarySample[] {
   const x = clamp(Math.round(normalizedX * (width - 1)), 0, width - 1);
   const yStart = clamp(Math.round(height * 0.36), 2, height - 3);
   const yEnd = clamp(Math.round(height * 0.84), yStart + 1, height - 3);
@@ -201,10 +212,8 @@ function strongestBoundaryAtX(
   const localRadiusY = Math.max(2, Math.round(height / 140));
   const contextOffset = Math.max(localRadiusY + 2, Math.round(height * 0.055));
   const contextRadiusY = Math.max(2, Math.round(height * 0.022));
+  const raw: BoundarySample[] = [];
 
-  let bestY = -1;
-  let bestStrength = 0;
-  let bestContextStrength = 0;
   for (let y = yStart; y <= yEnd; y += step) {
     const localAbove = meanWindow(values, width, height, x, y - localRadiusY, radiusX, Math.max(1, Math.floor(localRadiusY / 2)));
     const localBelow = meanWindow(values, width, height, x, y + localRadiusY, radiusX, Math.max(1, Math.floor(localRadiusY / 2)));
@@ -220,15 +229,78 @@ function strongestBoundaryAtX(
     const normalizedY = y / height;
     const locationWeight = clamp(1 - Math.abs(normalizedY - 0.6) * 0.35, 0.82, 1);
     const strength = (localEvidence * 0.45 + contextEvidence * 0.75) * locationWeight;
-    if (strength > bestStrength) {
-      bestStrength = strength;
-      bestContextStrength = contextEvidence;
-      bestY = y;
+    if (strength >= MIN_SAMPLE_STRENGTH) {
+      raw.push({ x: normalizedX, y: normalizedY, strength, contextStrength: contextEvidence });
     }
   }
 
-  if (bestY < 0) return null;
-  return { x: normalizedX, y: bestY / height, strength: bestStrength, contextStrength: bestContextStrength };
+  if (!raw.length) return [];
+  // Collapse adjacent samples around the same physical edge. Keep the strongest
+  // representative but preserve weaker, spatially distinct transitions so the
+  // room-wide selector can distinguish wall/floor from later rug/floor edges.
+  const collapsed: BoundarySample[] = [];
+  for (const sample of raw.sort((a, b) => a.y - b.y)) {
+    const previous = collapsed[collapsed.length - 1];
+    if (previous && Math.abs(previous.y - sample.y) <= 0.035) {
+      if (sample.strength > previous.strength) collapsed[collapsed.length - 1] = sample;
+    } else {
+      collapsed.push(sample);
+    }
+  }
+  return collapsed
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, 6)
+    .sort((a, b) => a.y - b.y);
+}
+
+function buildBoundaryClusters(columns: BoundarySample[][]): BoundaryCluster[] {
+  const seeds = columns.flat();
+  const clusters: BoundaryCluster[] = [];
+
+  for (const seed of seeds) {
+    const selected: BoundarySample[] = [];
+    for (const column of columns) {
+      const matches = column.filter((sample) => Math.abs(sample.y - seed.y) <= CLUSTER_Y_TOLERANCE);
+      if (!matches.length) continue;
+      const best = [...matches].sort((a, b) => {
+        const scoreA = a.strength - Math.abs(a.y - seed.y) * 90;
+        const scoreB = b.strength - Math.abs(b.y - seed.y) * 90;
+        return scoreB - scoreA;
+      })[0];
+      if (best) selected.push(best);
+    }
+    if (selected.length < MIN_SAMPLES) continue;
+
+    const firstFit = fitBoundary(selected);
+    const robust = selected.filter((sample) => Math.abs(sample.y - boundaryAt(firstFit.centerY, firstFit.slope, sample.x)) <= CLUSTER_RESIDUAL_TOLERANCE);
+    if (robust.length < MIN_SAMPLES) continue;
+    const fit = fitBoundary(robust);
+    const residual = robust.reduce((sum, sample) => sum + Math.abs(sample.y - boundaryAt(fit.centerY, fit.slope, sample.x)), 0) / robust.length;
+    const xCoverage = robust.length > 1
+      ? Math.max(...robust.map((sample) => sample.x)) - Math.min(...robust.map((sample) => sample.x))
+      : 0;
+    const averageStrength = robust.reduce((sum, sample) => sum + sample.strength, 0) / robust.length;
+    const averageContextStrength = robust.reduce((sum, sample) => sum + sample.contextStrength, 0) / robust.length;
+    const cluster: BoundaryCluster = {
+      samples: robust,
+      centerY: fit.centerY,
+      slope: fit.slope,
+      residual,
+      xCoverage,
+      averageStrength,
+      averageContextStrength,
+    };
+
+    const duplicateIndex = clusters.findIndex((existing) => Math.abs(existing.centerY - cluster.centerY) <= 0.035);
+    if (duplicateIndex < 0) {
+      clusters.push(cluster);
+    } else if (cluster.samples.length > clusters[duplicateIndex]!.samples.length
+      || (cluster.samples.length === clusters[duplicateIndex]!.samples.length && cluster.residual < clusters[duplicateIndex]!.residual)) {
+      clusters[duplicateIndex] = cluster;
+    }
+  }
+
+  return clusters;
 }
 
 function nearwardDifference(above: number, below: number, direction: DepthNearDirection) {
@@ -288,13 +360,6 @@ function fitBoundary(samples: BoundarySample[]) {
 
 function boundaryAt(centerY: number, slope: number, x: number) {
   return centerY + slope * (x - 0.5);
-}
-
-function median(values: number[]) {
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  if (sorted.length % 2) return sorted[middle] ?? 0;
-  return ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
 }
 
 function clamp(value: number, min: number, max: number) {
