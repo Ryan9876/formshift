@@ -7,6 +7,7 @@ import {
   mergePreparedSupportModelsWithDiagnostics,
 } from '../apps/client/src/prepared/depthSupport.ts';
 import { shouldOccludeDepthSample } from '../apps/client/src/prepared/occlusion.web.ts';
+import { inpaintPreparedMask } from '../apps/client/src/prepared/quickInpaint.ts';
 import {
   classifyPreparedLabel,
   comparePreparedDepth,
@@ -176,4 +177,37 @@ const unmoved = preparedObject({ id: 'farther', approximateDepth: 0.5, position:
 assert.ok(projectedPreparedDepth(movedTowardViewer) > projectedPreparedDepth(unmoved), 'moving lower in image should increase estimated projected depth');
 assert.ok(comparePreparedDepth(unmoved, movedTowardViewer) < 0, 'movement-aware depth must render the lower/nearer prepared layer in front');
 
-console.log('PASS Prepared Scene depth diagnostics, support fusion, conservative source occlusion, mask safety, and movement-aware depth regression checks');
+// Quick clean-plate regression: a high-contrast removed object must not be
+// reproduced from its own source pixels, while every unmasked pixel remains exact.
+const quickWidth = 24;
+const quickHeight = 12;
+const quickSource = new Uint8ClampedArray(quickWidth * quickHeight * 4);
+const quickMask = new Uint8ClampedArray(quickWidth * quickHeight);
+for (let y = 0; y < quickHeight; y += 1) {
+  for (let x = 0; x < quickWidth; x += 1) {
+    const index = y * quickWidth + x;
+    const offset = index * 4;
+    const background = 92 + x;
+    quickSource[offset] = background;
+    quickSource[offset + 1] = background;
+    quickSource[offset + 2] = background;
+    quickSource[offset + 3] = 255;
+    if (x >= 8 && x <= 15 && y >= 3 && y <= 8) {
+      quickSource[offset] = 248;
+      quickSource[offset + 1] = 28;
+      quickSource[offset + 2] = 28;
+      quickMask[index] = 255;
+    }
+  }
+}
+const quickResult = inpaintPreparedMask(quickSource, quickMask, quickWidth, quickHeight);
+assert.equal(quickResult.stats.maskedPixels, 48);
+assert.equal(quickResult.stats.filledPixels, 48);
+const quickCenterOffset = (6 * quickWidth + 11) * 4;
+assert.ok((quickResult.pixels[quickCenterOffset] ?? 255) < 150, 'masked center should be reconstructed from surrounding background rather than retaining the bright removed object');
+const quickOutsideOffset = (1 * quickWidth + 2) * 4;
+for (let channel = 0; channel < 4; channel += 1) {
+  assert.equal(quickResult.pixels[quickOutsideOffset + channel], quickSource[quickOutsideOffset + channel], 'unmasked quick-clean pixels must remain source-identical');
+}
+
+console.log('PASS Prepared Scene depth diagnostics, support fusion, conservative source occlusion, mask safety, movement-aware depth, and ghost-resistant quick-clean regression checks');
