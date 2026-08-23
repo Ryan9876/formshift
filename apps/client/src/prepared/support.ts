@@ -1,13 +1,17 @@
 import type { ObjectDetectionCandidate, PreparedBox, PreparedObjectMobility, PreparedSceneObject, PreparedSupportKind } from './types';
 
 export type PreparedSupportModel = {
+  /** Floor/wall transition at normalized image x=0.5. */
   floorRegionStartY: number;
+  /** Change in normalized transition y from image left to right. */
+  floorBoundarySlope: number;
   confidence: number;
   source: 'detector-anchors' | 'object-anchors' | 'fallback';
 };
 
 export const DEFAULT_PREPARED_SUPPORT_MODEL: PreparedSupportModel = {
   floorRegionStartY: 0.56,
+  floorBoundarySlope: 0,
   confidence: 0.25,
   source: 'fallback',
 };
@@ -29,47 +33,85 @@ export function isFixedPreparedLabel(label: string) {
   return FIXED_LABELS.has(label);
 }
 
+type SupportAnchor = { x: number; y: number };
+
 export function estimateSupportModel(candidates: ObjectDetectionCandidate[], imageWidth: number, imageHeight: number): PreparedSupportModel {
   const anchors = candidates
     .filter((candidate) => candidate.score >= 0.45 && classifyPreparedLabel(candidate.label).support === 'floor')
-    .map((candidate) => clamp(candidate.box.ymax / Math.max(1, imageHeight), 0, 1))
-    .filter((value) => value >= 0.35 && value <= 0.98)
-    .sort((a, b) => a - b);
+    .map((candidate): SupportAnchor => ({
+      x: clamp(((candidate.box.xmin + candidate.box.xmax) / 2) / Math.max(1, imageWidth), 0, 1),
+      y: clamp(candidate.box.ymax / Math.max(1, imageHeight), 0, 1),
+    }))
+    .filter((anchor) => anchor.y >= 0.35 && anchor.y <= 0.98);
 
-  if (!anchors.length) return DEFAULT_PREPARED_SUPPORT_MODEL;
-  const median = anchors[Math.floor(anchors.length / 2)] ?? 0.62;
-  return {
-    floorRegionStartY: clamp(median - 0.06, 0.46, 0.72),
-    confidence: anchors.length >= 2 ? 0.68 : 0.52,
-    source: 'detector-anchors',
-  };
+  return modelFromAnchors(anchors, 'detector-anchors');
 }
 
 export function estimateSupportModelFromObjects(objects: PreparedSceneObject[]): PreparedSupportModel {
   const anchors = objects
     .filter((object) => object.expectedSupport === 'floor')
-    .map((object) => object.bbox.y + object.bbox.height)
-    .filter((value) => value >= 0.35 && value <= 0.98)
-    .sort((a, b) => a - b);
+    .map((object): SupportAnchor => ({
+      x: clamp(object.bbox.x + object.bbox.width / 2, 0, 1),
+      y: clamp(object.bbox.y + object.bbox.height, 0, 1),
+    }))
+    .filter((anchor) => anchor.y >= 0.35 && anchor.y <= 0.98);
+  return modelFromAnchors(anchors, 'object-anchors');
+}
+
+function modelFromAnchors(anchors: SupportAnchor[], source: 'detector-anchors' | 'object-anchors'): PreparedSupportModel {
   if (!anchors.length) return DEFAULT_PREPARED_SUPPORT_MODEL;
-  const median = anchors[Math.floor(anchors.length / 2)] ?? 0.62;
+  const ys = anchors.map((anchor) => anchor.y).sort((a, b) => a - b);
+  const median = ys[Math.floor(ys.length / 2)] ?? 0.62;
+  const slope = fitBoundarySlope(anchors);
+  const centerBoundary = clamp(median - 0.06, 0.46, 0.72);
+  const xSpread = anchors.length > 1 ? Math.max(...anchors.map((anchor) => anchor.x)) - Math.min(...anchors.map((anchor) => anchor.x)) : 0;
+  const hasPerspectiveEvidence = anchors.length >= 2 && xSpread >= 0.16;
   return {
-    floorRegionStartY: clamp(median - 0.06, 0.46, 0.72),
-    confidence: anchors.length >= 2 ? 0.62 : 0.48,
-    source: 'object-anchors',
+    floorRegionStartY: centerBoundary,
+    floorBoundarySlope: hasPerspectiveEvidence ? slope : 0,
+    confidence: source === 'detector-anchors'
+      ? anchors.length >= 2 ? (hasPerspectiveEvidence ? 0.74 : 0.68) : 0.52
+      : anchors.length >= 2 ? (hasPerspectiveEvidence ? 0.68 : 0.62) : 0.48,
+    source,
   };
+}
+
+function fitBoundarySlope(anchors: SupportAnchor[]) {
+  if (anchors.length < 2) return 0;
+  const meanX = anchors.reduce((sum, anchor) => sum + anchor.x, 0) / anchors.length;
+  const meanY = anchors.reduce((sum, anchor) => sum + anchor.y, 0) / anchors.length;
+  let numerator = 0;
+  let denominator = 0;
+  for (const anchor of anchors) {
+    const dx = anchor.x - meanX;
+    numerator += dx * (anchor.y - meanY);
+    denominator += dx * dx;
+  }
+  if (denominator < 0.005) return 0;
+  return clamp(numerator / denominator, -0.22, 0.22);
+}
+
+export function floorBoundaryAtX(model: PreparedSupportModel, x: number) {
+  return clamp(model.floorRegionStartY + model.floorBoundarySlope * (clamp(x, 0, 1) - 0.5), 0.38, 0.84);
 }
 
 export function parsePreparedSupportModel(value: unknown): PreparedSupportModel | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const floorRegionStartY = typeof record.floorRegionStartY === 'number' ? record.floorRegionStartY : NaN;
+  const floorBoundarySlope = typeof record.floorBoundarySlope === 'number' ? record.floorBoundarySlope : 0;
   const confidence = typeof record.confidence === 'number' ? record.confidence : NaN;
   const source = record.source;
   if (!Number.isFinite(floorRegionStartY) || floorRegionStartY < 0.35 || floorRegionStartY > 0.85) return null;
+  if (!Number.isFinite(floorBoundarySlope) || Math.abs(floorBoundarySlope) > 0.3) return null;
   if (!Number.isFinite(confidence)) return null;
   if (source !== 'detector-anchors' && source !== 'object-anchors' && source !== 'fallback') return null;
-  return { floorRegionStartY, confidence: clamp(confidence, 0, 1), source };
+  return {
+    floorRegionStartY,
+    floorBoundarySlope,
+    confidence: clamp(confidence, 0, 1),
+    source,
+  };
 }
 
 export function isPersonOccludedCandidate(candidate: ObjectDetectionCandidate, allCandidates: ObjectDetectionCandidate[]) {
@@ -80,9 +122,15 @@ export function isPersonOccludedCandidate(candidate: ObjectDetectionCandidate, a
     if (person.label !== 'person' || person.score < 0.45) return false;
     const intersection = intersectionArea(candidate.box, person.box);
     if (intersection <= 0) return false;
+    const personArea = boxArea(person.box);
     const candidateOverlap = intersection / area;
+    const personOverlap = intersection / Math.max(1, personArea);
     const personCenter = { x: (person.box.xmin + person.box.xmax) / 2, y: (person.box.ymin + person.box.ymax) / 2 };
-    return candidateOverlap >= 0.1 || pointInPixelBox(personCenter, candidate.box);
+    const candidateCenter = { x: (candidate.box.xmin + candidate.box.xmax) / 2, y: (candidate.box.ymin + candidate.box.ymax) / 2 };
+    return candidateOverlap >= 0.06
+      || personOverlap >= 0.16
+      || pointInPixelBox(personCenter, candidate.box)
+      || pointInPixelBox(candidateCenter, person.box);
   });
 }
 
@@ -98,10 +146,17 @@ export function maskMatchesDetection(maskBox: PreparedBox, candidate: ObjectDete
   if (maskArea <= 0 || detectorArea <= 0) return false;
   const overlap = normalizedIntersection(maskBox, detectorBox);
   const overlapOfSmaller = overlap / Math.max(0.000001, Math.min(maskArea, detectorArea));
+  const detectorCoverage = overlap / Math.max(0.000001, detectorArea);
+  const maskOutsideFraction = 1 - overlap / Math.max(0.000001, maskArea);
   const ratio = maskArea / detectorArea;
-  const detectorExpanded = expandNormalizedBox(detectorBox, 0.35);
+  const detectorExpanded = expandNormalizedBox(detectorBox, 0.25);
   const maskCenter = { x: maskBox.x + maskBox.width / 2, y: maskBox.y + maskBox.height / 2 };
-  return overlapOfSmaller >= 0.22 && ratio >= 0.18 && ratio <= 3.4 && pointInNormalizedBox(maskCenter, detectorExpanded);
+  return overlapOfSmaller >= 0.3
+    && detectorCoverage >= 0.18
+    && maskOutsideFraction <= 0.68
+    && ratio >= 0.2
+    && ratio <= 2.6
+    && pointInNormalizedBox(maskCenter, detectorExpanded);
 }
 
 export function constrainPreparedPosition(object: PreparedSceneObject, desired: { x: number; y: number }, model: PreparedSupportModel, enabled: boolean) {
@@ -111,12 +166,13 @@ export function constrainPreparedPosition(object: PreparedSceneObject, desired: 
   const freeY = clamp(desired.y, Math.min(0.49, halfHeight + 0.01), Math.max(0.51, 0.99 - halfHeight));
   if (!enabled) return { x, y: freeY };
 
+  const boundaryY = floorBoundaryAtX(model, x);
   if (object.expectedSupport === 'floor') {
-    const minCenterY = clamp(model.floorRegionStartY - halfHeight, halfHeight + 0.01, 0.94);
+    const minCenterY = clamp(boundaryY - halfHeight, halfHeight + 0.01, 0.94);
     return { x, y: clamp(freeY, minCenterY, Math.max(minCenterY, 0.99 - halfHeight)) };
   }
   if (object.expectedSupport === 'wall') {
-    const maxCenterY = clamp(model.floorRegionStartY + 0.03 - halfHeight, halfHeight + 0.01, 0.94);
+    const maxCenterY = clamp(boundaryY + 0.03 - halfHeight, halfHeight + 0.01, 0.94);
     return { x, y: clamp(freeY, halfHeight + 0.01, maxCenterY) };
   }
   return { x, y: freeY };
@@ -135,13 +191,18 @@ export function positionsDiffer(a: PreparedSceneObject[], b: PreparedSceneObject
   });
 }
 
+export function projectedPreparedDepth(object: PreparedSceneObject) {
+  const sourceCenterY = object.bbox.y + object.bbox.height / 2;
+  const motionDepthOffset = clamp((object.position.y - sourceCenterY) * 0.55, -0.22, 0.22);
+  const sourceDepth = typeof object.approximateDepth === 'number' && Number.isFinite(object.approximateDepth)
+    ? object.approximateDepth
+    : clamp(sourceCenterY, 0, 1);
+  return clamp(sourceDepth + motionDepthOffset, 0, 1);
+}
+
 export function comparePreparedDepth(a: PreparedSceneObject, b: PreparedSceneObject) {
-  const aDepth = a.approximateDepth;
-  const bDepth = b.approximateDepth;
-  if (typeof aDepth === 'number' && typeof bDepth === 'number' && Number.isFinite(aDepth) && Number.isFinite(bDepth)) {
-    const delta = aDepth - bDepth;
-    if (Math.abs(delta) >= 0.002) return delta;
-  }
+  const delta = projectedPreparedDepth(a) - projectedPreparedDepth(b);
+  if (Math.abs(delta) >= 0.002) return delta;
   return a.position.y - b.position.y;
 }
 
