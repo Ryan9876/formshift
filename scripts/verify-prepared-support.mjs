@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import {
+  analyzeSupportModelFromDepth,
+  depthValueToNearness,
   estimateSupportModelFromDepth,
   mergePreparedSupportModels,
+  mergePreparedSupportModelsWithDiagnostics,
 } from '../apps/client/src/prepared/depthSupport.ts';
+import { shouldOccludeDepthSample } from '../apps/client/src/prepared/occlusion.web.ts';
 import {
   classifyPreparedLabel,
   comparePreparedDepth,
@@ -74,18 +78,44 @@ assert.ok(Math.abs(support.floorBoundarySlope) > 0.01, 'separated floor anchors 
 assert.ok(support.confidence >= 0.7);
 assert.notEqual(floorBoundaryAtX(support, 0.1), floorBoundaryAtX(support, 0.9), 'perspective boundary must vary across x when evidence supports it');
 
-const depthSupport = estimateSupportModelFromDepth(syntheticDepth());
+const depthAnalysis = analyzeSupportModelFromDepth(syntheticDepth());
+const depthSupport = depthAnalysis.model;
 assert.ok(depthSupport, 'coherent depth transition should produce support evidence');
+assert.equal(depthAnalysis.diagnostics.reason, 'accepted');
+assert.ok(depthAnalysis.diagnostics.strongSamples >= 4);
+assert.ok(depthAnalysis.diagnostics.robustSamples >= 4);
+assert.equal(depthAnalysis.diagnostics.nearDirection, 'higher-is-nearer');
+assert.ok(depthAnalysis.diagnostics.nearDirectionConfidence > 0.18);
 assert.equal(depthSupport.source, 'depth-profile');
 assert.ok(depthSupport.floorRegionStartY > 0.5 && depthSupport.floorRegionStartY < 0.62);
 assert.ok(depthSupport.floorBoundarySlope > 0.03, 'depth profile should preserve left-to-right perspective trend');
 assert.ok(depthSupport.confidence >= 0.4 && depthSupport.confidence <= 0.84);
+assert.deepEqual(estimateSupportModelFromDepth(syntheticDepth()), depthSupport);
+
+const flatDepth = syntheticDepth(60, 60);
+flatDepth.normalized.fill(100);
+const flatAnalysis = analyzeSupportModelFromDepth(flatDepth);
+assert.equal(flatAnalysis.model, null);
+assert.equal(flatAnalysis.diagnostics.reason, 'insufficient-strong-transitions');
 
 const anchorNearDepth = { ...support, floorRegionStartY: depthSupport.floorRegionStartY + 0.02, floorBoundarySlope: depthSupport.floorBoundarySlope * 0.8, confidence: 0.7 };
+const mergeAnalysis = mergePreparedSupportModelsWithDiagnostics(anchorNearDepth, depthSupport);
+assert.equal(mergeAnalysis.decision, 'hybrid-agreement');
 const hybrid = mergePreparedSupportModels(anchorNearDepth, depthSupport);
 assert.equal(hybrid.source, 'hybrid');
 assert.ok(hybrid.confidence >= Math.max(anchorNearDepth.confidence, depthSupport.confidence), 'agreeing independent evidence should not reduce confidence');
 assert.ok(Math.abs(hybrid.floorRegionStartY - depthSupport.floorRegionStartY) < 0.04);
+
+const disagreeingDepth = { ...depthSupport, floorRegionStartY: 0.78, confidence: 0.55 };
+const disagreeMerge = mergePreparedSupportModelsWithDiagnostics({ ...support, floorRegionStartY: 0.5, confidence: 0.68 }, disagreeingDepth);
+assert.equal(disagreeMerge.decision, 'anchor-wins-disagreement');
+assert.ok((disagreeMerge.disagreement ?? 0) > 0.16);
+
+assert.equal(depthValueToNearness(0.8, 'higher-is-nearer'), 0.8);
+assert.equal(depthValueToNearness(0.8, 'lower-is-nearer'), 0.2);
+assert.equal(shouldOccludeDepthSample(0.8, 0.55), true, 'materially nearer source pixels should occlude a moved prepared object');
+assert.equal(shouldOccludeDepthSample(0.61, 0.55), false, 'small depth differences must not create unstable occlusion');
+assert.equal(shouldOccludeDepthSample(0.4, 0.55), false, 'farther source pixels remain behind the prepared object');
 
 const person = candidate('person', 0.99, 360, 260, 620, 880);
 const couch = candidate('couch', 0.97, 180, 420, 880, 940);
@@ -146,4 +176,4 @@ const unmoved = preparedObject({ id: 'farther', approximateDepth: 0.5, position:
 assert.ok(projectedPreparedDepth(movedTowardViewer) > projectedPreparedDepth(unmoved), 'moving lower in image should increase estimated projected depth');
 assert.ok(comparePreparedDepth(unmoved, movedTowardViewer) < 0, 'movement-aware depth must render the lower/nearer prepared layer in front');
 
-console.log('PASS Prepared Scene depth-derived support, perspective constraints, mask safety, and movement-aware depth regression checks');
+console.log('PASS Prepared Scene depth diagnostics, support fusion, conservative source occlusion, mask safety, and movement-aware depth regression checks');
