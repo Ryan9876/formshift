@@ -13,7 +13,7 @@
   "scripts": {
     "domain:build": "npm run build -w @formshift/domain",
     "domain:test": "npm run test -w @formshift/domain",
-    "verify:arrange": "node scripts/verify-arrange-contract.mjs",
+    "verify:arrange": "node scripts/verify-arrange-contract.mjs && node --experimental-strip-types scripts/verify-refinement-coordinates.mjs",
     "verify:scene": "node scripts/verify-scene-boundaries.mjs",
     "verify:prepared-support": "node --experimental-strip-types scripts/verify-prepared-support.mjs",
     "verify:spatial-import": "node --experimental-strip-types scripts/verify-spatial-import.mjs && node scripts/verify-spatial-import-boundary.mjs",
