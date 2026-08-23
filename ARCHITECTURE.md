@@ -1,7 +1,7 @@
 # FormShift Architecture
 
 **Status:** Authoritative architecture  
-**Revision:** 0.5.7  
+**Revision:** 0.5.8  
 **Established:** 2026-08-19  
 **Last material architecture decision:** 2026-08-23
 
@@ -29,6 +29,7 @@ Private user
           │
           ├── Deterministic geometry / BOM / blueprint engines
           ├── Derived SceneAnalysis providers
+          ├── Provider-neutral SpatialImportEvidence
           ├── Source-bound PreparedScene object/background layers
           ├── Photo-scene calibration / projection / occlusion pipeline
           └── Server AI orchestration (Vercel AI SDK / AI Gateway)
@@ -60,21 +61,22 @@ Primary capabilities:
 - Build brief/design/BOM/blueprint review
 - derived scene analysis where a browser-local provider is appropriate
 - progressive Prepared Scene generation/restoration
+- local inspection/comparison of supported external spatial exports
 - explicit server-assisted image reconstruction when the user requests it
 - exports/sharing
 
-The browser is not required to reproduce RoomPlan capture.
+The browser is not required to reproduce RoomPlan capture. External spatial import in the current web implementation is diagnostic/local evidence inspection, not an authority-changing ingestion path.
 
 ### iOS
 
 Primary capture/AR platform:
 - standard photo capture
-- optional RoomPlan/LiDAR capture
+- **preferred RoomPlan/LiDAR structural capture on supported devices**
 - camera calibration/depth where available
 - RealityKit geometry-faithful in-scene placement
 - native spatial interaction where browser fidelity is insufficient
 
-Unsupported iPhones retain standard photo/manual workflows.
+On LiDAR-capable devices, direct RoomPlan structural evidence should supersede single-photo monocular support heuristics when the native capture contract is available and validated. Unsupported iPhones retain standard photo/manual/import-assisted workflows.
 
 ### Android
 
@@ -98,6 +100,7 @@ Project
     │   ├── constraints
     │   └── measurement references
     ├── Scene Analyses (derived)
+    ├── Spatial Imports (derived external evidence)
     ├── Prepared Scenes (derived, source-bound)
     ├── Organize proposals
     ├── Arrange alternatives
@@ -110,7 +113,7 @@ Project
     └── Exports
 ```
 
-Photos, depth maps, masks, Prepared Scene layers and renders are not canonical coordinates. They are source evidence or derived scene products.
+Photos, external meshes/floorplans, depth maps, masks, Prepared Scene layers and renders are not canonical coordinates merely because they contain metric data. They are source evidence or derived scene products until an explicit reviewed adoption path creates/supersedes canonical measurements or spatial versions.
 
 ## 5. Coordinate and measurement model
 
@@ -122,7 +125,7 @@ Photos, depth maps, masks, Prepared Scene layers and renders are not canonical c
 - manual correction supersedes rather than erases provenance
 - spatial versions are immutable
 
-No vision/depth/AI provider may silently promote inferred pixels into verified measurements.
+No vision/depth/AI/import provider may silently promote inferred or external geometry into verified measurements.
 
 ## 6. SceneAnalysis contract
 
@@ -203,9 +206,72 @@ The current Prepared Scene cache schema is **`prepared-scene-1.3`**. A material 
 
 Provider metadata may retain bounded perception diagnostics and normalized-nearness provenance. Destination-occluded cutouts are currently recomputable rendering artifacts rather than canonical spatial state.
 
+## 6.2 SpatialImportEvidence contract
+
+`SpatialImportEvidence` is a provider-neutral, non-authoritative representation of spatial data supplied from an external capture/reconstruction system. Its purpose is to compare mature structural evidence against FormShift's current room model and to avoid reimplementing commodity capture/reconstruction capability unnecessarily.
+
+The v1 contract supports:
+- source provider/format/file metadata;
+- explicit coordinate convention/unit evidence;
+- glTF/GLB scene, mesh, primitive, vertex, material and image metadata;
+- metric scene bounds when glTF accessor bounds and transforms make them derivable;
+- RoomPlan/CapturedRoom-style walls, floors, doors, windows, openings, objects, sections, confidence/category counts, polygon evidence and metric bounds;
+- Developer Mode/session archive inventory for likely keyframe, depth, confidence and camera/pose artifacts;
+- diagnostic comparison with the current canonical `SpatialSnapshot`;
+- warnings/limitations and evidence confidence;
+- a hard `canonicalMutationAllowed: false` boundary in the current contract.
+
+Current baseline formats are:
+- RoomPlan/CapturedRoom-compatible JSON;
+- glTF JSON;
+- GLB embedded glTF metadata;
+- ZIP central-directory inventory for raw capture/session packages.
+
+### Authority boundary
+
+```text
+External capture/export
+        ↓
+SpatialImportEvidence
+        ↓
+diagnostic comparison
+        ↓
+human/provider review
+        ↓
+explicit future adoption workflow
+        ↓
+canonical measurements / SpatialSnapshot
+```
+
+An import is **not** a measurement acceptance event. Metric external evidence can become a candidate for later adoption only through a separate typed workflow that validates source/provider/version, units, coordinate mapping, confidence, project/space binding and human/system review. The current Spatial Import Lab has no such authority.
+
+### Polycam reference role
+
+Polycam is a clean-room **reference capture/reconstruction benchmark and optional external evidence source**, not a FormShift runtime dependency. FormShift may inspect user-exported Polycam/RoomPlan/glTF/GLB/raw packages through the generic import contract.
+
+Polycam Enterprise Content API access is not a baseline dependency. A future API adapter is justified only if it reduces meaningful workflow burden without becoming required for capture, rendering, canonical geometry or user data access.
+
+### Capture-source hierarchy
+
+For structural evidence:
+
+```text
+LiDAR-capable iPhone
+→ validated native RoomPlan/LiDAR evidence preferred
+→ reviewed external RoomPlan/mesh evidence may supplement/compare
+→ monocular photo depth remains fallback/augmentation
+
+Non-LiDAR device
+→ photo / multi-view evidence + explicit calibration
+→ reviewed external mesh/floorplan evidence when supplied
+→ monocular estimates remain labeled estimated
+```
+
+This hierarchy does not make imported external data automatically authoritative; it prioritizes stronger capture evidence over weaker heuristics when both are available.
+
 ## 7. Scene provider architecture
 
-Commodity vision capability is accessed through provider boundaries rather than embedded directly into product state or UI logic.
+Commodity vision and external spatial capability are accessed through provider boundaries rather than embedded directly into product state or UI logic.
 
 ```text
 Scene / PreparedScene orchestration
@@ -222,6 +288,11 @@ Scene / PreparedScene orchestration
    ├── DepthProvider
    │    ├── Depth Anything V2 Small local candidate
    │    └── future device/native/server provider
+   │
+   ├── SpatialImportInspector
+   │    ├── RoomPlan JSON
+   │    ├── glTF / GLB metadata
+   │    └── raw-session ZIP inventory
    │
    └── future calibration / semantics providers
 ```
@@ -303,6 +374,7 @@ Used for exact verification/diagnostics:
 - Skia plan/2.5D editor
 - measured perspective geometry view
 - depth/calibration diagnostics
+- spatial-import comparison diagnostics
 - blueprint views
 - collision/clearance overlays
 
@@ -389,7 +461,7 @@ Current background artifact kinds are:
 Target pipeline:
 
 ```text
-Immutable source photo
+Immutable source photo / preferred structural capture / reviewed import evidence
    ↓
 Prepared Scene object discovery + masks + ghost-resistant clean plate
    ↓
@@ -397,7 +469,7 @@ Camera / floor / wall calibration
    ↓
 Scene understanding + normalized relative depth + support relationships
    ↓
-Canonical spatial object placement where calibrated
+Canonical spatial object placement where calibrated/adopted
    ↓
 Geometry-faithful projection/render
    ↓
@@ -408,7 +480,7 @@ Optional AI reconstruction within bounded masks
 Labeled augmented scene
 ```
 
-Until camera calibration exists, estimated mapping/occlusion may be used only as explicitly labeled visualization. Plan/canonical geometry remains fit authority.
+Until camera calibration exists, estimated mapping/occlusion may be used only as explicitly labeled visualization. Imported evidence also remains non-authoritative until explicitly reviewed/adopted. Plan/canonical geometry remains fit authority.
 
 ## 11. Arrange architecture
 
@@ -459,7 +531,8 @@ The deterministic Build engine owns dimensions, components, placement envelope, 
 - React Native Skia: technical 2D/2.5D precision views
 - web calibrated scene rendering: Three.js-class path when needed
 - iOS geometry/AR: RealityKit
-- iOS room capture: RoomPlan behind a native adapter
+- iOS room capture: RoomPlan behind a native adapter; preferred structural source on validated LiDAR devices
+- external mesh/floorplan evidence: provider-neutral SpatialImportEvidence; no Polycam-specific renderer required
 - web physical simulation: Rapier-class path only after support/collision geometry is reliable
 - photo compositing: shared scene-projection contract with platform-specific implementation allowed
 - blueprint: retained/vector geometry, never AI-drawn blueprint pixels
@@ -482,6 +555,12 @@ Supabase owns Auth, PostgreSQL, private Storage and RLS/storage policies.
 - private Storage paths begin with project UUID and remain protected by existing project-scoped storage policies
 
 Prepared Scene records are append-oriented. New versions preserve parent lineage instead of rewriting prior derived state.
+
+### Spatial imports
+
+The current v1 Spatial Import Lab is **non-persistent and local-only**. User-selected import bytes stay in the browser process for inspection; the lab does not upload them to Vercel, Supabase or Polycam and does not create assets/measurements/spatial versions.
+
+If spatial imports later become persistent project evidence, they must use private project-scoped storage, explicit source/provider/format/version provenance and a separate adoption workflow. Persistence must not imply acceptance as canonical geometry.
 
 ### Vercel
 
@@ -510,8 +589,10 @@ Local open-source perception models may run in browser/device when privacy, late
 - project deletion must include derived scene artifacts
 - no service-role dependency in normal client runtime
 - generative background repair remains explicit rather than an automatic upload side effect
+- Spatial Import Lab is authenticated and local-only in v1; imported files are not uploaded/network-fetched by the inspection path
+- Polycam/API credentials are not required by the baseline spatial-import architecture
 
-No derived layer may overwrite the immutable source photo.
+No derived or imported layer may overwrite the immutable source photo or canonical geometry implicitly.
 
 ## 18. Versioning and reversibility
 
@@ -522,6 +603,7 @@ Preserve:
 - SceneAnalysis revisions/provider provenance
 - Prepared Scene source/parent lineage and provider provenance
 - reusable derived asset identity for masks/cutouts/backgrounds when generation-compatible
+- external spatial-evidence source/provider/format/version provenance if such evidence becomes persisted
 - accepted/rejected Organize metadata
 - editable Arrange alternatives/assets/transforms
 - Build versions
@@ -532,13 +614,15 @@ Feature-flagged scene providers retain a clean fallback to the last validated ph
 
 Support/depth behavior uses a generation/version marker when its semantic interpretation changes. Clean-background behavior likewise advances its persisted generation when the fill/removal/acceptance contract materially changes. Older ambiguous or known-defective derived evidence must be recomputed or explicitly migrated rather than silently reinterpreted.
 
+External import parsers/adapters are versioned evidence translators. A parser change must not silently reinterpret previously adopted measurements; any future adoption step must record the importer/provider/version used.
+
 ## 19. Reliability and observability
 
-Record privacy-safe correlation IDs plus relevant task/provider/model/prompt versions, latency, geometry-validation failures, scene-analysis failures, Prepared Scene discovery/segmentation/cache failures, image-repair failures, export failures and auth denials.
+Record privacy-safe correlation IDs plus relevant task/provider/model/prompt/importer versions, latency, geometry-validation failures, scene-analysis failures, Prepared Scene discovery/segmentation/cache failures, spatial-import parse/comparison failures, image-repair failures, export failures and auth denials.
 
 Release gates include repository/security/domain checks, client/API typechecks, production web export, interaction regression coverage where available, preview deployment and physical-device acceptance for gesture-sensitive or visually critical changes.
 
-Wave 3 preview gating adds a fail-closed build boundary for the web candidate: the Vercel web preview runs repository/security/domain/Arrange/scene/Prepared-Support verification plus the client TypeScript check **before** Expo export. A failed guard or client typecheck prevents the preview from becoming READY. The separate API Vercel project remains independently required to build successfully; GitHub CI retains the full cross-workspace API typecheck where all workspace dependencies are installed.
+Wave 3 preview gating adds a fail-closed build boundary for the web candidate: the Vercel web preview runs repository/security/domain/Arrange/scene/Prepared-Support/**Spatial-Import** verification plus the client TypeScript check **before** Expo export. The Spatial-Import gate verifies glTF/GLB metric metadata, RoomPlan evidence, ZIP inventory, canonical comparison, no network upload and no canonical persistence mutation. A failed guard or client typecheck prevents the preview from becoming READY. The separate API Vercel project remains independently required to build successfully; GitHub CI retains the full cross-workspace API typecheck where all workspace dependencies are installed.
 
 Prepared Scene evaluation measures:
 - object discovery coverage
@@ -556,7 +640,16 @@ Prepared Scene evaluation measures:
 - destination-occlusion hidden fraction/stability
 - provider timeout/fallback behavior
 
-Do not infer physical/device acceptance from a successful build.
+Spatial-import evaluation measures:
+- format/parser compatibility with real exports;
+- coordinate/unit/bounds correctness;
+- RoomPlan structural count/transform accuracy;
+- imported-vs-canonical dimension deltas;
+- raw archive evidence-class coverage;
+- privacy/no-upload compliance;
+- explicit non-mutation/adoption separation.
+
+Do not infer physical/device or real-export compatibility from a successful synthetic/build test.
 
 ## 20. Rollout sequence
 
@@ -569,14 +662,15 @@ Do not infer physical/device acceptance from a successful build.
 7. detector-guided masks + relative-depth support-profile/hybrid enrichment
 8. diagnosable normalized-nearness + conservative destination-depth occlusion
 9. ghost-resistant clean plate + bounded high-quality reconstruction acceptance
-10. stronger source-scene semantics and calibrated camera/floor/wall mapping
-11. calibrated depth-aware occlusion/contact rendering
-12. physical constraint engine / Rapier or RealityKit integration where supported
-13. photo-first Organize visualization using Prepared Scene/shared scene engine
-14. calibrated Build visualization
-15. RoomPlan/RealityKit production capture/AR path
-16. local/cloud image-provider routing and quality/cost optimization
-17. private-beta hardening and broader Build archetypes
+10. provider-neutral spatial import/reference benchmark with real RoomPlan/Polycam/glTF evidence
+11. expand/validate native RoomPlan structural capture on LiDAR iPhones
+12. explicit image-space calibration fallback for non-LiDAR photos
+13. calibrated source-scene semantics, camera/floor/wall mapping and depth-aware occlusion/contact rendering
+14. physical constraint engine / Rapier or RealityKit integration where supported
+15. photo-first Organize visualization using Prepared Scene/shared scene engine
+16. calibrated Build visualization
+17. local/cloud image-provider routing and quality/cost optimization
+18. private-beta hardening and broader Build archetypes
 
 ## 21. Reconsideration triggers
 
@@ -587,12 +681,15 @@ Revisit architecture if:
 - relative-depth direction cannot be inferred robustly enough for stable destination occlusion
 - deterministic local clean plates remain visually unacceptable even as an interaction placeholder
 - remote repair repeatedly recreates masked source objects despite bounded masks/prompting
+- RoomPlan/import evidence proves sufficient to remove additional monocular structural heuristics
+- external spatial formats prove too unstable to normalize safely behind one evidence contract
+- a paid provider API becomes necessary rather than optional for core operation
 - RealityKit/RoomPlan requires stronger iOS-native separation
 - segmentation/depth/inpainting workloads exceed browser/Vercel limits or cost
 - Prepared Scene derived storage materially exceeds private-group assumptions
 - public distribution becomes a goal
 - live retail/catalog integration becomes core
 
-## 22. Revision note — 0.5.7
+## 22. Revision note — 0.5.8
 
-Revision 0.5.7 hardens the clean-background contract after physical iPhone evidence showed that shifted-source quick filling could reproduce a recognizable ghost of a moved TV. Quick clean plates must now derive replacement evidence only from unmasked boundary pixels and preserve unaffected source pixels. Removal regions use bounded scale-aware expansion, while high-quality generated repair remains explicit and is accepted only through a bounded feathered mask. The Prepared Scene image-repair prompt treats masked content as removal evidence and explicitly forbids recreating recognizable removed-object content. Because the persisted clean-background semantics materially changed, Prepared Scene cache generation advances to `prepared-scene-1.3` with v2 background asset kinds rather than silently restoring known-defective derived plates. Physics remains gated behind calibrated/confirmed support and collision geometry.
+Revision 0.5.8 adds a provider-neutral external spatial-evidence layer after Polycam was selected as a clean-room reference benchmark for mature room capture/reconstruction. The protected web Spatial Import Lab locally inspects RoomPlan/CapturedRoom JSON, glTF/GLB scene metadata and raw-session ZIP inventories, compares supported metric evidence against the current FormShift `SpatialSnapshot`, and has no persistence or canonical mutation authority. Polycam remains an optional benchmark/import source rather than a runtime or Enterprise-API dependency. On validated LiDAR-capable iPhones, native RoomPlan structural evidence is now the preferred architecture over increasingly complex single-photo support heuristics; monocular depth remains an estimated fallback/augmentation path. Any future external-evidence adoption into canonical measurements/spatial versions must be explicit, typed, provenance-preserving and separately reviewed. Physics remains gated behind calibrated/confirmed support and collision geometry.
