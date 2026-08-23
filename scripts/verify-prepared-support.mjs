@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import {
+  estimateSupportModelFromDepth,
+  mergePreparedSupportModels,
+} from '../apps/client/src/prepared/depthSupport.ts';
+import {
   classifyPreparedLabel,
   comparePreparedDepth,
   constrainPreparedPosition,
@@ -32,6 +36,29 @@ function preparedObject(overrides = {}) {
   };
 }
 
+function syntheticDepth(width = 130, height = 100) {
+  const normalized = new Uint8ClampedArray(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const nx = x / Math.max(1, width - 1);
+      const boundary = 0.56 + 0.09 * (nx - 0.5);
+      const ny = y / Math.max(1, height - 1);
+      const base = ny < boundary ? 55 : 185;
+      normalized[y * width + x] = Math.max(0, Math.min(255, base + Math.round((nx - 0.5) * 6)));
+    }
+  }
+  return {
+    width,
+    height,
+    normalized,
+    dataUrl: 'data:image/png;base64,',
+    provider: 'test',
+    model: 'synthetic-depth',
+    modelVersion: 'test',
+    processingMs: 1,
+  };
+}
+
 const tv = classifyPreparedLabel('tv');
 assert.deepEqual(tv, { mobility: 'conditional', support: 'wall' });
 assert.deepEqual(classifyPreparedLabel('couch'), { mobility: 'movable', support: 'floor' });
@@ -46,6 +73,19 @@ assert.ok(support.floorRegionStartY >= 0.46 && support.floorRegionStartY <= 0.72
 assert.ok(Math.abs(support.floorBoundarySlope) > 0.01, 'separated floor anchors should produce an x-dependent boundary');
 assert.ok(support.confidence >= 0.7);
 assert.notEqual(floorBoundaryAtX(support, 0.1), floorBoundaryAtX(support, 0.9), 'perspective boundary must vary across x when evidence supports it');
+
+const depthSupport = estimateSupportModelFromDepth(syntheticDepth());
+assert.ok(depthSupport, 'coherent depth transition should produce support evidence');
+assert.equal(depthSupport.source, 'depth-profile');
+assert.ok(depthSupport.floorRegionStartY > 0.5 && depthSupport.floorRegionStartY < 0.62);
+assert.ok(depthSupport.floorBoundarySlope > 0.03, 'depth profile should preserve left-to-right perspective trend');
+assert.ok(depthSupport.confidence >= 0.4 && depthSupport.confidence <= 0.84);
+
+const anchorNearDepth = { ...support, floorRegionStartY: depthSupport.floorRegionStartY + 0.02, floorBoundarySlope: depthSupport.floorBoundarySlope * 0.8, confidence: 0.7 };
+const hybrid = mergePreparedSupportModels(anchorNearDepth, depthSupport);
+assert.equal(hybrid.source, 'hybrid');
+assert.ok(hybrid.confidence >= Math.max(anchorNearDepth.confidence, depthSupport.confidence), 'agreeing independent evidence should not reduce confidence');
+assert.ok(Math.abs(hybrid.floorRegionStartY - depthSupport.floorRegionStartY) < 0.04);
 
 const person = candidate('person', 0.99, 360, 260, 620, 880);
 const couch = candidate('couch', 0.97, 180, 420, 880, 940);
@@ -106,4 +146,4 @@ const unmoved = preparedObject({ id: 'farther', approximateDepth: 0.5, position:
 assert.ok(projectedPreparedDepth(movedTowardViewer) > projectedPreparedDepth(unmoved), 'moving lower in image should increase estimated projected depth');
 assert.ok(comparePreparedDepth(unmoved, movedTowardViewer) < 0, 'movement-aware depth must render the lower/nearer prepared layer in front');
 
-console.log('PASS Prepared Scene perspective support, mask-safety, and movement-aware depth regression checks');
+console.log('PASS Prepared Scene depth-derived support, perspective constraints, mask safety, and movement-aware depth regression checks');
