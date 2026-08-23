@@ -1,23 +1,30 @@
 export type ArrangePoint = { x: number; y: number };
 export type ArrangeStageSize = { width: number; height: number };
 export type ArrangeRect = { left: number; top: number; width: number; height: number };
+export type ArrangeViewportOffset = { x: number; y: number };
+
+const ZERO_OFFSET: ArrangeViewportOffset = { x: 0, y: 0 };
 
 /**
  * Convert browser client coordinates into the editor's layout-stage coordinate
- * space. getBoundingClientRect() reports rendered CSS pixels while React Native
- * onLayout reports layout pixels; those spaces can diverge under browser/page
- * scaling. Keeping the conversion explicit prevents refinement strokes from
- * drifting relative to the source image on iOS Safari.
+ * space. On iOS WebKit, PointerEvent clientX/clientY can be visual-viewport
+ * relative while getBoundingClientRect() remains layout-viewport relative when
+ * the browser chrome or pinch-zoom pans the visual viewport. We compensate that
+ * visual offset before applying rendered-rect/layout-stage scaling.
  */
 export function clientToStagePoint(
   client: ArrangePoint,
   rect: ArrangeRect,
   stage: ArrangeStageSize,
+  viewportOffset: ArrangeViewportOffset = currentClientViewportOffset(),
 ): ArrangePoint | null {
   if (!isPositive(rect.width) || !isPositive(rect.height) || !isPositive(stage.width) || !isPositive(stage.height)) return null;
+  const offset = finiteOffset(viewportOffset);
+  const layoutClientX = client.x + offset.x;
+  const layoutClientY = client.y + offset.y;
   return {
-    x: (client.x - rect.left) * (stage.width / rect.width),
-    y: (client.y - rect.top) * (stage.height / rect.height),
+    x: (layoutClientX - rect.left) * (stage.width / rect.width),
+    y: (layoutClientY - rect.top) * (stage.height / rect.height),
   };
 }
 
@@ -52,24 +59,54 @@ export function imageToStagePoint(
   };
 }
 
-/** Test/diagnostic inverse used to prove scroll/render-scale invariance. */
+/** Test/diagnostic inverse used to prove scroll/render/visual-viewport invariance. */
 export function imageToClientPoint(
   image: ArrangePoint,
   rect: ArrangeRect,
   stage: ArrangeStageSize,
   viewScale: number,
   viewOffset: ArrangePoint,
+  viewportOffset: ArrangeViewportOffset = currentClientViewportOffset(),
 ): ArrangePoint | null {
   if (!isPositive(rect.width) || !isPositive(rect.height) || !isPositive(stage.width) || !isPositive(stage.height)) return null;
   const point = imageToStagePoint(image, viewScale, viewOffset, stage);
+  const offset = finiteOffset(viewportOffset);
   return {
-    x: rect.left + point.x * (rect.width / stage.width),
-    y: rect.top + point.y * (rect.height / stage.height),
+    x: rect.left + point.x * (rect.width / stage.width) - offset.x,
+    y: rect.top + point.y * (rect.height / stage.height) - offset.y,
   };
+}
+
+/**
+ * Mobile Safari/WebKit keeps a visual viewport that can move independently of
+ * the layout viewport as browser chrome collapses/expands or the user
+ * pinch-zooms. Other engines generally keep client rects and client pointer
+ * coordinates in the same effective space, so compensation is intentionally
+ * limited to iOS/iPadOS WebKit.
+ */
+export function currentClientViewportOffset(): ArrangeViewportOffset {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return ZERO_OFFSET;
+  const ua = navigator.userAgent ?? '';
+  const platform = navigator.platform ?? '';
+  const maxTouchPoints = navigator.maxTouchPoints ?? 0;
+  const isIOSFamily = /iP(?:ad|hone|od)/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1);
+  const isWebKit = /AppleWebKit/i.test(ua);
+  if (!isIOSFamily || !isWebKit || !window.visualViewport) return ZERO_OFFSET;
+  return finiteOffset({
+    x: window.visualViewport.offsetLeft,
+    y: window.visualViewport.offsetTop,
+  });
 }
 
 export function refinementBrushRadius(stage: ArrangeStageSize, viewScale: number) {
   return Math.max(6, Math.min(stage.width, stage.height) * 0.012 * Math.max(viewScale, 1));
+}
+
+function finiteOffset(offset: ArrangeViewportOffset): ArrangeViewportOffset {
+  return {
+    x: Number.isFinite(offset.x) ? offset.x : 0,
+    y: Number.isFinite(offset.y) ? offset.y : 0,
+  };
 }
 
 function isPositive(value: number) {
