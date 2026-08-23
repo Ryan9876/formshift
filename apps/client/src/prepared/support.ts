@@ -6,7 +6,7 @@ export type PreparedSupportModel = {
   /** Change in normalized transition y from image left to right. */
   floorBoundarySlope: number;
   confidence: number;
-  source: 'detector-anchors' | 'object-anchors' | 'fallback';
+  source: 'detector-anchors' | 'object-anchors' | 'depth-profile' | 'hybrid' | 'fallback';
 };
 
 export const DEFAULT_PREPARED_SUPPORT_MODEL: PreparedSupportModel = {
@@ -105,7 +105,7 @@ export function parsePreparedSupportModel(value: unknown): PreparedSupportModel 
   if (!Number.isFinite(floorRegionStartY) || floorRegionStartY < 0.35 || floorRegionStartY > 0.85) return null;
   if (!Number.isFinite(floorBoundarySlope) || Math.abs(floorBoundarySlope) > 0.3) return null;
   if (!Number.isFinite(confidence)) return null;
-  if (source !== 'detector-anchors' && source !== 'object-anchors' && source !== 'fallback') return null;
+  if (source !== 'detector-anchors' && source !== 'object-anchors' && source !== 'depth-profile' && source !== 'hybrid' && source !== 'fallback') return null;
   return {
     floorRegionStartY,
     floorBoundarySlope,
