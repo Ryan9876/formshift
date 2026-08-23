@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.9.26  
+**Revision:** 0.9.27  
 **Date:** 2026-08-23  
-**Milestone:** Wave 3 includes a build-validated clean-room Spatial Import Lab for Polycam/RoomPlan/glTF evidence; ghost-resistant local source removal is physically accepted, support calibration remains unresolved, and the next decisive input is a real Polycam export from the same room.
+**Milestone:** Wave 3 fixes the iPhone manual-selection refinement coordinate drift with a source-stable client→layout→image transform and permanent scroll/render-scale/zoom regression coverage; Spatial Import remains build-validated and Prepared Scene structural calibration remains open.
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
 
@@ -11,6 +11,72 @@ FormShift is a **photo-first spatial augmentation product**. The real captured r
 Production web remains on the validated Photo Arrange v2.2 baseline. Prepared Scene and the Spatial Import Lab have **not** been promoted to production.
 
 No production merge, web promotion, database migration, credential change, Polycam API provisioning, or physics integration occurred in this Wave 3 continuation.
+
+## Latest physical interaction evidence — manual refinement drift
+
+The latest supplied iPhone screenshot showed the canonical Photo Arrange refinement surface in **Add** mode with teal painted-selection strokes visibly displaced across the wall and around the TV instead of remaining under the user's intended finger path.
+
+This is treated as a real interaction regression, not user error and not a segmentation-quality issue. The defect was traced to mixed coordinate spaces:
+- pointer coordinates came from `getBoundingClientRect()` in rendered browser CSS pixels;
+- the editor's `stageSize` came from React Native `onLayout` in layout-stage pixels;
+- the old code subtracted the DOM rect origin but then normalized directly by `stageSize`;
+- on iOS Safari, page/visual scaling can make rendered DOM dimensions differ from the layout-stage dimensions, causing the painted source-image coordinates and preview overlay to drift.
+
+### Implemented fix
+
+A pure `apps/client/src/arrange/refinementCoordinates.ts` transform now owns the refinement mapping:
+
+```text
+browser client coordinate
+→ rendered DOM rect
+→ layout-stage coordinate
+→ app zoom/pan inverse
+→ normalized immutable source-image coordinate
+```
+
+The editor now:
+- converts `clientX/clientY` through the rendered DOM rectangle into layout-stage pixels before applying FormShift zoom/pan;
+- stores refinement strokes only as normalized source-image coordinates;
+- renders the live stroke through the exact inverse image→stage transform;
+- uses the same transform for initial short-tap selection and subsequent Add/Remove strokes;
+- removes the old mixed-space `localPoint` / `stageToImage` helpers;
+- shows a visible Add/Remove brush-footprint ring under the finger so alignment can be checked during the stroke rather than only after recomputation;
+- preserves the existing short-tap, pinch, pan, Safari drag-capture, save, repair and source-immutability contracts.
+
+### Permanent regression
+
+`scripts/verify-refinement-coordinates.mjs` is now part of `verify:arrange` and proves normalized source coordinates remain invariant across:
+- normal browser layout;
+- substantial vertical page scrolling;
+- rendered DOM scaling relative to React Native layout dimensions;
+- FormShift photo zoom and pan composed with browser scaling;
+- image→stage→image inverse mapping;
+- brush-preview transform behavior;
+- invalid/zero-size DOM geometry failing closed.
+
+The Arrange contract gate also requires the new transform and brush footprint and fails if the legacy mixed-space helpers return.
+
+### Validation evidence
+
+Functional exact head:
+
+`3325ebfb86cbd0c14e0ae47e282dc6bafe65b2d0`
+
+Evidence:
+- web Vercel preview `dpl_9XXeRmXFfFbQZRHGLE5k7rZBVJNA` — **READY**;
+- exact-head GitHub combined status — **Vercel web success + Vercel API success**;
+- repository structure verification — pass;
+- security/RLS source verification — pass;
+- domain tests — pass;
+- canonical Arrange/Safari regression suite — pass;
+- **refinement coordinate invariance regression — pass**;
+- scene/provider/persistence boundary suite — pass;
+- Prepared Scene support/occlusion/quick-clean regressions — pass;
+- Spatial Import regression/privacy/authority suite — pass;
+- client TypeScript check — pass;
+- static web export — pass.
+
+This fix is **build-validated, not yet physically accepted on iPhone**. Physical acceptance requires painting Add/Remove strokes while the page is vertically scrolled and after photo zoom/pan and confirming the brush ring, live stroke and resulting mask remain directly aligned with the intended image location.
 
 ## Physically validated Prepared Scene baseline
 
@@ -24,101 +90,35 @@ Current iPhone evidence proves:
 - Depth Anything V2 Small executes locally on the physical iPhone;
 - source-bound Prepared Scene persistence/restore works;
 - immutable source photography and canonical measurements/spatial versions remain unchanged;
-- the **ghost-resistant local quick clean plate physically removes the TV without leaving a recognizable duplicate TV, HP advertisement, logo, readable screen text, or screen image at the original wall location**.
+- the ghost-resistant local quick clean plate physically removes the TV without leaving recognizable duplicate TV/HP/screen content.
 
-Mild reconstruction banding remains in the former TV region. That is a visual-quality issue, but the prior blocking duplicate/ghost failure is physically closed for the local quick-clean path.
+Mild reconstruction banding remains in the former TV region. That is a visual-quality issue; the prior blocking duplicate/ghost failure is physically closed for the local quick-clean path.
 
-## Latest physical support evidence
+## Current structural-support status
 
-The latest supplied iPhone screenshot showed:
-- **1 editable object:** `tv`;
-- selected TV expected support: **wall**;
-- normalized relative nearness: **0.06**;
-- Support assist: **on**;
-- active support model: center **66%**, slope **4.7 points across the photo**, confidence **79%**, source **`hybrid`**;
-- visible depth diagnostic: support accepted, strong **10/13**, coherent **10**, residual approximately **0.027**;
-- the TV moved away from its source location;
-- the original TV region remained free of recognizable TV/ad content.
+The latest physical support run reported:
+- selected `tv`, expected support `wall`;
+- relative nearness 0.06;
+- support model center 66%, slope 4.7 points, confidence 79%, source `hybrid`;
+- depth support strong 10/13, coherent 10, residual approximately 0.027.
 
-The visible 66% support line was still too low: it tracked the foreground hardwood/rug/material transition rather than the far wall/floor/baseboard transition. Therefore the 79% hybrid result is **not** treated as physical acceptance.
+The visible 66% line nevertheless tracked a foreground hardwood/rug/material transition rather than the far wall/floor/baseboard transition, so that high-confidence hybrid is **not physically accepted**.
 
-### Current support refinement
+Depth support now retains multiple distinct nearward transitions per sampled column, clusters them into room-wide bands and chooses the earliest/uppermost coherent nearward band that passes bounded sample-count, horizontal-coverage and residual checks. The deterministic suite includes a weaker structural wall/floor band followed by a stronger full-width foreground-material band and requires the earlier structural band to win. This refinement remains build-validated and needs another physical run.
 
-Depth support now retains multiple distinct nearward transitions per sampled column, clusters them into room-wide bands, and chooses the **earliest/uppermost coherent nearward band** that passes bounded sample-count, horizontal-coverage and residual checks. The deterministic regression includes a weaker true wall/floor band followed by a stronger full-width foreground material band and requires the earlier structural band to win.
+## Spatial Import Lab / Polycam benchmark
 
-This implementation is build-validated but still needs a physical re-run. More importantly, the new external-capture benchmark provides a stronger path than indefinite monocular-heuristic tuning when structural capture evidence exists.
+Protected preview route: `/spatial-import`.
 
-## New Wave 3 capability — Spatial Import Lab
-
-Branch: `scene-foundation-v1`  
-Protected preview route: `/spatial-import`
-
-FormShift now has a provider-neutral `SpatialImportEvidence` contract and local browser inspector for mature external capture/reconstruction evidence.
-
-Supported v1 inputs:
+FormShift has a provider-neutral `SpatialImportEvidence` contract and browser-local inspector for:
 - Polycam/RoomPlan-style `.json` floorplan exports;
 - `.gltf` scene metadata;
 - `.glb` embedded glTF metadata;
 - `.zip` Developer Mode/session archives at central-directory inventory level.
 
-### Privacy and authority boundary
+Imported files are read locally with `File.arrayBuffer()`. The lab has no Supabase/persistence authority and every report carries `canonicalMutationAllowed: false`. It can compare external metric bounds/semantic counts with the current `SpatialSnapshot`, but import is evidence rather than a measurement-adoption event.
 
-Imported files are read with browser-local `File.arrayBuffer()` and are not uploaded by the lab. The route is protected by the existing `AccessGate`.
-
-The inspector has no Supabase/persistence authority and cannot write measurements, spatial versions, Prepared Scenes, source photos, private assets or any other canonical state. Every report carries `canonicalMutationAllowed: false`.
-
-An import is evidence, not a measurement-acceptance event.
-
-### glTF / GLB evidence
-
-The inspector reports:
-- glTF asset version/generator;
-- scene/node/mesh/primitive counts;
-- POSITION accessor vertex counts when present;
-- material/image counts;
-- metric scene bounds from accessor min/max plus node transforms when resolvable;
-- local-accessor bounds fallback when full scene traversal is unavailable;
-- warnings for external geometry/textures that the local lab intentionally does not fetch.
-
-### RoomPlan / Polycam floorplan evidence
-
-CapturedRoom/CapturedStructure-style JSON is normalized into counts/evidence for:
-- walls;
-- floors;
-- doors;
-- windows;
-- openings;
-- objects;
-- sections;
-- confidence/category counts;
-- floor polygon points;
-- metric bounds from dimensions/transforms where available.
-
-Polycam filenames such as `original_floorplan.json`, `optimized_floorplan.json` and `edited_floorplan.json` remain Polycam-provenanced while being interpreted through the generic RoomPlan evidence adapter.
-
-### Raw session inventory
-
-The ZIP path currently inventories, without decompression/upload:
-- total entries;
-- keyframe images;
-- likely depth/LiDAR files;
-- likely confidence files;
-- likely camera/intrinsic/extrinsic/pose files;
-- sample entry names.
-
-A real Developer Mode package is required before any version-specific raw decoder is added.
-
-### Comparison with FormShift
-
-If a current `SpatialSnapshot` exists, the lab compares external metric bounds and semantic counts with FormShift's current boundary/object/opening state. The result remains diagnostic only and has no adoption authority.
-
-## Polycam reference benchmark decision
-
-Polycam is a **reference capture/reconstruction benchmark and optional import source**, not a FormShift dependency.
-
-The clean-room benchmark is documented in `docs/POLYCAM-REFERENCE-BENCHMARK.md`.
-
-The intended structural-evidence hierarchy is now:
+Polycam remains a **reference capture/reconstruction benchmark and optional import source**, not a runtime dependency. The structural-evidence hierarchy is:
 
 ```text
 LiDAR-capable iPhone
@@ -132,70 +132,51 @@ Non-LiDAR device
 → monocular estimates remain labeled estimated
 ```
 
-Polycam's paid/Enterprise Content API is **not** required for this architecture. Manual/user-supplied exports are the baseline so FormShift does not become strategically dependent on Polycam.
-
-## Spatial Import validation evidence
-
-Validated functional/documented head before authoritative-record reconciliation:
-
-`74aa1f46dc2c0dd4c6c7a01559ea51f7eb9ae6f2`
-
-Evidence:
-- web Vercel preview `dpl_2CkDHZScGWDKcftwufXVK7QFKmjK` — **READY**;
-- GitHub combined exact-head status — **Vercel web success + Vercel API success**;
-- static export includes `/spatial-import`;
-- repository/security/domain gates — pass;
-- Arrange/Safari regressions — pass;
-- scene/provider/persistence gates — pass;
-- Prepared Scene support/occlusion/quick-clean regressions — pass;
-- spatial-import glTF/GLB metric metadata fixture — pass;
-- spatial-import RoomPlan dimensions/transforms/counts fixture — pass;
-- spatial-import Polycam session ZIP inventory fixture — pass;
-- spatial-import canonical comparison/mutation prohibition — pass;
-- spatial-import privacy boundary: no network upload/no canonical persistence — pass;
-- client TypeScript check — pass;
-- static web export — pass.
+A real Polycam/RoomPlan export from the reference room is still the decisive evidence for how aggressively to accelerate the native RoomPlan adapter and demote monocular structural heuristics.
 
 ## Existing Wave 3 safeguards retained
 
 Still active:
+- source-photo immutability and canonical spatial/measurement authority;
 - detector-guided connected-component automatic MediaPipe masks;
 - whole-room/oversized automatic-mask rejection;
 - normalized relative-nearness convention (`0` farther → `1` nearer);
 - explicit detector/depth acceptance and merge diagnostics;
 - conservative destination-depth occlusion after drag release;
 - original Prepared Scene object masks excluded from the source occluder field;
-- deterministic quick clean plate using only unmasked source pixels;
+- deterministic ghost-resistant quick clean plate using unmasked source pixels;
 - bounded/feathered explicit AI background repair;
 - anti-ghost Prepared Scene repair prompt v1.1.0;
 - Prepared Scene cache schema `prepared-scene-1.3`;
 - source-photo-specific private persistence;
 - fail-closed preview validation;
-- no canonical mutation from photo perception or spatial imports;
+- Spatial Import no-upload/no-canonical-mutation boundary;
 - no physics.
 
-## Immediate next evidence
+## Immediate physical acceptance
 
-### Polycam reference capture
+### A. Canonical Arrange refinement regression
 
-For the same room used in Prepared Scene:
-1. Enable Polycam Developer Mode **before** scanning if raw evidence will be exported.
-2. Capture the room using Space Mode or Floorplan Mode on the LiDAR iPhone.
-3. Preserve the unedited result.
-4. Export, in priority order:
-   - `original_floorplan.json` or equivalent structured floorplan JSON;
-   - GLB or `original.gltf` (plus companion geometry/textures if using glTF);
-   - `session.zip` / Developer Mode package if available.
-5. Inspect the floorplan JSON first in `/spatial-import`, then provide either the copied report or the source export for deeper analysis.
+1. Open the branch preview's normal `/arrange` route and hard refresh.
+2. Enter manual object selection/refinement on the TV or another distinct object.
+3. Vertically scroll the page so the photo is not at its original viewport position.
+4. Paint a short **Add** stroke along a distinctive object edge. The visible brush ring and teal live stroke must stay directly under the finger and the recomputed mask must change at the same source-image location.
+5. Switch to **Remove** and repeat.
+6. Zoom/pan the photo, repeat Add/Remove, then press **Fit photo** and repeat once more.
+7. Confirm two-finger zoom remains available, Pan mode still pans, and normal Safari page scrolling returns when not actively editing/manipulating.
 
-The first real package should answer whether direct RoomPlan-derived walls/floors/openings/transforms make the current monocular support-boundary work unnecessary on LiDAR devices.
+### B. External structural evidence
 
-### Prepared Scene regression
+For the same room, obtain a Polycam/RoomPlan export if available, prioritized as:
+1. `original_floorplan.json` or equivalent structured floorplan JSON;
+2. GLB or `original.gltf` plus companion assets;
+3. Developer Mode/session ZIP if available.
 
-The earliest-coherent support selector still needs one physical re-run. A correct depth rejection or detector-only result is preferable to a confidently wrong hybrid.
+Inspect the JSON first in `/spatial-import` or provide the export for deeper comparison.
 
 ## Not yet claimed
 
+- physical-device acceptance of the refinement-coordinate fix;
 - real Polycam export compatibility beyond deterministic fixtures;
 - raw Developer Mode decoding beyond ZIP inventory;
 - automatic import-to-canonical adoption;
@@ -216,13 +197,11 @@ The earliest-coherent support selector still needs one physical re-run. A correc
 
 ## Next decision
 
-Do **not** add Rapier/RealityKit physics yet and do not continue tuning monocular structural heuristics indefinitely.
-
-The next decisive input is a real Polycam/RoomPlan-derived capture of the same room. If it provides stable floor/wall/opening geometry and metric transforms, accelerate FormShift's native RoomPlan adapter and demote monocular floor-boundary inference to a non-LiDAR fallback. If the external evidence is insufficient, use the import report to identify exactly what calibration data FormShift must capture itself.
+First physically validate the repaired canonical refinement coordinate path. In parallel, the stronger structural direction remains RoomPlan/Polycam evidence rather than indefinite monocular heuristic tuning. Do **not** add Rapier/RealityKit physics until reliable support/collision geometry exists.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision **0.9.26** records the build-validated Spatial Import Lab, clean-room Polycam benchmark, physical quick-clean acceptance and external-evidence decision boundary.
-- `ARCHITECTURE.md`: revision **0.5.8** records provider-neutral spatial imports as derived evidence, the explicit adoption boundary, the LiDAR/RoomPlan-first structural hierarchy, Polycam's optional reference role, local-only v1 privacy behavior and Spatial-Import release gates.
-- `DESIGN-SYSTEM.md`: unchanged; the Spatial Import Lab is a diagnostic/internal workflow and does not change the consumer visual system.
-- `PROJECT-CONSTITUTION.md`: unchanged; source primacy, privacy, provenance, reversibility and canonical-spatial-truth invariants already require imported evidence to remain non-authoritative until explicitly adopted.
+- `CURRENT-STATE.md`: revision **0.9.27** records the physical refinement-drift defect, source-stable coordinate fix, permanent regression and exact-head validation boundary.
+- `ARCHITECTURE.md`: unchanged at **0.5.8**; the fix implements the existing gesture/source-coordinate and validation architecture rather than changing it.
+- `DESIGN-SYSTEM.md`: unchanged; the brush preview/selection-refinement contract already requires an in-place stroke preview and precise mobile refinement.
+- `PROJECT-CONSTITUTION.md`: unchanged; source primacy, reversibility and canonical-spatial-truth invariants are unaffected.
