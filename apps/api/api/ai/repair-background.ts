@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       actor_user_id: active.userId,
       task_name: preparedScene ? 'prepared-scene-background-repair' : 'photo-background-repair',
       task_schema_version: preparedScene ? 'prepared-scene-repair-1' : 'photo-repair-1',
-      prompt_version: preparedScene ? 'prepared-scene-repair-v1.0.0' : 'photo-repair-v0.6.0',
+      prompt_version: preparedScene ? 'prepared-scene-repair-v1.1.0' : 'photo-repair-v0.6.0',
       status: 'running',
       provider_model: model,
     }).select('id').single();
@@ -99,9 +99,11 @@ function preparedScenePrompt() {
   return [
     'Edit the first room photograph only.',
     'The second image is a black-and-white mask. Every white region marks one or more photographed moveable objects that have been separated into independent layers. Black marks room pixels that must stay unchanged.',
-    'Remove every object covered by white and reconstruct only those white regions as the wall, floor, furniture surface, or other background that would naturally be visible behind the removed objects.',
-    'Treat all white regions as parts of one consistent room scene so wall lines, floorboards, furniture edges, lighting, shadows, perspective, texture, and color continue naturally across the repaired areas.',
-    'Preserve people and every unmasked object. Do not redesign, redecorate, restyle, add replacement objects, or change camera framing.',
+    'Remove every masked object completely, including its visible screen/image content, text, logos, reflected colors, edge halos, mounting shadow, and small attached details that fall inside the white region.',
+    'Do not copy, redraw, ghost, echo, or reconstruct any recognizable part of a removed object inside a white region. Treat pixels inside white regions only as evidence of what must disappear, not as reference content to preserve.',
+    'Infer the replacement background primarily from the surrounding unmasked boundary context and continue the wall, floor, furniture surface, trim, lighting, perspective, texture, and color that would naturally exist behind the removed object.',
+    'Treat all white regions as parts of one consistent room scene so structural lines and surfaces continue naturally across the repaired areas.',
+    'Preserve people and every unmasked object. Do not redesign, redecorate, restyle, add replacement objects, add text or logos, or change camera framing.',
     'Return a photorealistic clean background plate for the same room.',
   ].join(' ');
 }
