@@ -1,3 +1,5 @@
+import { inpaintPreparedMask } from './quickInpaint';
+
 export async function loadPreparedSource(imageUrl: string, maxDimension = 1600) {
   const image = await loadImage(imageUrl);
   const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
@@ -18,40 +20,20 @@ export function createQuickCleanBackground(source: HTMLCanvasElement, masks: Uin
   if (!masks.length) return source.toDataURL('image/jpeg', 0.92);
   const width = source.width;
   const height = source.height;
-  const union = expandedUnionMask(masks, width, height, 2);
+  const context = source.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('Prepared Scene source pixels are unavailable for the quick clean plate.');
 
-  const maskCanvas = alphaMaskCanvas(union, width, height, true);
-  const fill = document.createElement('canvas');
-  fill.width = width; fill.height = height;
-  const fillContext = fill.getContext('2d');
-  if (!fillContext) throw new Error('Prepared Scene clean-plate fill is unavailable.');
-  const shift = Math.max(14, Math.round(Math.min(width, height) * 0.04));
-  fillContext.save();
-  fillContext.filter = `blur(${Math.max(10, Math.round(shift * 0.46))}px)`;
-  fillContext.globalAlpha = 1;
-  fillContext.drawImage(source, -shift, 0, width, height);
-  fillContext.globalAlpha = 0.28;
-  fillContext.drawImage(source, shift, 0, width, height);
-  fillContext.drawImage(source, 0, -shift, width, height);
-  fillContext.drawImage(source, 0, shift, width, height);
-  fillContext.globalAlpha = 0.16;
-  const insetX = Math.round(width * 0.025);
-  const insetY = Math.round(height * 0.025);
-  fillContext.drawImage(source, insetX, insetY, width - insetX * 2, height - insetY * 2, 0, 0, width, height);
-  fillContext.restore();
-  fillContext.globalCompositeOperation = 'destination-in';
-  fillContext.drawImage(maskCanvas, 0, 0);
+  const radius = quickExpansionRadius(width, height);
+  const union = featheredExpandedUnionMask(masks, width, height, radius);
+  const sourcePixels = context.getImageData(0, 0, width, height);
+  const inpainted = inpaintPreparedMask(sourcePixels.data, union, width, height);
 
   const output = document.createElement('canvas');
-  output.width = width; output.height = height;
+  output.width = width;
+  output.height = height;
   const outputContext = output.getContext('2d');
   if (!outputContext) throw new Error('Prepared Scene clean background is unavailable.');
-  outputContext.drawImage(source, 0, 0);
-  outputContext.globalCompositeOperation = 'destination-out';
-  outputContext.drawImage(maskCanvas, 0, 0);
-  outputContext.globalCompositeOperation = 'source-over';
-  outputContext.drawImage(fill, 0, 0);
-  outputContext.drawImage(fill, 0, 0);
+  outputContext.putImageData(new ImageData(inpainted.pixels, width, height), 0, 0);
   return output.toDataURL('image/jpeg', 0.92);
 }
 
@@ -60,7 +42,7 @@ export function createQuickCleanBackground(source: HTMLCanvasElement, masks: Uin
  * White represents pixels that may be reconstructed; black must remain unchanged.
  */
 export function createPreparedSceneRepairMask(masks: Uint8ClampedArray[], width: number, height: number) {
-  const union = expandedUnionMask(masks, width, height, 3);
+  const union = expandedUnionMask(masks, width, height, repairExpansionRadius(width, height));
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -68,7 +50,7 @@ export function createPreparedSceneRepairMask(masks: Uint8ClampedArray[], width:
   if (!context) throw new Error('Prepared Scene repair mask is unavailable.');
   const rgba = new Uint8ClampedArray(width * height * 4);
   for (let index = 0; index < union.length; index += 1) {
-    const selected = (union[index] ?? 0) >= 48;
+    const selected = (union[index] ?? 0) >= 40;
     const offset = index * 4;
     const value = selected ? 255 : 0;
     rgba[offset] = value;
@@ -92,7 +74,7 @@ export async function compositeRepairedCleanBackground(
 ) {
   const width = source.width;
   const height = source.height;
-  const union = expandedUnionMask(masks, width, height, 3);
+  const union = featheredExpandedUnionMask(masks, width, height, repairExpansionRadius(width, height));
   const repaired = await loadImage(repairedDataUrl);
 
   const repairedCanvas = document.createElement('canvas');
@@ -110,8 +92,8 @@ export async function compositeRepairedCleanBackground(
 
   for (let index = 0; index < union.length; index += 1) {
     const raw = union[index] ?? 0;
-    if (raw < 24) continue;
-    const alpha = Math.min(1, Math.max(0.22, raw / 255));
+    if (raw < 18) continue;
+    const alpha = clamp(raw / 255, 0.08, 1);
     const offset = index * 4;
     out.data[offset] = blend(sourcePixels.data[offset]!, repairedPixels.data[offset]!, alpha);
     out.data[offset + 1] = blend(sourcePixels.data[offset + 1]!, repairedPixels.data[offset + 1]!, alpha);
@@ -134,15 +116,27 @@ export function sampleDepth(normalized: Uint8ClampedArray, width: number, height
   return (normalized[py * width + px] ?? 0) / 255;
 }
 
-function expandedUnionMask(masks: Uint8ClampedArray[], width: number, height: number, radius: number) {
+export function quickExpansionRadius(width: number, height: number) {
+  return Math.round(clamp(Math.min(width, height) * 0.006, 4, 10));
+}
+
+export function repairExpansionRadius(width: number, height: number) {
+  return Math.round(clamp(Math.min(width, height) * 0.008, 5, 14));
+}
+
+function unionMasks(masks: Uint8ClampedArray[], width: number, height: number) {
   const union = new Uint8ClampedArray(width * height);
   for (const mask of masks) {
     const length = Math.min(union.length, mask.length);
     for (let index = 0; index < length; index += 1) union[index] = Math.max(union[index] ?? 0, mask[index] ?? 0);
   }
-  if (radius <= 0) return union;
+  return union;
+}
 
-  let current = union;
+function expandedUnionMask(masks: Uint8ClampedArray[], width: number, height: number, radius: number) {
+  let current = unionMasks(masks, width, height);
+  if (radius <= 0) return current;
+
   for (let pass = 0; pass < radius; pass += 1) {
     const next = new Uint8ClampedArray(current);
     for (let y = 0; y < height; y += 1) {
@@ -164,24 +158,29 @@ function expandedUnionMask(masks: Uint8ClampedArray[], width: number, height: nu
   return current;
 }
 
-function alphaMaskCanvas(union: Uint8ClampedArray, width: number, height: number, feather: boolean) {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('Prepared Scene clean-plate mask is unavailable.');
-  const rgba = new Uint8ClampedArray(width * height * 4);
-  for (let index = 0; index < union.length; index += 1) {
-    const raw = union[index] ?? 0;
-    const alpha = raw > 48 ? (feather ? Math.min(255, raw + 55) : 255) : 0;
-    const offset = index * 4;
-    rgba[offset] = 255;
-    rgba[offset + 1] = 255;
-    rgba[offset + 2] = 255;
-    rgba[offset + 3] = alpha;
+function featheredExpandedUnionMask(masks: Uint8ClampedArray[], width: number, height: number, radius: number) {
+  let current = unionMasks(masks, width, height);
+  if (radius <= 0) return current;
+
+  for (let pass = 0; pass < radius; pass += 1) {
+    const next = new Uint8ClampedArray(current);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const index = y * width + x;
+        let neighborMax = 0;
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dx = -1; dx <= 1; dx += 1) {
+            const nx = x + dx; const ny = y + dy;
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+            neighborMax = Math.max(neighborMax, current[ny * width + nx] ?? 0);
+          }
+        }
+        next[index] = Math.max(current[index] ?? 0, Math.round(neighborMax * 0.82));
+      }
+    }
+    current = next;
   }
-  context.putImageData(new ImageData(rgba, width, height), 0, 0);
-  return canvas;
+  return current;
 }
 
 function blend(a: number, b: number, alpha: number) {
