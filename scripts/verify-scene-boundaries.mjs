@@ -8,6 +8,8 @@ const canonicalArrange = path.join(root, 'apps/client/src/components/PhotoArrang
 const preparedEditor = path.join(root, 'apps/client/src/components/PreparedSceneEditor.web.tsx');
 const preparedPersistence = path.join(root, 'apps/client/src/prepared/persistence.ts');
 const preparedSupport = path.join(root, 'apps/client/src/prepared/support.ts');
+const preparedDepthSupport = path.join(root, 'apps/client/src/prepared/depthSupport.ts');
+const preparedSegmenter = path.join(root, 'apps/client/src/prepared/providers/MediaPipePreparedSegmenter.web.ts');
 const preparedRepairClient = path.join(root, 'apps/client/src/prepared/backgroundRepair.web.ts');
 const repairApi = path.join(root, 'apps/api/api/ai/repair-background.ts');
 const segmentationProvider = path.join(root, 'apps/client/src/vision/MediaPipeObjectSegmenter.web.ts');
@@ -80,18 +82,22 @@ for (const required of [
   'segmentPreparedObject',
   'createQuickCleanBackground',
   'createDepthProvider',
+  'estimateSupportModelFromDepth',
+  'mergePreparedSupportModels',
+  'floorBoundaryAtX',
   'loadLatestPreparedScene',
   'persistPreparedScene',
   'repairPreparedSceneBackground',
   'createPreparedSceneRepairMask',
   'compositeRepairedCleanBackground',
-  "automaticAcceptance: 'detector-backed-only'",
+  "automaticAcceptance: 'detector-guided-component-v2'",
   'supportModelVersion',
   'supportAssistEnabled',
   'constrainPreparedPosition',
   'maskMatchesDetection',
   'isPersonOccludedCandidate',
   'comparePreparedDepth',
+  'candidateToPreparedBox',
   'Add missed object',
 ]) {
   if (!preparedSource.includes(required)) fail(`Prepared Scene editor missing ${required}`);
@@ -117,8 +123,20 @@ for (const required of [
 ]) {
   if (!supportSource.includes(required)) fail(`Prepared support layer missing ${required}`);
 }
-if (!supportSource.includes("source: 'detector-anchors' | 'object-anchors' | 'fallback'")) fail('Prepared support model does not preserve estimated provenance');
+if (!supportSource.includes("source: 'detector-anchors' | 'object-anchors' | 'depth-profile' | 'hybrid' | 'fallback'")) fail('Prepared support model does not preserve detector/depth/hybrid estimated provenance');
 else pass('Prepared Scene support projection is x-dependent, estimated, reversible, and provenance-aware');
+
+const depthSupportSource = fs.readFileSync(preparedDepthSupport, 'utf8');
+for (const required of ['estimateSupportModelFromDepth', 'mergePreparedSupportModels', "source: 'depth-profile'", "source: 'hybrid'", 'MIN_SAMPLES', 'residual']) {
+  if (!depthSupportSource.includes(required)) fail(`Prepared depth-surface evidence missing ${required}`);
+}
+if (!failures) pass('Depth Anything can contribute independent bounded room-support evidence without being promoted to calibrated geometry');
+
+const preparedSegmenterSource = fs.readFileSync(preparedSegmenter, 'utf8');
+for (const required of ['guideBox?: PreparedBox', 'refineMaskWithGuide', 'COMPONENT_THRESHOLD', 'expandGuide', 'bestScore']) {
+  if (!preparedSegmenterSource.includes(required)) fail(`Prepared MediaPipe segmenter missing detector-guided component refinement ${required}`);
+}
+if (!failures) pass('Automatic masks are detector-guided connected components while manual tap segmentation remains available');
 
 const preparedPersistenceSource = fs.readFileSync(preparedPersistence, 'utf8');
 for (const required of [".from('prepared_scenes')", ".eq('source_asset_id', sourceAsset.id)", "PREPARED_SCENE_SCHEMA = 'prepared-scene-1.2'", ".eq('schema_version', PREPARED_SCENE_SCHEMA)", "kind: 'prepared_scene_object_mask_v1'", "kind: 'prepared_scene_object_cutout_v1'"]) {
@@ -140,18 +158,18 @@ if (!failures) pass('high-quality background repair is explicit and uses a dedic
 
 const detector = fs.readFileSync(path.join(preparedRoot, 'providers/DetrObjectDiscovery.web.ts'), 'utf8');
 if (!detector.includes("Xenova/detr-resnet-50")) fail('Prepared Scene detector model identity missing');
-for (const required of ['isAppleWebKit', "backend: 'wasm'", 'wasm.numThreads = 1']) {
-  if (!detector.includes(required)) fail(`Prepared Scene detector is missing Safari-safe inference guard ${required}`);
+for (const required of ['isAppleWebKit', "backend: 'wasm'", 'wasm.numThreads = 1', 'MODEL_LOAD_TIMEOUT_MS', 'INFERENCE_TIMEOUT_MS', 'withTimeout']) {
+  if (!detector.includes(required)) fail(`Prepared Scene detector is missing Safari/stall guard ${required}`);
 }
 if (detector.includes("device: webGpu ? 'webgpu' : 'wasm'")) fail('Prepared Scene detector still treats navigator.gpu as sufficient WebGPU compatibility evidence');
-else pass('Prepared Scene detector uses Safari-safe WASM fallback instead of navigator.gpu capability guessing');
+else pass('Prepared Scene detector uses Safari-safe WASM fallback and bounded stall recovery');
 
 const depthProvider = fs.readFileSync(path.join(sceneRoot, 'providers/DepthAnythingV2Small.web.ts'), 'utf8');
-for (const required of ['isAppleWebKit', "backend: 'wasm'", 'wasm.numThreads = 1']) {
-  if (!depthProvider.includes(required)) fail(`Depth Anything provider is missing Safari-safe inference guard ${required}`);
+for (const required of ['isAppleWebKit', "backend: 'wasm'", 'wasm.numThreads = 1', 'MODEL_LOAD_TIMEOUT_MS', 'INFERENCE_TIMEOUT_MS', 'withTimeout']) {
+  if (!depthProvider.includes(required)) fail(`Depth Anything provider is missing Safari/stall guard ${required}`);
 }
 if (depthProvider.includes("device: webGpu ? 'webgpu' : 'wasm'")) fail('Depth provider still treats navigator.gpu as sufficient WebGPU compatibility evidence');
-else pass('Depth Anything uses the same Safari-safe WASM fallback contract');
+else pass('Depth Anything uses the same Safari-safe WASM fallback and bounded stall contract');
 
 const sceneMigration = fs.readFileSync(path.join(root, 'supabase/schema/003_scene_intelligence.sql'), 'utf8');
 for (const required of ['enable row level security', 'grant select, insert', 'scene_analyses_select_member', 'scene_analyses_insert_editor']) {
