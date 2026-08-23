@@ -1,15 +1,17 @@
 import type { DepthEstimate } from '../scene/types';
 import { DEFAULT_PREPARED_SUPPORT_MODEL, type PreparedSupportModel } from './support.ts';
 
-type BoundarySample = { x: number; y: number; strength: number };
+type BoundarySample = { x: number; y: number; strength: number; contextStrength: number };
 export type DepthNearDirection = 'higher-is-nearer' | 'lower-is-nearer' | 'unknown';
-export type DepthSupportReason = 'accepted' | 'invalid-depth' | 'insufficient-strong-transitions' | 'incoherent-transitions' | 'high-residual';
+export type DepthSupportReason = 'accepted' | 'invalid-depth' | 'insufficient-strong-transitions' | 'incoherent-transitions' | 'localized-transitions' | 'high-residual';
 export type DepthSupportDiagnostics = {
   reason: DepthSupportReason;
   columns: number;
   strongSamples: number;
   robustSamples: number;
+  xCoverage: number | null;
   averageStrength: number | null;
+  averageContextStrength: number | null;
   residual: number | null;
   centerY: number | null;
   slope: number | null;
@@ -23,6 +25,8 @@ export type SupportMergeResult = { model: PreparedSupportModel; decision: Suppor
 const COLUMN_COUNT = 13;
 const MIN_SAMPLE_STRENGTH = 5.5;
 const MIN_SAMPLES = 4;
+const MIN_ROBUST_SAMPLES = 5;
+const MIN_X_COVERAGE = 0.34;
 
 export function analyzeSupportModelFromDepth(estimate: DepthEstimate): DepthSupportAnalysis {
   const direction = estimateDepthNearDirection(estimate);
@@ -30,7 +34,9 @@ export function analyzeSupportModelFromDepth(estimate: DepthEstimate): DepthSupp
     columns: COLUMN_COUNT,
     strongSamples: 0,
     robustSamples: 0,
+    xCoverage: null,
     averageStrength: null,
+    averageContextStrength: null,
     residual: null,
     centerY: null,
     slope: null,
@@ -45,7 +51,7 @@ export function analyzeSupportModelFromDepth(estimate: DepthEstimate): DepthSupp
   const samples: BoundarySample[] = [];
   for (let index = 0; index < COLUMN_COUNT; index += 1) {
     const x = 0.06 + (index / Math.max(1, COLUMN_COUNT - 1)) * 0.88;
-    const sample = strongestBoundaryAtX(estimate.normalized, estimate.width, estimate.height, x);
+    const sample = strongestBoundaryAtX(estimate.normalized, estimate.width, estimate.height, x, direction.direction);
     if (sample && sample.strength >= MIN_SAMPLE_STRENGTH) samples.push(sample);
   }
   if (samples.length < MIN_SAMPLES) {
@@ -54,18 +60,54 @@ export function analyzeSupportModelFromDepth(estimate: DepthEstimate): DepthSupp
 
   const medianY = median(samples.map((sample) => sample.y));
   const robust = samples.filter((sample) => Math.abs(sample.y - medianY) <= 0.12);
-  if (robust.length < MIN_SAMPLES) {
-    return { model: null, diagnostics: { ...base, reason: 'incoherent-transitions', strongSamples: samples.length, robustSamples: robust.length } };
+  const xCoverage = robust.length > 1
+    ? Math.max(...robust.map((sample) => sample.x)) - Math.min(...robust.map((sample) => sample.x))
+    : 0;
+  const averageStrength = robust.length
+    ? robust.reduce((sum, sample) => sum + sample.strength, 0) / robust.length
+    : null;
+  const averageContextStrength = robust.length
+    ? robust.reduce((sum, sample) => sum + sample.contextStrength, 0) / robust.length
+    : null;
+
+  if (robust.length < MIN_ROBUST_SAMPLES) {
+    return {
+      model: null,
+      diagnostics: {
+        ...base,
+        reason: 'incoherent-transitions',
+        strongSamples: samples.length,
+        robustSamples: robust.length,
+        xCoverage,
+        averageStrength,
+        averageContextStrength,
+      },
+    };
+  }
+  if (xCoverage < MIN_X_COVERAGE) {
+    return {
+      model: null,
+      diagnostics: {
+        ...base,
+        reason: 'localized-transitions',
+        strongSamples: samples.length,
+        robustSamples: robust.length,
+        xCoverage,
+        averageStrength,
+        averageContextStrength,
+      },
+    };
   }
 
   const fit = fitBoundary(robust);
   const residual = robust.reduce((sum, sample) => sum + Math.abs(sample.y - boundaryAt(fit.centerY, fit.slope, sample.x)), 0) / robust.length;
-  const averageStrength = robust.reduce((sum, sample) => sum + sample.strength, 0) / robust.length;
   const detail = {
     ...base,
     strongSamples: samples.length,
     robustSamples: robust.length,
+    xCoverage,
     averageStrength,
+    averageContextStrength,
     residual: Number.isFinite(residual) ? residual : null,
     centerY: fit.centerY,
     slope: fit.slope,
@@ -75,9 +117,20 @@ export function analyzeSupportModelFromDepth(estimate: DepthEstimate): DepthSupp
   }
 
   const coverage = robust.length / COLUMN_COUNT;
-  const strengthConfidence = clamp((averageStrength - MIN_SAMPLE_STRENGTH) / 28, 0, 1);
+  const spatialCoverage = clamp((xCoverage - MIN_X_COVERAGE) / Math.max(0.01, 0.88 - MIN_X_COVERAGE), 0, 1);
+  const strengthConfidence = clamp(((averageStrength ?? MIN_SAMPLE_STRENGTH) - MIN_SAMPLE_STRENGTH) / 28, 0, 1);
+  const contextConfidence = clamp(((averageContextStrength ?? 0) - 2) / 45, 0, 1);
   const residualConfidence = clamp(1 - residual / 0.09, 0, 1);
-  const confidence = clamp(0.28 + coverage * 0.24 + strengthConfidence * 0.24 + residualConfidence * 0.16, 0.34, 0.78);
+  const confidence = clamp(
+    0.22
+      + coverage * 0.2
+      + spatialCoverage * 0.12
+      + strengthConfidence * 0.16
+      + contextConfidence * 0.16
+      + residualConfidence * 0.12,
+    0.34,
+    0.78,
+  );
 
   return {
     model: {
@@ -147,31 +200,55 @@ export function estimateDepthNearDirection(estimate: Pick<DepthEstimate, 'width'
   return { direction: difference > 0 ? 'higher-is-nearer' as const : 'lower-is-nearer' as const, confidence };
 }
 
-function strongestBoundaryAtX(values: Uint8ClampedArray, width: number, height: number, normalizedX: number): BoundarySample | null {
+function strongestBoundaryAtX(
+  values: Uint8ClampedArray,
+  width: number,
+  height: number,
+  normalizedX: number,
+  direction: DepthNearDirection,
+): BoundarySample | null {
   const x = clamp(Math.round(normalizedX * (width - 1)), 0, width - 1);
   const yStart = clamp(Math.round(height * 0.36), 2, height - 3);
   const yEnd = clamp(Math.round(height * 0.84), yStart + 1, height - 3);
   const step = Math.max(1, Math.round(height / 220));
   const radiusX = Math.max(1, Math.round(width / 260));
-  const radiusY = Math.max(2, Math.round(height / 140));
+  const localRadiusY = Math.max(2, Math.round(height / 140));
+  const contextOffset = Math.max(localRadiusY + 2, Math.round(height * 0.055));
+  const contextRadiusY = Math.max(2, Math.round(height * 0.022));
 
   let bestY = -1;
   let bestStrength = 0;
+  let bestContextStrength = 0;
   for (let y = yStart; y <= yEnd; y += step) {
-    const above = meanWindow(values, width, height, x, y - radiusY, radiusX, Math.max(1, Math.floor(radiusY / 2)));
-    const below = meanWindow(values, width, height, x, y + radiusY, radiusX, Math.max(1, Math.floor(radiusY / 2)));
-    const rawStrength = Math.abs(below - above);
+    const localAbove = meanWindow(values, width, height, x, y - localRadiusY, radiusX, Math.max(1, Math.floor(localRadiusY / 2)));
+    const localBelow = meanWindow(values, width, height, x, y + localRadiusY, radiusX, Math.max(1, Math.floor(localRadiusY / 2)));
+    const contextAbove = meanWindow(values, width, height, x, y - contextOffset, radiusX * 2, contextRadiusY);
+    const contextBelow = meanWindow(values, width, height, x, y + contextOffset, radiusX * 2, contextRadiusY);
+
+    const localStep = nearwardDifference(localAbove, localBelow, direction);
+    const contextStep = nearwardDifference(contextAbove, contextBelow, direction);
+    if (direction !== 'unknown' && (localStep <= 0 || contextStep <= 1.5)) continue;
+
+    const localEvidence = direction === 'unknown' ? Math.abs(localBelow - localAbove) : localStep;
+    const contextEvidence = direction === 'unknown' ? Math.abs(contextBelow - contextAbove) : contextStep;
     const normalizedY = y / height;
-    const locationWeight = clamp(1 - Math.abs(normalizedY - 0.62) * 0.55, 0.78, 1);
-    const strength = rawStrength * locationWeight;
+    const locationWeight = clamp(1 - Math.abs(normalizedY - 0.6) * 0.35, 0.82, 1);
+    const strength = (localEvidence * 0.45 + contextEvidence * 0.75) * locationWeight;
     if (strength > bestStrength) {
       bestStrength = strength;
+      bestContextStrength = contextEvidence;
       bestY = y;
     }
   }
 
   if (bestY < 0) return null;
-  return { x: normalizedX, y: bestY / height, strength: bestStrength };
+  return { x: normalizedX, y: bestY / height, strength: bestStrength, contextStrength: bestContextStrength };
+}
+
+function nearwardDifference(above: number, below: number, direction: DepthNearDirection) {
+  if (direction === 'higher-is-nearer') return below - above;
+  if (direction === 'lower-is-nearer') return above - below;
+  return Math.abs(below - above);
 }
 
 function meanBand(values: Uint8ClampedArray, width: number, height: number, startY: number, endY: number) {
