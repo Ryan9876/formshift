@@ -2,7 +2,7 @@ import { supabase } from '../auth/AuthProvider';
 import type { PreparedBox, PreparedObjectMobility, PreparedSceneObject, PreparedSupportKind } from './types';
 
 const BUCKET = 'formshift-private';
-const PREPARED_SCENE_SCHEMA = 'prepared-scene-1.2';
+const PREPARED_SCENE_SCHEMA = 'prepared-scene-1.3';
 
 export type PreparedBackgroundQuality = 'quick' | 'ai_repaired';
 
@@ -153,7 +153,7 @@ export async function persistPreparedScene(input: {
         projectId: input.projectId,
         spaceId: input.spaceId,
         userId: input.userId,
-        kind: input.backgroundQuality === 'ai_repaired' ? 'prepared_scene_background_ai_v1' : 'prepared_scene_background_quick_v1',
+        kind: input.backgroundQuality === 'ai_repaired' ? 'prepared_scene_background_ai_v2' : 'prepared_scene_background_quick_v2',
         path: `${basePath}/background.jpg`,
         dataUrl: input.cleanBackgroundDataUrl,
       });
