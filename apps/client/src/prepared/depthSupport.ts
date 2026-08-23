@@ -3,7 +3,7 @@ import { DEFAULT_PREPARED_SUPPORT_MODEL, type PreparedSupportModel } from './sup
 
 type BoundarySample = { x: number; y: number; strength: number; contextStrength: number };
 export type DepthNearDirection = 'higher-is-nearer' | 'lower-is-nearer' | 'unknown';
-export type DepthSupportReason = 'accepted' | 'invalid-depth' | 'insufficient-strong-transitions' | 'incoherent-transitions' | 'localized-transitions' | 'high-residual';
+export type DepthSupportReason = 'accepted' | 'invalid-depth' | 'insufficient-strong-transitions' | 'incoherent-transitions' | 'high-residual';
 export type DepthSupportDiagnostics = {
   reason: DepthSupportReason;
   columns: number;
@@ -70,26 +70,12 @@ export function analyzeSupportModelFromDepth(estimate: DepthEstimate): DepthSupp
     ? robust.reduce((sum, sample) => sum + sample.contextStrength, 0) / robust.length
     : null;
 
-  if (robust.length < MIN_ROBUST_SAMPLES) {
+  if (robust.length < MIN_ROBUST_SAMPLES || xCoverage < MIN_X_COVERAGE) {
     return {
       model: null,
       diagnostics: {
         ...base,
         reason: 'incoherent-transitions',
-        strongSamples: samples.length,
-        robustSamples: robust.length,
-        xCoverage,
-        averageStrength,
-        averageContextStrength,
-      },
-    };
-  }
-  if (xCoverage < MIN_X_COVERAGE) {
-    return {
-      model: null,
-      diagnostics: {
-        ...base,
-        reason: 'localized-transitions',
         strongSamples: samples.length,
         robustSamples: robust.length,
         xCoverage,
