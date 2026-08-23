@@ -1,6 +1,7 @@
 import type { SpatialSnapshot } from '@formshift/domain';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { clientToStagePoint, imageToStagePoint, refinementBrushRadius, stageToImagePoint } from '../arrange/refinementCoordinates';
 import { useAuth } from '../auth/AuthProvider';
 import { loadLatestPhotoArrangement, persistPhotoArrangement } from '../data/photoArrangementPersistence';
 import { tokens } from '../theme/tokens';
@@ -211,12 +212,12 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
 
   function beginViewport(event: React.PointerEvent<HTMLDivElement>) {
     event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture?.(event.pointerId);
-    const p = localPoint(event.currentTarget, event.clientX, event.clientY); viewportPointers.current.set(event.pointerId, p);
+    const p = pointerStagePoint(event.currentTarget, event.clientX, event.clientY, stageSize); if (!p) return; viewportPointers.current.set(event.pointerId, p);
     if (viewportPointers.current.size >= 2) { activeStrokeRef.current = null; setLiveStroke(null); setLoupePoint(null); tapRef.current = null; resetViewBase(); return; }
 
     if (candidate) {
       if (refineModeRef.current === 'pan') { resetViewBase(); return; }
-      const ip = stageToImage(p, viewScaleRef.current, viewOffsetRef.current, stageSize);
+      const ip = stageToImagePoint(p, viewScaleRef.current, viewOffsetRef.current, stageSize);
       if (ip) {
         const stroke = { pointerId: event.pointerId, mode: refineModeRef.current as StrokeMode, points: [ip] };
         activeStrokeRef.current = stroke; setLiveStroke({ mode: stroke.mode, points: stroke.points }); setLoupePoint(p);
@@ -230,7 +231,7 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
   function moveViewport(event: React.PointerEvent<HTMLDivElement>) {
     if (!viewportPointers.current.has(event.pointerId)) return;
     event.preventDefault(); event.stopPropagation();
-    const p = localPoint(event.currentTarget, event.clientX, event.clientY); viewportPointers.current.set(event.pointerId, p);
+    const p = pointerStagePoint(event.currentTarget, event.clientX, event.clientY, stageSize); if (!p) return; viewportPointers.current.set(event.pointerId, p);
     const points = [...viewportPointers.current.values()]; const base = viewBaseRef.current;
 
     if (points.length >= 2) {
@@ -248,9 +249,9 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
         return;
       }
       const active = activeStrokeRef.current; if (!active || active.pointerId !== event.pointerId) return;
-      const ip = stageToImage(p, viewScaleRef.current, viewOffsetRef.current, stageSize); if (!ip) return;
+      const ip = stageToImagePoint(p, viewScaleRef.current, viewOffsetRef.current, stageSize); if (!ip) return;
       const last = active.points[active.points.length - 1]!;
-      const screenDelta = distance({ x: last.x * stageSize.width * viewScaleRef.current, y: last.y * stageSize.height * viewScaleRef.current }, { x: ip.x * stageSize.width * viewScaleRef.current, y: ip.y * stageSize.height * viewScaleRef.current });
+      const screenDelta = distance(imageToStagePoint(last, viewScaleRef.current, viewOffsetRef.current, stageSize), imageToStagePoint(ip, viewScaleRef.current, viewOffsetRef.current, stageSize));
       if (screenDelta >= 5) active.points.push(ip);
       setLiveStroke({ mode: active.mode, points: [...active.points] }); setLoupePoint(p); return;
     }
@@ -262,7 +263,7 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
   function endViewport(event: React.PointerEvent<HTMLDivElement>) {
     if (!viewportPointers.current.has(event.pointerId)) return;
     event.preventDefault(); event.stopPropagation();
-    const p = localPoint(event.currentTarget, event.clientX, event.clientY); const wasOnly = viewportPointers.current.size === 1; viewportPointers.current.delete(event.pointerId);
+    const p = pointerStagePoint(event.currentTarget, event.clientX, event.clientY, stageSize); const wasOnly = viewportPointers.current.size === 1; viewportPointers.current.delete(event.pointerId);
 
     if (candidate && activeStrokeRef.current?.pointerId === event.pointerId) {
       const active = activeStrokeRef.current; activeStrokeRef.current = null; setLiveStroke(null); setLoupePoint(null);
@@ -271,10 +272,10 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
         const next = [...strokesRef.current, nextStroke]; setRedoStrokes([]);
         void recompute(next, `${active.mode === 'add' ? 'Added' : 'Removed'} painted area. Keep refining or use selection.`);
       }
-    } else if (!candidate && !selection && wasOnly) {
+    } else if (p && !candidate && !selection && wasOnly) {
       const tap = tapRef.current;
       if (tap && tap.pointerId === event.pointerId && !tap.moved && Date.now() - tap.startedAt < 650) {
-        const ip = stageToImage(p, viewScaleRef.current, viewOffsetRef.current, stageSize); if (ip) void selectAt(ip.x, ip.y);
+        const ip = stageToImagePoint(p, viewScaleRef.current, viewOffsetRef.current, stageSize); if (ip) void selectAt(ip.x, ip.y);
       }
     }
 
@@ -340,6 +341,7 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
       <div role="application" aria-label={candidate ? 'Selection refinement surface' : 'Room photo'} onPointerDown={beginViewport} onPointerMove={moveViewport} onPointerUp={endViewport} onPointerCancel={endViewport} onContextMenu={(e)=>e.preventDefault()} onDragStart={(e)=>e.preventDefault()} style={{ position:'absolute', inset:0, zIndex:4, cursor:candidate && refineMode !== 'pan' ? 'crosshair' : viewScale > 1.01 ? 'grab' : 'crosshair', ...SHIELD }} />
 
       {candidate && liveStroke ? <StrokeOverlay stroke={liveStroke} stageSize={stageSize} viewScale={viewScale} viewOffset={viewOffset} /> : null}
+      {candidate && loupePoint && refineMode !== 'pan' ? <BrushFootprint point={loupePoint} stageSize={stageSize} viewScale={viewScale} mode={refineMode === 'remove' ? 'remove' : 'add'} /> : null}
       {candidate && loupePoint && sceneUrl ? <Loupe sceneUrl={sceneUrl} point={loupePoint} stageSize={stageSize} viewScale={viewScale} viewOffset={viewOffset} mode={refineMode === 'remove' ? 'remove' : 'add'} /> : null}
 
       {selection && screenCutout ? <>
@@ -353,7 +355,7 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
 
     <View style={styles.controlTray}>
       {candidate ? <>
-        <View style={styles.trayHeader}><View style={styles.trayHeaderCopy}><Text style={styles.trayTitle}>Refine selection</Text><Text style={styles.trayHint}>{refineMode === 'pan' ? 'Drag to pan the zoomed room. Two fingers always zoom.' : `Drag your finger to ${refineMode} areas. Two fingers still zoom.`}</Text></View><Text style={styles.pointCount}>{Math.max(0, strokes.length-1)} strokes</Text></View>
+        <View style={styles.trayHeader}><View style={styles.trayHeaderCopy}><Text style={styles.trayTitle}>Refine selection</Text><Text style={styles.trayHint}>{refineMode === 'pan' ? 'Drag to pan the zoomed room. Two fingers always zoom.' : `Drag your finger to ${refineMode} areas. The brush ring shows the exact source-image footprint; two fingers still zoom.`}</Text></View><Text style={styles.pointCount}>{Math.max(0, strokes.length-1)} strokes</Text></View>
         <View style={styles.refineRow}>
           <Pressable style={[styles.modeButton, refineMode==='add' && styles.modeButtonActive]} onPress={()=>setRefineMode('add')}><Text style={[styles.modeButtonText, refineMode==='add' && styles.modeButtonTextActive]}>＋ Add</Text></Pressable>
           <Pressable style={[styles.modeButton, refineMode==='remove' && styles.removeButtonActive]} onPress={()=>setRefineMode('remove')}><Text style={[styles.modeButtonText, refineMode==='remove' && styles.removeButtonTextActive]}>− Remove</Text></Pressable>
@@ -378,8 +380,13 @@ export function PhotoArrangeEditorV17({ photoUrl, snapshot, projectId, spaceId, 
 }
 
 function StrokeOverlay({ stroke, stageSize, viewScale, viewOffset }: { stroke: RefinementStroke; stageSize:{width:number;height:number}; viewScale:number; viewOffset:Point }) {
-  const points = stroke.points.map(p => `${viewOffset.x + p.x*stageSize.width*viewScale},${viewOffset.y + p.y*stageSize.height*viewScale}`).join(' ');
+  const points = stroke.points.map((point) => { const p = imageToStagePoint(point, viewScale, viewOffset, stageSize); return `${p.x},${p.y}`; }).join(' ');
   return <svg aria-hidden="true" style={{position:'absolute',inset:0,zIndex:8,pointerEvents:'none',width:'100%',height:'100%'}}><polyline points={points} fill="none" stroke={stroke.mode==='add'?'#0D7496':'#A84C4C'} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" /></svg>;
+}
+
+function BrushFootprint({ point, stageSize, viewScale, mode }: { point:Point; stageSize:{width:number;height:number}; viewScale:number; mode:StrokeMode }) {
+  const radius = refinementBrushRadius(stageSize, viewScale); const color = mode === 'add' ? '#0D7496' : '#A84C4C';
+  return <div aria-hidden="true" style={{position:'absolute',zIndex:19,pointerEvents:'none',left:point.x-radius,top:point.y-radius,width:radius*2,height:radius*2,borderRadius:radius,border:`2px solid ${color}`,background:mode==='add'?'rgba(13,116,150,.08)':'rgba(168,76,76,.08)',boxShadow:'0 0 0 1px rgba(255,255,255,.9)'}} />;
 }
 
 function Loupe({ sceneUrl, point, stageSize, viewScale, viewOffset, mode }: { sceneUrl:string; point:Point; stageSize:{width:number;height:number}; viewScale:number; viewOffset:Point; mode:StrokeMode }) {
@@ -429,8 +436,7 @@ async function compositeScene({sceneUrl,selection,position,scale,rotation,imageS
 async function loadSceneIntoCanvas(url:string){const image=await loadImage(url),max=1400,s=Math.min(1,max/Math.max(image.naturalWidth||image.width,image.naturalHeight||image.height)),width=Math.max(1,Math.round((image.naturalWidth||image.width)*s)),height=Math.max(1,Math.round((image.naturalHeight||image.height)*s)),canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;canvas.getContext('2d',{willReadFrequently:true})!.drawImage(image,0,0,width,height);return{canvas,width,height};}
 function loadImage(url:string){return new Promise<HTMLImageElement>((resolve,reject)=>{const image=new window.Image();image.crossOrigin='anonymous';image.onload=()=>resolve(image);image.onerror=()=>reject(new Error('The room photo could not be loaded for pixel editing.'));image.src=url;});}
 function simplifyStroke(points:Point[]){if(points.length<=2)return points;const out=[points[0]!];for(let i=1;i<points.length-1;i++){if(distance(out[out.length-1]!,points[i]!)>=.004)out.push(points[i]!);}out.push(points[points.length-1]!);return out.slice(0,96);}
-function localPoint(el:HTMLElement,x:number,y:number):Point{const r=el.getBoundingClientRect();return{x:x-r.left,y:y-r.top};}
-function stageToImage(p:Point,s:number,o:Point,stage:{width:number;height:number}):Point|null{const x=(p.x-o.x)/Math.max(s,.001),y=(p.y-o.y)/Math.max(s,.001);if(x<0||y<0||x>stage.width||y>stage.height)return null;return{x:clamp(x/Math.max(stage.width,1),0,1),y:clamp(y/Math.max(stage.height,1),0,1)};}
+function pointerStagePoint(el:HTMLElement,x:number,y:number,stage:{width:number;height:number}):Point|null{return clientToStagePoint({x,y},el.getBoundingClientRect(),stage);}
 function clampOffset(o:Point,s:number,stage:{width:number;height:number}){if(s<=1.001)return{x:0,y:0};return{x:clamp(o.x,stage.width*(1-s),0),y:clamp(o.y,stage.height*(1-s),0)};}
 function centroid(points:Point[]){return{x:points.reduce((a,p)=>a+p.x,0)/points.length,y:points.reduce((a,p)=>a+p.y,0)/points.length};} function distance(a:Point,b:Point){return Math.hypot(b.x-a.x,b.y-a.y);} function angle(a:Point,b:Point){return Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;} function normalizeAngle(v:number){while(v>180)v-=360;while(v<-180)v+=360;return v;} function clamp(v:number,min:number,max:number){return Math.max(min,Math.min(max,v));} function message(err:unknown,fallback:string){return err instanceof Error?err.message:fallback;}
 
