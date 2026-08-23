@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { useAuth } from '../auth/AuthProvider';
 import { repairPreparedSceneBackground } from '../prepared/backgroundRepair.web';
+import { estimateSupportModelFromDepth, mergePreparedSupportModels } from '../prepared/depthSupport';
 import {
   compositeRepairedCleanBackground,
   createPreparedSceneRepairMask,
@@ -25,6 +26,7 @@ import {
   constrainPreparedPosition,
   estimateSupportModel,
   estimateSupportModelFromObjects,
+  floorBoundaryAtX,
   isFixedPreparedLabel,
   isPersonOccludedCandidate,
   maskMatchesDetection,
@@ -32,7 +34,7 @@ import {
   positionsDiffer,
   type PreparedSupportModel,
 } from '../prepared/support';
-import type { ObjectDetectionCandidate, PreparedSceneObject } from '../prepared/types';
+import type { ObjectDetectionCandidate, PreparedBox, PreparedSceneObject } from '../prepared/types';
 import { createDepthProvider } from '../scene/providers/DepthAnythingV2Small.web';
 import { tokens } from '../theme/tokens';
 
@@ -51,7 +53,7 @@ type CacheState = 'none' | 'restored' | 'saving' | 'saved' | 'dirty' | 'error';
 
 const MAX_AUTOMATIC_OBJECTS = 18;
 const IGNORED_LABELS = new Set(['person', 'cat', 'dog', 'bird', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe']);
-const SUPPORT_MODEL_VERSION = 1;
+const SUPPORT_MODEL_VERSION = 2;
 
 export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
   const auth = useAuth();
@@ -213,7 +215,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
               setStatus(corrected
                 ? `${constrained.length} cached objects restored. Estimated support assist corrected an unsupported saved placement.`
                 : `${constrained.length} cached object${constrained.length === 1 ? '' : 's'} restored. Tap any prepared object and move it.`);
-              if (constrained.some((object) => typeof object.approximateDepth !== 'number')) void enrichDepth(url, generation);
+              if (constrained.some((object) => typeof object.approximateDepth !== 'number') || restoredSupport.source !== 'hybrid') void enrichDepth(url, generation);
               return;
             }
           }
@@ -272,7 +274,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         y: clamp(((candidate.box.ymin + candidate.box.ymax) / 2) / Math.max(source.originalHeight, 1), 0, 1),
       };
       try {
-        const segment = await segmentPreparedObject(source.canvas, seed);
+        const segment = await segmentPreparedObject(source.canvas, seed, candidateToPreparedBox(candidate, source.originalWidth, source.originalHeight));
         if (
           segment
           && segment.bbox.width * segment.bbox.height <= 0.62
@@ -328,7 +330,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         backgroundAssetId: null,
         provider: {
           discovery: discoveryInfo,
-          automaticAcceptance: 'detector-backed-only',
+          automaticAcceptance: 'detector-guided-component-v2',
           personOverlapPolicy: 'defer',
           supportModelVersion: SUPPORT_MODEL_VERSION,
           supportModel: nextSupport,
@@ -345,14 +347,21 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     try {
       const estimate = await createDepthProvider().estimate(url);
       if (generationRef.current !== generation) return;
-      setObjects((current) => current.map((object) => ({
-        ...object,
-        approximateDepth: sampleDepth(estimate.normalized, estimate.width, estimate.height, object.position.x, object.position.y),
-      })));
+      const depthSupport = estimateSupportModelFromDepth(estimate);
+      const mergedSupport = mergePreparedSupportModels(supportModelRef.current, depthSupport);
+      applySupportModel(mergedSupport);
+      setObjects((current) => {
+        const enriched = current.map((object) => ({
+          ...object,
+          approximateDepth: sampleDepth(estimate.normalized, estimate.width, estimate.height, object.position.x, object.position.y),
+        }));
+        return constrainPreparedObjects(enriched, mergedSupport, supportAssistRef.current);
+      });
       setDepthInfo({ provider: estimate.provider, model: estimate.model, modelVersion: estimate.modelVersion, processingMs: estimate.processingMs });
       setCacheState((current) => current === 'none' ? current : 'dirty');
+      if (depthSupport) setStatus('Depth surface evidence refined the estimated support boundary. Save changes to cache the updated scene.');
     } catch {
-      // Depth is enrichment; movement remains available if it fails.
+      // Depth is enrichment; movement remains available if it fails or times out.
     }
   }
 
@@ -474,7 +483,7 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
     return {
       discovery: detectorInfo,
       depth: depthInfo,
-      automaticAcceptance: 'detector-backed-only',
+      automaticAcceptance: 'detector-guided-component-v2',
       personOverlapPolicy: 'defer',
       supportModelVersion: SUPPORT_MODEL_VERSION,
       supportModel,
@@ -566,6 +575,9 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
 
   const background = showCleanPlate ? cleanBackground : (cleanBackground ?? sourcePreview ?? photoUrl ?? null);
   const ordered = useMemo(() => [...objects].sort(comparePreparedDepth), [objects]);
+  const floorLeftY = floorBoundaryAtX(supportModel, 0);
+  const floorRightY = floorBoundaryAtX(supportModel, 1);
+  const floorLabelY = floorBoundaryAtX(supportModel, 0.84);
 
   if (!photoUrl) return <StateCard title="No room photo" body="Load a room photo to create a Prepared Scene." />;
 
@@ -611,8 +623,11 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
       >
         {background ? <img src={background} alt="Prepared room background" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill', userSelect: 'none', pointerEvents: 'none' }} /> : null}
         {phase === 'ready' && supportAssistEnabled && !showCleanPlate ? (
-          <div style={{ position: 'absolute', left: 0, right: 0, top: `${supportModel.floorRegionStartY * 100}%`, borderTop: '1px dashed rgba(40,199,232,.5)', zIndex: 4, pointerEvents: 'none' }}>
-            <span style={{ position: 'absolute', right: 8, top: -18, padding: '2px 6px', borderRadius: 999, background: 'rgba(20,24,24,.62)', color: '#fff', fontSize: 9, fontWeight: 700 }}>Estimated floor region</span>
+          <div style={{ position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none' }}>
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%" style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
+              <line x1="0" y1={floorLeftY * 100} x2="100" y2={floorRightY * 100} stroke="rgba(40,199,232,.55)" strokeWidth="1" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
+            </svg>
+            <span style={{ position: 'absolute', right: 8, top: `${floorLabelY * 100}%`, transform: 'translateY(-18px)', padding: '2px 6px', borderRadius: 999, background: 'rgba(20,24,24,.62)', color: '#fff', fontSize: 9, fontWeight: 700 }}>Estimated floor region</span>
           </div>
         ) : null}
         {phase === 'ready' && !showCleanPlate ? ordered.map((object, index) => {
@@ -650,12 +665,12 @@ export function PreparedSceneEditor({ photoUrl, projectId, spaceId }: Props) {
         <Text style={{ fontSize: 10, lineHeight: 15, color: tokens.color.muted }}>
           {objects.length} editable object{objects.length === 1 ? '' : 's'} · {ignoredCount} detector candidate{ignoredCount === 1 ? '' : 's'} filtered/deferred · {personDeferredCount} candidate{personDeferredCount === 1 ? '' : 's'} deferred because a person overlaps it. {selected ? `Selected: ${selected.label} · expected support ${selected.expectedSupport}${typeof selected.approximateDepth === 'number' ? ` · relative depth ${selected.approximateDepth.toFixed(2)}` : ''}.` : 'Tap an object to select it.'}
         </Text>
-        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Support assist: {supportAssistEnabled ? 'on' : 'off'} · estimated floor region {(supportModel.floorRegionStartY * 100).toFixed(0)}% down photo · confidence {(supportModel.confidence * 100).toFixed(0)}% · {supportModel.source}.</Text>
-        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Automatic masks must agree with detector geometry. Person-overlapped furniture is deferred instead of moving the person with it.</Text>
+        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Support assist: {supportAssistEnabled ? 'on' : 'off'} · center boundary {(supportModel.floorRegionStartY * 100).toFixed(0)}% · slope {(supportModel.floorBoundarySlope * 100).toFixed(1)} points across photo · confidence {(supportModel.confidence * 100).toFixed(0)}% · {supportModel.source}.</Text>
+        <Text style={{ fontSize: 9, color: tokens.color.muted }}>Automatic masks use the detector as a guide and retain one connected MediaPipe component. Person-overlapped furniture is deferred instead of moving the person with it.</Text>
         <Text style={{ fontSize: 9, color: tokens.color.muted }}>Prepared layers use relative depth for front/back order when depth evidence exists; this is still estimated, not calibrated occlusion.</Text>
         <Text style={{ fontSize: 9, color: tokens.color.muted }}>Background: {backgroundQuality === 'ai_repaired' ? 'AI-repaired masked regions' : 'fast local approximation'} · Cache: {cacheLabel(cacheState)}</Text>
         {detectorInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Discovery: {detectorInfo.model} · {detectorInfo.processingMs} ms</Text> : null}
-        {depthInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth: {depthInfo.model} · {depthInfo.processingMs} ms</Text> : <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth enrichment runs after objects become moveable so it does not block interaction.</Text>}
+        {depthInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth/surfaces: {depthInfo.model} · {depthInfo.processingMs} ms</Text> : <Text style={{ fontSize: 9, color: tokens.color.muted }}>Depth/surface enrichment runs after objects become moveable so it does not block interaction.</Text>}
         {repairInfo ? <Text style={{ fontSize: 9, color: tokens.color.muted }}>Background repair: {repairInfo.model} · {repairInfo.processingMs} ms · only masked source regions are accepted back into the clean plate.</Text> : null}
       </View>
     </View>
@@ -681,6 +696,15 @@ function chooseCandidates(candidates: ObjectDetectionCandidate[], width: number,
     if (chosen.length >= MAX_AUTOMATIC_OBJECTS) break;
   }
   return chosen;
+}
+
+function candidateToPreparedBox(candidate: ObjectDetectionCandidate, width: number, height: number): PreparedBox {
+  return {
+    x: clamp(candidate.box.xmin / Math.max(1, width), 0, 1),
+    y: clamp(candidate.box.ymin / Math.max(1, height), 0, 1),
+    width: clamp((candidate.box.xmax - candidate.box.xmin) / Math.max(1, width), 0, 1),
+    height: clamp((candidate.box.ymax - candidate.box.ymin) / Math.max(1, height), 0, 1),
+  };
 }
 
 function overlapsLabeledPrepared(bbox: { x: number; y: number; width: number; height: number }, label: string, objects: PreparedSceneObject[]) {
