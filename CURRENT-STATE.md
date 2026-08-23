@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.9.24  
+**Revision:** 0.9.25  
 **Date:** 2026-08-23  
-**Milestone:** Wave 3 Prepared Scene has physically proven local Depth Anything execution and tight automatic TV movement; physical diagnostics exposed a foreground-depth-edge failure mode, and the room-wide nearward support refinement is exact-head build-validated with device acceptance pending
+**Milestone:** Wave 3 physically passes ghost-resistant local source removal; the latest iPhone run exposed a second coherent foreground depth band, and the support selector now prefers the earliest coherent room-wide nearward band with exact-head validation complete and device acceptance pending
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
 
@@ -12,89 +12,84 @@ Production web remains on the validated Photo Arrange v2.2 baseline. Prepared Sc
 
 No production merge, web promotion, database migration, credential change, or physics integration occurred in this Wave 3 continuation.
 
-## Physically validated baseline retained
+## Physically validated baseline
 
-Prior iPhone testing proves:
+Current iPhone evidence proves:
 - Prepared Scene survives preview authentication;
-- the latest source photo remains authoritative;
+- latest source photo remains authoritative;
 - Safari uses the safe WASM perception path;
 - DETR-backed discovery and detector-guided MediaPipe segmentation reach an interactive state;
-- the automatic TV is an independent photographed-pixel layer and can move without Safari scroll takeover;
+- the automatic TV is a tight independent photographed-pixel layer and moves without Safari scroll takeover;
 - broad unlabeled room-region masks are not auto-promoted;
 - Depth Anything V2 Small executes locally on the physical iPhone;
-- explicit GPT Image background repair has previously succeeded and persisted;
 - source-bound Prepared Scene persistence/restore works;
-- immutable source photography and canonical measurements/spatial versions remain unchanged.
+- immutable source photography and canonical measurements/spatial versions remain unchanged;
+- the **ghost-resistant local quick clean plate now physically removes the TV without leaving a recognizable duplicate TV, HP advertisement, logo, readable screen text, or screen image at the original wall location**.
 
-## Physical diagnostic evidence — 2026-08-23 10:47 local
+The latest screenshot still shows mild reconstruction banding in the former TV region. That remains a visual-quality issue, but the prior blocking object-duplication/ghosting failure is physically closed for the local quick-clean path.
 
-The latest supplied iPhone screenshot shows:
+## Latest physical support evidence — 2026-08-23 15:48 local
+
+The supplied iPhone screenshot shows:
 - **1 editable object:** `tv`;
-- selected object expected support: **wall**;
+- selected TV expected support: **wall**;
 - normalized relative nearness: **0.06**;
 - Support assist: **on**;
-- active support model: center **60%**, slope **0.0**, confidence **68%**, source **`detector-anchors`**;
-- depth support status: **accepted**;
-- strong transitions: **7/13**;
-- coherent transitions: **4**;
-- fit residual: **0.013**;
-- inferred direction: **higher-is-nearer**, confidence **100%**;
-- merge result: **anchors retained after disagreement**;
-- detector/depth center disagreement: **18.3 percentage points**;
-- destination-depth masked layers at capture: **0**;
-- background state: **fast local approximation**;
-- Depth Anything V2 Small processing time: **5,821 ms**.
+- active support model: center **66%**, slope **4.7 points across the photo**, confidence **79%**, source **`hybrid`**;
+- visible depth diagnostic: support **accepted**, strong **10/13**, coherent **10**, residual approximately **0.027**;
+- the automatic TV has been moved away from its source wall location;
+- the original TV region is now visually free of recognizable TV/ad content.
 
 ### Interpretation
 
-The depth field is not generally failing: near/far direction confidence is maximal and the fitted local edge has very low residual. The weakness is **semantic support selection**. Only 4 of 13 sampled columns agreed on the same boundary, while the previous algorithm selected each column's strongest local depth transition. In this room that allows a rug/hardwood or other foreground floor-material edge to outrank a weaker room-wide wall/floor transition.
+The new room-wide-context rule materially improved cross-column coherence: the previous run had only 4 coherent columns and 18.3-point detector/depth disagreement, while this run reaches 10 coherent columns and produces a hybrid model.
 
-The existing conservative merge rule behaved correctly: an 18.3-point disagreement did **not** replace the detector-anchor support estimate. This evidence does not justify weakening the disagreement threshold.
+However, the **visible 66% line is still too low to be accepted as the wall/floor cutoff**. In the screenshot it tracks the foreground hardwood/rug/material region rather than the far wall/floor/baseboard transition. Therefore `hybrid` and 79% confidence are **not treated as physical acceptance**.
 
-## Wave 3 support refinement implemented
+This reveals a second failure mode: a later foreground floor/material transition can itself be coherent, persistent and room-wide. Cross-column coherence alone is therefore insufficient to identify the far wall/floor support boundary.
 
-Branch: `scene-foundation-v1`
+## Wave 3 support refinement — earliest coherent room band
 
-### Room-wide nearward transition rule
+Branch: `scene-foundation-v1`.
 
-Depth support no longer treats the largest absolute local gradient as sufficient floor evidence when near/far orientation is known.
+Depth support now retains multiple distinct nearward transition candidates per sampled image column rather than collapsing each column to its strongest candidate.
 
-For each sampled image column the candidate now requires:
-- a local transition in the physically expected direction: **farther above → nearer below**;
-- persistent nearward evidence across a wider vertical context band, not only a narrow pixel edge;
-- sufficient transition strength after local/context combination;
-- cross-column coherence;
-- at least **5 coherent columns** before depth may become support-model evidence;
-- meaningful horizontal image coverage so a localized furniture/material edge cannot masquerade as a room-wide support surface;
-- the existing bounded perspective-fit residual check.
+The selector:
+- samples 13 columns;
+- requires physically directed **farther-above → nearer-below** evidence when depth orientation is known;
+- keeps multiple spatially distinct transition candidates per column;
+- clusters candidates across columns into possible room-wide support bands;
+- robustly fits each band and rejects outliers;
+- requires at least **5 coherent columns**;
+- requires at least **34% horizontal image coverage**;
+- preserves the bounded residual gate;
+- chooses the **earliest/uppermost coherent room-wide nearward band** as the wall/floor support candidate rather than the strongest later material transition.
 
-Sparse/localized candidates continue to fail closed under the existing `incoherent-transitions` state. They may still contribute useful relative depth for occlusion, but they do not become floor/support geometry.
+This matches the product meaning of the support cutoff used for wall-mounted objects: the far wall/floor transition should precede later hardwood/rug, floor/furniture and foreground-material depth bands as the image is scanned downward.
 
-### Why this is safer
+### Stronger deterministic regression
 
-A rug edge, furniture edge or material transition can be visually/depth-sharp while existing entirely on the same physical floor plane. A real wall/floor support transition should exhibit persistent scene-depth change across a wider region and across multiple room columns. The refinement therefore changes **evidence admission**, not confidence labeling or canonical geometry.
+The Prepared Scene support suite now includes a synthetic room with **two full-width coherent nearward transitions**:
+1. a weaker true wall/floor transition;
+2. a much stronger later rug/floor transition.
 
-### New regression
-
-The deterministic support suite now includes a synthetic room with:
-- a valid wall/floor nearward transition;
-- a narrower foreground material band whose local gradient is deliberately sharper than the true room boundary.
-
-The test requires FormShift to recover the room-wide wall/floor support transition and reject the foreground artifact as the governing support edge.
+The test requires FormShift to select the earlier wall/floor band even though the later foreground transition has substantially greater depth contrast. This reproduces the failure exposed by the latest physical screenshot more accurately than the previous narrow-band regression.
 
 ## Existing Wave 3 safeguards retained
 
 Still active:
-- detector-guided connected-component automatic MediaPipe masks;
-- whole-room/oversized automatic mask rejection;
+- detector-guided connected-component MediaPipe masks;
+- whole-room/oversized automatic-mask rejection;
 - normalized relative-nearness convention (`0` farther → `1` nearer);
-- diagnosable detector/depth merge decisions;
+- explicit detector/depth acceptance and merge diagnostics;
 - conservative destination-depth occlusion after drag release;
-- original prepared-object masks excluded from the source occluder field;
-- ghost-resistant deterministic local clean plate using only unmasked surrounding source pixels;
+- original Prepared Scene object masks excluded from the source occluder field;
+- deterministic quick clean plate using only unmasked source pixels;
 - bounded/feathered explicit AI background repair;
+- anti-ghost Prepared Scene repair prompt v1.1.0;
 - Prepared Scene cache schema **`prepared-scene-1.3`**;
 - source-photo-specific private persistence;
+- fail-closed preview validation;
 - no canonical measurement/spatial mutation;
 - no physics.
 
@@ -102,28 +97,29 @@ Still active:
 
 Functional exact head before this documentation update:
 
-`2b09b8a61c817075fa157377514d1ef75a9df744`
+`66ef37da8ea474903322e2ae8593fd6c206ad18c`
 
 Evidence:
-- web Vercel preview `dpl_7et3EfMe2KqtgZNVtAmZoDSVkALQ` — **READY**;
-- GitHub exact-head combined status — **Vercel web success + Vercel API success**;
+- web Vercel preview `dpl_BcYAD3BeBMuFqr9R5DyD8vkdw7yq` — **READY**;
+- GitHub combined exact-head status — **Vercel web success + Vercel API success**;
 - repository structure verification — pass;
 - security/RLS source verification — pass;
 - domain tests — pass;
 - canonical Arrange/Safari regression suite — pass;
 - scene/provider/persistence boundary suite — pass;
-- room-wide nearward support regression — pass;
-- foreground-material edge rejection regression — pass;
-- destination occlusion/mask safety/movement-depth suite — pass;
+- earliest-coherent support-band regression — pass;
+- stronger persistent foreground-material-band rejection regression — pass;
+- support fusion regression — pass;
+- destination occlusion / mask-safety / movement-depth regressions — pass;
 - ghost-resistant quick-clean regression — pass;
 - client TypeScript check — pass;
 - `/arrange-prepared` static export — pass.
 
-## Model/provider evaluation note
+## Model/provider evaluation boundary
 
-A lightweight browser semantic-surface model was evaluated as a possible floor/wall aid. SegFormer B0/ADE20K is technically attractive, but the upstream NVIDIA model is published under an `other`/NVIDIA-specific license rather than the straightforward permissive model license required for FormShift's commercial default. It has **not** been added to the application. FormShift will not trade licensing clarity for a short-term perception improvement.
+No new semantic-segmentation model was added in this cycle. A browser semantic surface model remains attractive, but FormShift will not make a commercially ambiguous or mobile-heavy model part of the default architecture merely to improve this one room.
 
-Grounding DINO remains a promising Apache-2.0 open-vocabulary candidate for broader object semantics, but the standard tiny checkpoint is roughly 689 MB and is not appropriate as an automatic iPhone-browser dependency. It remains a later native/server/developer-hosted evaluation candidate rather than part of this release.
+The current support refinement remains deterministic and uses the already-adopted Depth Anything provider. A future semantic surface provider may supplement this evidence behind the existing provider boundary only after model-license, memory, latency and device-quality gates are satisfied.
 
 ## Integrity / privacy boundary
 
@@ -134,7 +130,7 @@ Prepared Scene remains derived-only:
 - deterministic quick fill remains local;
 - generative repair remains explicit;
 - AI-repaired pixels remain bounded to the derived repair region;
-- depth/support/occlusion do not change verified dimensions or canonical spatial versions;
+- depth/support/occlusion never become verified dimensions or canonical spatial versions;
 - Support assist remains reversible;
 - destination occlusion is visual evidence, not physical geometry;
 - physics remains off.
@@ -142,28 +138,24 @@ Prepared Scene remains derived-only:
 ## Immediate physical-device acceptance
 
 1. Hard refresh the stable `/arrange-prepared` preview and wait for Depth Anything to complete.
-2. Capture the new **Depth support** line. A good result is either:
-   - room-wide evidence reaches at least 5 coherent columns and disagreement drops materially from the prior 18.3 points; or
-   - the misleading foreground edge is rejected instead of being reported as accepted.
-   A hybrid result is not inherently better than a correct rejection.
-3. Move the automatic TV away **before pressing Improve background** and inspect its original location. The quick clean plate must not contain a recognizable duplicate TV, HP advertisement, readable TV text/logo or recognizable screen image.
-4. Press **Inspect clean background** and verify the old TV region contains only an approximate background.
-5. Press **Improve background** explicitly and confirm the generated repair does not recreate the removed TV/screen/logo.
-6. With Support assist on, drag the TV straight downward and confirm the TV stops before crossing the active support boundary.
-7. Turn Support assist off and confirm free placement; leave it unsupported, re-enable assist, and confirm correction.
-8. Test destination occlusion over visibly foreground content, open wall/floor and the TV's original location.
+2. Capture the **Depth support** diagnostic line and room image. The governing dashed support line should move materially upward from the current 66% foreground-material band, or the depth support should fail closed rather than using the later band.
+3. Do **not** require a hybrid result. A correct detector-only or rejected-depth result is preferable to a confidently wrong hybrid.
+4. Move the automatic TV away and reconfirm the source wall remains free of recognizable TV/HP/screen content. The local quick-clean anti-ghost requirement is already physically accepted from the latest screenshot; this is a regression check only.
+5. With Support assist on, drag the TV straight downward and verify the object itself stops at the active wall-support cutoff.
+6. Turn Support assist off and confirm free placement; leave the TV unsupported, re-enable assist, and confirm correction.
+7. Test destination occlusion over visibly foreground source content, open wall/floor and the TV's original location.
+8. Press **Improve background** and inspect the former TV region for naturalness/banding and accidental TV recreation.
 9. Save/refresh and confirm schema-1.3 scene/background lineage restores correctly.
 10. Confirm normal Safari page scrolling resumes immediately after drag release.
 
 ## Not yet claimed
 
-- physical-device acceptance of the new room-wide nearward support detector;
-- physical-device acceptance of the ghost-resistant quick clean plate on the old TV location;
-- physical acceptance of Prepared Scene repair prompt v1.1.0 output quality;
-- physical-device acceptance of destination occlusion;
-- physical-device acceptance of support drag on/off/re-enable correction;
+- physical-device acceptance of the earliest-coherent support-band selector;
+- physical-device acceptance of Support Assist drag on/off/re-enable correction;
+- physical acceptance of destination occlusion;
+- physical acceptance of AI-repaired background quality for the current generation;
 - calibrated camera intrinsics / vanishing points;
-- calibrated floor/wall planes;
+- calibrated wall/floor planes;
 - metric depth;
 - production-quality automatic household-object coverage;
 - automatic person/furniture pixel separation rather than safe deferral;
@@ -174,13 +166,15 @@ Prepared Scene remains derived-only:
 
 ## Next decision
 
-Do **not** add Rapier/RealityKit physics yet. The next device run now tests whether room-wide contextual depth evidence can either converge toward the detector-supported wall/floor region or correctly reject the foreground material edge. That is a prerequisite for trustworthy support/collision geometry.
+Do **not** add Rapier/RealityKit physics yet.
 
-If support and clean-background acceptance pass, continue Wave 3 into stronger source-scene semantics/calibration and broader commercially-cleared object discovery. Physics follows reliable support/collision geometry rather than screen-space or monocular-edge heuristics.
+The latest screenshot closed the local source-removal ghosting blocker but demonstrated that even a high-confidence coherent monocular-depth band can represent the wrong physical transition. The current cycle therefore keeps support evidence fail-safe and improves band selection rather than increasing confidence or weakening disagreement thresholds.
+
+If the next device run still places the wall-support cutoff on a foreground floor/material band, stop further heuristic tuning and move to the next stronger architecture: explicit image-space support calibration for non-LiDAR photos, with RoomPlan/native structural evidence preferred on supported iPhones. That correction remains derived image-space evidence and does not become canonical metric geometry.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision **0.9.24** records the latest physical depth diagnostics, the identified foreground-edge failure mode, the room-wide nearward support refinement, licensing evaluation and exact-head validation evidence.
-- `ARCHITECTURE.md`: unchanged; the existing bounded/diagnosable/conservative depth-support architecture already governs this implementation refinement.
-- `DESIGN-SYSTEM.md`: unchanged; no durable visible interaction/state contract changed.
+- `CURRENT-STATE.md`: revision **0.9.25** records physical quick-clean acceptance, the 66%/4.7-point/79%-hybrid foreground-band failure, the earliest-coherent support-band refinement, and exact-head validation.
+- `ARCHITECTURE.md`: unchanged; this remains an implementation refinement within the existing bounded, diagnosable and conservative support-evidence architecture.
+- `DESIGN-SYSTEM.md`: unchanged; no new durable visible interaction contract was released.
 - `PROJECT-CONSTITUTION.md`: unchanged; source primacy, privacy, provenance, reversibility and canonical-spatial-truth invariants remain intact.
