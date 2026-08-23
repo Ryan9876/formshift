@@ -64,6 +64,21 @@ function syntheticDepth(width = 130, height = 100) {
   };
 }
 
+function syntheticDepthWithForegroundMaterialEdge(width = 130, height = 120) {
+  const depth = syntheticDepth(width, height);
+  for (let y = 0; y < height; y += 1) {
+    const ny = y / Math.max(1, height - 1);
+    if (ny < 0.765 || ny > 0.79) continue;
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      // A narrow false foreground band has a sharper local edge than the real
+      // wall/floor transition but no persistent nearward context below it.
+      depth.normalized[index] = 35;
+    }
+  }
+  return depth;
+}
+
 const tv = classifyPreparedLabel('tv');
 assert.deepEqual(tv, { mobility: 'conditional', support: 'wall' });
 assert.deepEqual(classifyPreparedLabel('couch'), { mobility: 'movable', support: 'floor' });
@@ -83,8 +98,10 @@ const depthAnalysis = analyzeSupportModelFromDepth(syntheticDepth());
 const depthSupport = depthAnalysis.model;
 assert.ok(depthSupport, 'coherent depth transition should produce support evidence');
 assert.equal(depthAnalysis.diagnostics.reason, 'accepted');
-assert.ok(depthAnalysis.diagnostics.strongSamples >= 4);
-assert.ok(depthAnalysis.diagnostics.robustSamples >= 4);
+assert.ok(depthAnalysis.diagnostics.strongSamples >= 5);
+assert.ok(depthAnalysis.diagnostics.robustSamples >= 5);
+assert.ok((depthAnalysis.diagnostics.xCoverage ?? 0) >= 0.34, 'support evidence must span a meaningful portion of the room');
+assert.ok((depthAnalysis.diagnostics.averageContextStrength ?? 0) > 10, 'accepted support must have persistent nearward context');
 assert.equal(depthAnalysis.diagnostics.nearDirection, 'higher-is-nearer');
 assert.ok(depthAnalysis.diagnostics.nearDirectionConfidence > 0.18);
 assert.equal(depthSupport.source, 'depth-profile');
@@ -92,6 +109,11 @@ assert.ok(depthSupport.floorRegionStartY > 0.5 && depthSupport.floorRegionStartY
 assert.ok(depthSupport.floorBoundarySlope > 0.03, 'depth profile should preserve left-to-right perspective trend');
 assert.ok(depthSupport.confidence >= 0.4 && depthSupport.confidence <= 0.84);
 assert.deepEqual(estimateSupportModelFromDepth(syntheticDepth()), depthSupport);
+
+const artifactAnalysis = analyzeSupportModelFromDepth(syntheticDepthWithForegroundMaterialEdge());
+assert.ok(artifactAnalysis.model, 'real wall/floor transition should remain recoverable when a sharper foreground material edge exists');
+assert.equal(artifactAnalysis.diagnostics.reason, 'accepted');
+assert.ok((artifactAnalysis.model?.floorRegionStartY ?? 1) < 0.66, 'narrow rug/material artifact must not replace the room-wide wall/floor support transition');
 
 const flatDepth = syntheticDepth(60, 60);
 flatDepth.normalized.fill(100);
@@ -210,4 +232,4 @@ for (let channel = 0; channel < 4; channel += 1) {
   assert.equal(quickResult.pixels[quickOutsideOffset + channel], quickSource[quickOutsideOffset + channel], 'unmasked quick-clean pixels must remain source-identical');
 }
 
-console.log('PASS Prepared Scene depth diagnostics, support fusion, conservative source occlusion, mask safety, movement-aware depth, and ghost-resistant quick-clean regression checks');
+console.log('PASS Prepared Scene depth diagnostics, room-wide nearward support, foreground-material rejection, support fusion, conservative source occlusion, mask safety, movement-aware depth, and ghost-resistant quick-clean regression checks');
