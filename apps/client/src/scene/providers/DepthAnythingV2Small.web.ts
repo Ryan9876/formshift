@@ -4,6 +4,8 @@ import type { DepthProvider } from './DepthProvider';
 const TRANSFORMERS_ESM = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
 const MODEL_ID = 'onnx-community/depth-anything-v2-small-ONNX';
 const MODEL_VERSION = 'depth-anything-v2-small-onnx@main';
+const MODEL_LOAD_TIMEOUT_MS = 45_000;
+const INFERENCE_TIMEOUT_MS = 30_000;
 
 type RawDepthImage = {
   data: Uint8Array | Uint8ClampedArray;
@@ -103,8 +105,8 @@ export function createDepthProvider(): DepthProvider {
     estimate: async (imageUrl: string): Promise<DepthEstimate> => {
       if (!imageUrl) throw new Error('A source room photo is required for depth estimation.');
       const startedAt = performance.now();
-      const runtime = await getPipeline();
-      const result = await runtime.pipeline(imageUrl);
+      const runtime = await withTimeout(getPipeline(), MODEL_LOAD_TIMEOUT_MS, 'Depth model initialization timed out.');
+      const result = await withTimeout(runtime.pipeline(imageUrl), INFERENCE_TIMEOUT_MS, 'Depth estimation timed out.');
       if (!result.depth?.data || !result.depth.width || !result.depth.height) {
         throw new Error('Depth Anything returned no usable depth image.');
       }
@@ -121,4 +123,14 @@ export function createDepthProvider(): DepthProvider {
       };
     },
   };
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { window.clearTimeout(timeout); resolve(value); },
+      (error) => { window.clearTimeout(timeout); reject(error); },
+    );
+  });
 }
