@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.9.18  
+**Revision:** 0.9.19  
 **Date:** 2026-08-22  
-**Milestone:** Prepared Scene feasibility and source-bound restore are physically proven on iPhone; the perspective-support / stricter mask-safety candidate is build-validated and has partial screenshot acceptance, with drag-constraint behavior still awaiting direct physical confirmation
+**Milestone:** Prepared Scene feasibility/restore is physically proven; Wave 3 room-perception hardening is implemented and exact-head build-validated, with physical iPhone acceptance still required
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
 
@@ -10,17 +10,17 @@ FormShift is a **photo-first spatial augmentation product**. The real captured r
 
 Production web remains on the validated Photo Arrange v2.2 baseline. Prepared Scene has **not** been promoted to production.
 
-A backward-compatible production API-only hotfix on `main` allows authenticated FormShift branch previews to use the image service while preserving bearer identity and project/space edit authorization. Prepared Scene repair is opt-in through `mode: 'prepared-scene'`; existing single-object Photo Arrange repair remains the default.
+The existing backward-compatible production API hotfix on `main` continues to allow authenticated FormShift branch previews to use the image service while preserving bearer identity and project/space edit authorization. Prepared Scene repair remains opt-in through `mode: 'prepared-scene'`; existing single-object Photo Arrange repair remains the default.
 
-Production API deployment `dpl_3nQ1HZ2DTFPLrt3nLwXKKPKoCD3C` remains READY.
+No production merge, web promotion, database mutation, credential change, or physics integration occurred in this Wave 3 cycle.
 
-## Physically validated Prepared Scene baseline
+## Physically validated baseline retained
 
-Physical iPhone testing proves the complete feasibility loop:
+Prior iPhone testing already proves:
 
 ```text
 source photo
-→ detector-backed object discovery
+→ detector-backed discovery
 → MediaPipe mask/cutout
 → independent photographed-pixel movement
 → Depth Anything enrichment
@@ -30,170 +30,162 @@ source photo
 → cached scene restore
 ```
 
-Validated evidence includes:
-
+Validated device evidence remains:
 - Prepared Scene route survives preview authentication;
-- newest source photo remains active and cannot be replaced by an arrangement from an older source asset;
-- Safari-safe WASM inference avoids the prior ONNX WebGPU initialization failure;
-- broad unlabeled room-region masks were removed from automatic object creation;
-- corrected `prepared-scene-1.1` run automatically detected TV at **0.9839** confidence and couch at **0.9712** confidence;
-- TV moved as an independent photographed-pixel layer;
-- Depth Anything V2 Small completed through Safari-safe WASM in **6,396 ms**;
-- GPT Image 2 Prepared Scene background repair completed successfully with server-recorded latency **27,148 ms**;
-- repaired background persisted as private derived state;
-- subsequent iPhone refresh restored the prepared scene instead of rerunning DETR/Depth Anything;
-- restored scene retained saved transforms and repaired-background lineage.
+- latest source photo remains authoritative;
+- Safari uses the safe WASM perception path;
+- broad unlabeled room-region masks are not auto-promoted;
+- TV can move independently;
+- person-overlapped couch is conservatively deferred in the current room;
+- explicit GPT Image background repair succeeds and persists;
+- source-bound cache restores without rerunning full perception;
+- immutable source photography and canonical measurements/spatial versions remain unchanged.
 
-## Partial physical acceptance from latest support screenshot
+A still screenshot does **not** prove support drag mechanics; Support assist on/off and correction behavior still require direct interaction evidence.
 
-The latest iPhone screenshot confirms several useful behaviors, but it is **not sufficient evidence for drag-constraint mechanics**.
-
-Confirmed from the screenshot:
-
-- the support-aware candidate loads successfully on iPhone Safari;
-- only **1 reliable automatic object** is prepared;
-- the prior couch/person composite is not present as an automatic movable layer in this view;
-- the TV remains the reliable detector-backed object;
-- **Support assist on** is active;
-- the Estimated floor region diagnostic is visible;
-- the current room does not provide enough visible safe anchors to demonstrate a perspective slope, so the displayed support guide is the conservative horizontal fallback.
-
-Not confirmed by this still image:
-
-- that dragging the TV downward is actually stopped at the support boundary;
-- Support assist off → free placement;
-- re-enabling Support assist → automatic correction of an unsupported placement;
-- x-dependent support behavior under drag;
-- page scrolling returns normally after object drag release;
-- manual Add missed object save/restore.
-
-The selected TV preparation also appears visually loose around its upper boundary. Treat this as a segmentation-quality signal to verify on-device rather than assuming the mask is production-clean.
-
-## Perspective support / stronger separation candidate — implemented
+## Wave 3 implementation — room perception and autonomous gates
 
 Branch: `scene-foundation-v1`  
-Functional head: `7349285dca3559e9a5c04fa08d633cad9fa064ae`
+Pre-cycle rollback branch: `scene-foundation-v1-wave3-backup` at `8dde6e0e1a5873c169ec955b83bb986afde636c9`.
 
-The candidate moves the support layer from one horizontal screen-space threshold toward a bounded projected estimate.
+### 1. Independent depth-derived support evidence
 
-### Perspective-aware estimated support
+Depth Anything V2 Small now contributes more than per-object relative depth. FormShift samples the bounded lower/middle depth field across 13 image columns, finds robust vertical depth transitions, rejects incoherent/outlier profiles, fits a bounded x-dependent transition, and assigns bounded confidence.
 
-`PreparedSupportModel` carries:
+Support provenance is explicit:
+- `detector-anchors`
+- `object-anchors`
+- `depth-profile`
+- `hybrid`
+- `fallback`
 
-- `floorRegionStartY`: floor/wall transition at image center;
-- `floorBoundarySlope`: bounded left-to-right change in the estimated transition;
-- confidence;
-- provenance: detector anchors / restored object anchors / fallback.
+Detector/object contact evidence and depth-profile evidence are merged only when confidence/disagreement rules permit it. Large disagreement does not manufacture a higher-confidence hybrid. All results remain **Estimated augmentation** and never become verified room geometry.
 
-When at least two credible floor-supported anchors span enough horizontal image distance, FormShift fits a bounded linear floor/wall transition. Placement uses the boundary at the object's **current x position**, so the allowable floor/wall region can change across the photograph rather than behaving as one universal horizontal cutoff.
+`SUPPORT_MODEL_VERSION` is now **2**, forcing prior support-v1 Prepared Scene caches to be rebuilt/refined before they are treated as current support evidence. The Prepared Scene storage schema remains `prepared-scene-1.2`; no database migration was required.
 
-If evidence is insufficient, slope remains zero and the previous conservative horizontal estimate is retained. This is still **Estimated augmentation**, not calibrated room geometry.
+### 2. Detector-guided connected-component masks
 
-### Stronger automatic-object safety
+The automatic Prepared Scene MediaPipe path now receives the detector bounding box as a guide. Instead of accepting the raw interactive mask, it:
+- restricts analysis to an expanded detector envelope;
+- identifies connected candidate mask components;
+- scores them by detector overlap, relative size and seed distance;
+- keeps the best bounded component plus immediate soft-edge pixels;
+- then applies the existing detector/mask agreement gate.
 
-Automatic object acceptance is intentionally conservative:
+Manual **Add missed object** remains unguided because no trusted detector box exists for that correction path.
 
-- candidate/person overlap rejection is more conservative;
-- person-center/candidate-center containment also defers the object;
-- automatic MediaPipe masks must agree with detector geometry;
-- masks with excessive pixels outside the detector region are rejected;
-- automatic masks larger than roughly 2× detector-box area are rejected;
-- room-scale/whole-room masks cannot pass merely because they contain the detector box;
-- person-overlapped furniture remains conservatively deferred rather than moving human pixels.
+This specifically targets the loose TV mask observed above/around the screen while preserving conservative person/furniture deferral and whole-room-mask rejection.
 
-This favors fewer safe automatic layers over aggressive object count.
+### 3. Bounded inference/stall recovery
 
-### Movement-aware prepared-layer depth
+Both browser-local heavy providers now have explicit ceilings:
+- detector model initialization: 45 seconds;
+- detector inference: 30 seconds;
+- depth model initialization: 45 seconds;
+- depth inference: 30 seconds.
 
-Prepared-layer ordering combines source relative depth with a bounded movement-derived depth offset. Moving a prepared layer lower in the image can move it toward the viewer in the **estimated prepared-layer ordering**, rather than leaving its z-order frozen to the source position.
+A detector timeout/failure no longer requires waiting indefinitely; Prepared Scene can fall back to the manual correction path. A depth timeout/failure does not block object manipulation.
 
-This is not yet full source-scene occlusion. Unprepared foreground geometry is not yet clipping moved layers.
+Safari/WebKit remains pinned to conservative ONNX WASM; other browsers may attempt WebGPU and fall back to WASM.
 
-### Cache generation
+### 4. Perspective diagnostic uses actual support model
 
-Prepared Scene cache generation is:
+The Estimated floor region diagnostic is now rendered as the support model's x-dependent line rather than a hard-coded horizontal border. It remains explicitly estimated. If the room provides insufficient coherent evidence, the line may correctly remain horizontal.
 
-`prepared-scene-1.2`
+Diagnostics expose center boundary, slope, confidence, and support provenance so device evaluation can distinguish detector-only, depth-only, hybrid and fallback behavior.
 
-The prior `prepared-scene-1.1` artifacts remain immutable historical derived data but are intentionally not eligible for the new perspective-support restore path. The first load of this candidate performs one fresh preparation for the same immutable source photo; subsequent `1.2` saves may restore normally.
+### 5. Wave 3 fail-closed preview gate
 
-No database schema migration was needed; generation is carried in the existing derived Prepared Scene record.
+The web preview no longer treats a successful Metro bundle as sufficient release evidence.
+
+`@formshift/client export:web` now runs, before Expo export:
+- repository structure verification;
+- security/RLS source verification;
+- domain tests;
+- canonical Arrange/Safari regression guards;
+- scene/provider/persistence boundary guards;
+- Prepared Scene depth/support/mask regressions;
+- client TypeScript check.
+
+If any of those fail, the Vercel web preview cannot become READY.
+
+The separate API Vercel project must independently build READY. GitHub CI retains the full API typecheck in its root-workspace environment, where API dependencies are installed. The web-project install does not include API-only `ai`/`zod` dependencies, so API typecheck is intentionally not duplicated inside the web deployment environment.
+
+## Wave 3 validation/correction evidence
+
+The new gate caught and corrected multiple issues that the old web bundle did not surface:
+
+1. exact Node regression execution initially failed on an extensionless TypeScript module import;
+2. after that correction, TypeScript 6 caught the refined-mask typed-array buffer contract;
+3. the first cross-project web gate incorrectly attempted API typechecking without API workspace dependencies; the gate was split by deployment responsibility rather than disabling API validation.
+
+Current functional exact head before documentation: `62676ca8e8158273b74be6ad727d3bdc24481f25`.
+
+Exact-head evidence:
+- web Vercel deployment `dpl_58ARzhwxq8THJA51uWQbKjDfE69w` — **READY**;
+- API Vercel status on the same commit — **success**;
+- repository structure verification — pass;
+- security verification — pass;
+- domain test suite — pass;
+- Arrange/Safari regression suite — pass;
+- scene boundary suite — pass;
+- depth-derived support / perspective / person-overlap / mask-safety / movement-aware-depth suite — pass;
+- client TypeScript check — pass;
+- `/arrange-prepared` static export — pass.
+
+GitHub Actions workflow-run discovery through the connected GitHub interface remains incomplete, so no separate Actions-run claim is made. The enforced Vercel web gate provides exact-head execution evidence for the web-owned checks above.
+
+## Commercial model-license boundary
+
+A browser semantic-segmentation candidate was evaluated during this cycle but not adopted because its model license is not sufficiently clear for the commercial foundation. FormShift will not add a model merely because its code is publicly downloadable. The current cycle instead reuses Depth Anything V2 Small plus MediaPipe/DETR behind the existing provider boundaries.
 
 ## Integrity / privacy boundary
 
 Prepared Scene remains derived-only:
-
 - immutable source photo is never overwritten;
-- source-photo identity remains explicit;
-- Prepared Scene restore remains exact-`source_asset_id` bound;
+- restore remains exact-`source_asset_id` bound;
 - masks/cutouts/backgrounds remain private derived assets;
-- generated repair pixels are accepted only inside the accepted mask union;
-- no `measurement_observations`, canonical spatial versions, or verified dimensions are changed by support/depth estimates;
-- support projection is reversible and can be disabled for comparison;
+- generated repair pixels remain mask-bounded;
+- no `measurement_observations`, canonical spatial versions, or verified dimensions are changed by depth/support estimates;
+- Support assist remains reversible;
 - physics remains off.
-
-## Validation evidence for perspective candidate
-
-Focused regression coverage checks:
-
-- semantic floor/wall support classification;
-- multi-anchor perspective slope estimation;
-- x-dependent floor-boundary evaluation;
-- person/furniture overlap deferral;
-- detector/mask geometric agreement;
-- whole-room/oversized-mask rejection;
-- x-dependent floor-object support constraint;
-- x-dependent wall-object support ceiling;
-- reversible support-assist disable behavior;
-- movement-aware relative-depth ordering.
-
-The focused projection/mask regression suite passed locally against the exact support implementation now on the branch.
-
-Exact-head Vercel evidence:
-
-- web deployment `dpl_UYbAUiXw1WrgtzRnArbT1RSrrQtN` — **READY**;
-- exact web commit `7349285dca3559e9a5c04fa08d633cad9fa064ae`;
-- `/arrange-prepared` exported successfully;
-- latest unchanged API implementation on commit `21037d922647b927ca485a75752a744de8d8e631` is READY as deployment `dpl_36UNQSZAVL7xSECjDXXJMzhQe2go`;
-- the redundant API deployment triggered by the final client-only mask-threshold commit was canceled by Vercel; no API code changed in that commit.
-
-GitHub Actions workflow visibility through the connected GitHub interface is not returning a workflow-run record for the exact head. Therefore this revision does **not** claim an exact-head GitHub Actions pass. The preview build and focused regression are validated.
 
 ## Immediate physical-device acceptance
 
-Use the stable branch `/arrange-prepared` route.
+Use the stable branch `/arrange-prepared` route after the final documentation head reaches READY.
 
-1. With **Support assist on**, drag the selected TV straight downward until your finger is clearly below the dashed Estimated floor region. Confirm the TV itself stops above the permitted wall/floor boundary.
-2. Turn **Support assist off** and repeat. Confirm the TV can now be moved below that boundary.
-3. Leave the TV in an unsupported position, turn Support assist back on, and confirm it is corrected.
-4. Drag the TV left/right while pressing downward. If the room has enough support anchors, inspect whether the permitted boundary changes plausibly across x; on this current one-object scene a horizontal fallback is expected.
-5. Release the TV and verify normal Safari page scrolling immediately returns.
-6. Save changes, refresh, and confirm `prepared-scene-1.2` restores without detector/depth rerun.
-7. Inspect the TV cutout boundary closely, especially above the screen, for captured wall/decor pixels.
+1. Hard refresh once. Because support model version moved to 2, expect one refinement/rebuild rather than trusting the prior support-v1 cache.
+2. Confirm the TV is still the reliable automatic object and the couch/person composite remains deferred.
+3. Inspect the TV cutout closely, especially its upper edge. The detector-guided connected-component mask should contain less wall/decor than the prior screenshot.
+4. Allow depth enrichment to finish. Inspect the diagnostic provenance: `depth-profile` or `hybrid` means independent depth-surface evidence was usable; `detector-anchors`/`fallback` means the depth profile correctly failed its confidence/coherence gate.
+5. If a non-zero slope is shown, move the TV left/right while pressing down and inspect whether the estimated allowed boundary follows the displayed line.
+6. With **Support assist on**, drag the TV clearly below the estimated wall/floor boundary and confirm the object itself is constrained.
+7. Turn Support assist off and confirm free placement returns.
+8. Leave the TV unsupported, re-enable Support assist, and confirm the position is corrected.
+9. Save changes, refresh, and confirm the support-model-v2 scene restores without unnecessarily rerunning detector work.
+10. Verify normal Safari page scrolling returns immediately after object drag release.
 
-## Current limitations / not yet claimed
+## Not yet claimed
 
 - calibrated camera intrinsics / vanishing-point solution;
-- calibrated floor/wall plane geometry;
+- calibrated floor/wall planes;
 - metric depth;
-- full destination-depth sampling;
+- production-quality automatic household-object coverage;
+- automatic person/furniture pixel separation rather than safe deferral;
 - full source-scene occlusion against unprepared foreground geometry;
-- automatic person/furniture pixel separation (currently safe deferral);
-- comprehensive/open-vocabulary household-object recognition;
-- production-clean automatic masks;
+- physically correct contact shadows/relighting;
 - gravity / rigid-body physics;
 - production RoomPlan capture/normalization;
-- Prepared Scene scale/rotate controls.
+- Prepared Scene scale/rotate controls;
+- physical-device acceptance of the new depth-profile/hybrid support model or refined automatic TV mask.
 
 ## Next decision
 
-The screenshot indicates the current bottleneck is now **scene understanding quality**, not persistence or physics. If the direct drag test confirms support mechanics, retain this support assist as the reversible pre-calibration fallback but do not deepen the heuristic.
-
-The next implementation target should be a stronger room-surface/object perception layer that can identify floor/wall/support evidence independently of a sparse set of safely movable objects, plus stronger segmentation/refinement for object boundaries. Source-scene occlusion should follow. Persist calibrated floor/support surfaces only after a real calibration source exists. Rapier/RealityKit physics remains after that boundary, not before it.
+Do **not** add Rapier/RealityKit physics yet. If the support-model-v2 device test confirms tighter masks and useful depth/hybrid support evidence, the next engineering slice is source-scene occlusion/destination-depth behavior and broader commercially-cleared object discovery. Calibrated floor/support persistence follows only when a real calibration source exists; physics follows reliable collision/support geometry.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision 0.9.18 corrects the physical-acceptance boundary so the support screenshot is not overstated as proof of drag constraint behavior.
-- `ARCHITECTURE.md`: remains revision 0.5.4; no calibrated support or physics architecture is claimed.
-- `DESIGN-SYSTEM.md`: unchanged; existing Estimated augmentation and reversible-assist rules already govern this preview behavior.
+- `CURRENT-STATE.md`: revision **0.9.19** records the Wave 3 room-perception implementation and exact-head validation boundary.
+- `ARCHITECTURE.md`: revision **0.5.5** records detector-guided mask acceptance, independent depth-profile/hybrid support evidence, bounded inference recovery, commercial model-license gating, and fail-closed web preview validation.
+- `DESIGN-SYSTEM.md`: unchanged; existing Estimated augmentation, diagnostic confidence, and reversible-assist rules already govern this behavior.
 - `PROJECT-CONSTITUTION.md`: unchanged; immutable source, privacy, provenance, reversibility, and canonical-spatial-truth rules remain intact.
