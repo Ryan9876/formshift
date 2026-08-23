@@ -10,6 +10,8 @@ const preparedPersistence = path.join(root, 'apps/client/src/prepared/persistenc
 const preparedSupport = path.join(root, 'apps/client/src/prepared/support.ts');
 const preparedDepthSupport = path.join(root, 'apps/client/src/prepared/depthSupport.ts');
 const preparedOcclusion = path.join(root, 'apps/client/src/prepared/occlusion.web.ts');
+const preparedQuickInpaint = path.join(root, 'apps/client/src/prepared/quickInpaint.ts');
+const preparedImageOps = path.join(root, 'apps/client/src/prepared/imageOps.web.ts');
 const preparedSegmenter = path.join(root, 'apps/client/src/prepared/providers/MediaPipePreparedSegmenter.web.ts');
 const preparedRepairClient = path.join(root, 'apps/client/src/prepared/backgroundRepair.web.ts');
 const repairApi = path.join(root, 'apps/api/api/ai/repair-background.ts');
@@ -157,6 +159,16 @@ for (const required of ['createDestinationOccludedCutout', 'shouldOccludeDepthSa
 }
 if (!failures) pass('Destination occlusion is depth-thresholded, excludes original prepared masks, and remains a derived rendering effect');
 
+const quickInpaintSource = fs.readFileSync(preparedQuickInpaint, 'utf8');
+for (const required of ['inpaintPreparedMask', 'nearest unmasked boundary', 'horizontalValid', 'MASK_THRESHOLD']) {
+  if (!quickInpaintSource.includes(required)) fail(`Prepared quick clean-plate inpaint missing ${required}`);
+}
+const imageOpsSource = fs.readFileSync(preparedImageOps, 'utf8');
+for (const required of ['inpaintPreparedMask', 'quickExpansionRadius', 'repairExpansionRadius', 'featheredExpandedUnionMask']) {
+  if (!imageOpsSource.includes(required)) fail(`Prepared image operations missing ghost-resistant clean-plate contract ${required}`);
+}
+if (!failures) pass('Quick clean background excludes removed-object pixels and AI repair uses bounded expanded/feathered acceptance');
+
 const preparedSegmenterSource = fs.readFileSync(preparedSegmenter, 'utf8');
 for (const required of ['guideBox?: PreparedBox', 'refineMaskWithGuide', 'COMPONENT_THRESHOLD', 'expandGuide', 'bestScore']) {
   if (!preparedSegmenterSource.includes(required)) fail(`Prepared MediaPipe segmenter missing detector-guided component refinement ${required}`);
@@ -164,7 +176,7 @@ for (const required of ['guideBox?: PreparedBox', 'refineMaskWithGuide', 'COMPON
 if (!failures) pass('Automatic masks are detector-guided connected components while manual tap segmentation remains available');
 
 const preparedPersistenceSource = fs.readFileSync(preparedPersistence, 'utf8');
-for (const required of [".from('prepared_scenes')", ".eq('source_asset_id', sourceAsset.id)", "PREPARED_SCENE_SCHEMA = 'prepared-scene-1.2'", ".eq('schema_version', PREPARED_SCENE_SCHEMA)", "kind: 'prepared_scene_object_mask_v1'", "kind: 'prepared_scene_object_cutout_v1'"]) {
+for (const required of [".from('prepared_scenes')", ".eq('source_asset_id', sourceAsset.id)", "PREPARED_SCENE_SCHEMA = 'prepared-scene-1.3'", ".eq('schema_version', PREPARED_SCENE_SCHEMA)", "kind: 'prepared_scene_object_mask_v1'", "kind: 'prepared_scene_object_cutout_v1'", "prepared_scene_background_quick_v2", "prepared_scene_background_ai_v2"]) {
   if (!preparedPersistenceSource.includes(required)) fail(`Prepared Scene persistence missing source-bound derived asset contract ${required}`);
 }
 if (preparedPersistenceSource.includes(".from('spatial_versions')") || preparedPersistenceSource.includes(".from('measurement_observations')")) {
@@ -176,10 +188,10 @@ for (const required of ["mode: 'prepared-scene'", '/api/ai/repair-background', '
   if (!preparedRepairSource.includes(required)) fail(`Prepared Scene repair client missing ${required}`);
 }
 const repairApiSource = fs.readFileSync(repairApi, 'utf8');
-for (const required of ['prepared-scene-background-repair', 'preparedScenePrompt', "body.mode === 'prepared-scene'"]) {
+for (const required of ['prepared-scene-background-repair', 'preparedScenePrompt', "body.mode === 'prepared-scene'", 'prepared-scene-repair-v1.1.0', 'Do not copy, redraw, ghost, echo']) {
   if (!repairApiSource.includes(required)) fail(`Prepared Scene repair API missing ${required}`);
 }
-if (!failures) pass('high-quality background repair is explicit and uses a dedicated Prepared Scene task contract');
+if (!failures) pass('high-quality background repair is explicit, mask-bounded, and instructed not to recreate removed-object content');
 
 const detector = fs.readFileSync(path.join(preparedRoot, 'providers/DetrObjectDiscovery.web.ts'), 'utf8');
 if (!detector.includes("Xenova/detr-resnet-50")) fail('Prepared Scene detector model identity missing');
