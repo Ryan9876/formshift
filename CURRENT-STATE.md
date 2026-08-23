@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.9.22  
+**Revision:** 0.9.23  
 **Date:** 2026-08-23  
-**Milestone:** Prepared Scene feasibility/restore is physically proven; Wave 3 now includes diagnosable depth support, normalized relative nearness, and conservative destination occlusion, exact-head build-validated with physical iPhone acceptance still required
+**Milestone:** Wave 3 automatic TV masking is physically improved; the latest iPhone evidence exposed clean-background ghosting, and a ghost-resistant local/AI reconstruction generation is now exact-head build-validated with physical acceptance pending
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
 
@@ -10,7 +10,7 @@ FormShift is a **photo-first spatial augmentation product**. The real captured r
 
 Production web remains on the validated Photo Arrange v2.2 baseline. Prepared Scene has **not** been promoted to production.
 
-No production merge, web promotion, database mutation, credential change, or physics integration occurred in this Wave 3 continuation.
+No production merge, web promotion, database migration, credential change, or physics integration occurred in this Wave 3 continuation.
 
 ## Physically validated baseline retained
 
@@ -35,131 +35,144 @@ Validated device evidence includes:
 - broad unlabeled room-region masks are not auto-promoted;
 - TV can move independently;
 - person-overlapped couch is conservatively deferred in the tested room;
-- explicit GPT Image background repair succeeds and persists;
-- source-bound cache restores without rerunning full detector preparation;
+- explicit GPT Image background repair has previously succeeded and persisted;
+- source-bound Prepared Scene persistence/restore works;
 - immutable source photography and canonical measurements/spatial versions remain unchanged.
 
-A still screenshot does **not** prove support drag mechanics. Support assist on/off/re-enable correction still requires direct interaction evidence.
+## Latest iPhone screenshot evidence — 2026-08-23
 
-## Latest iPhone evidence — 2026-08-23
+The latest supplied screenshot materially advances automatic TV-mask acceptance.
 
-The latest diagnostic screenshot showed:
-- **1 editable automatic object:** `tv`;
-- Support assist: **on**;
-- center boundary: **60%**;
-- slope: **0.0 points across photo**;
-- confidence: **68%**;
-- support provenance: **`detector-anchors`**;
-- Depth Anything V2 Small completed locally in **5,151 ms**;
-- background: AI-repaired masked regions.
+Confirmed from the screenshot:
+- the **automatic TV** is selected as an independent photographed-pixel layer;
+- the cyan selection bounds are tight around the TV rather than encompassing a broad wall/room region;
+- the TV has been moved independently into the upper-right of the room;
+- **Support assist on** is visibly active;
+- the **Estimated floor region** diagnostic remains visible over the real room photo;
+- the room remains visible and undimmed beneath the derived scene.
 
-Interpretation: local depth inference is viable enough to continue evaluating on this iPhone, but the previous UI did not expose why depth-profile evidence failed to become authoritative or hybrid. Thresholds therefore were **not** loosened blindly.
+The same screenshot exposes a blocking realism defect in the prior clean-background path: the TV's original photographed location remains recognizably visible/ghosted after the TV is moved. The prior quick clean plate therefore fails the commercial-quality illusion even though automatic object isolation itself is substantially improved.
 
-## Wave 3 continuation implemented
+The screenshot does **not** prove that wall support constrains the TV during a direct downward drag. Support Assist on/off/re-enable correction remains an open physical acceptance item.
 
-Branch: `scene-foundation-v1`
+## Prior Wave 3 spatial-intelligence slice retained
 
-### 1. Diagnosable depth-support decisions
+### Diagnosable depth/support decisions
 
-Depth analysis now returns explicit acceptance/rejection evidence instead of silently returning `null`.
-
-Possible depth-profile outcomes include:
+Depth analysis records explicit acceptance/rejection evidence rather than silently returning no result. Outcomes include:
 - `accepted`;
 - `invalid-depth`;
 - `insufficient-strong-transitions`;
 - `incoherent-transitions`;
 - `high-residual`.
 
-Diagnostics include:
-- sampled column count;
-- strong-transition count;
-- robust/coherent sample count;
-- average transition strength;
-- fitted residual;
-- estimated center/slope;
-- inferred depth direction and its confidence.
+Diagnostics retain sampled/strong/robust counts, transition strength, fit residual, estimated center/slope, inferred depth direction and direction confidence. Detector/depth merge decisions explicitly record anchor-only, depth replacement, disagreement winner, or hybrid agreement.
 
-The detector/depth merge also records an explicit decision:
-- anchor-only / no depth;
-- anchor-only / weak depth;
-- depth replaces fallback;
-- anchor wins disagreement;
-- depth wins disagreement;
-- hybrid agreement.
+### Normalized relative nearness
 
-Material disagreement remains visible rather than being converted into false precision.
-
-### 2. Normalized relative-nearness contract
-
-Raw Depth Anything grayscale values are no longer persisted directly as if their orientation were universal.
-
-FormShift now estimates whether larger or smaller depth values correspond to nearer pixels. Object depth is normalized into a single product convention:
+Usable relative depth follows one product convention:
 
 ```text
 0 = relatively farther
 1 = relatively nearer
 ```
 
-If depth direction is ambiguous, FormShift does not fabricate object nearness. Source object depth is sampled from the object's original photographed location, not its later edited location.
+Provider grayscale direction is inferred rather than assumed. Ambiguous direction withholds nearness instead of fabricating it. Source object nearness is sampled from the original photographed location.
 
-This corrects a latent ambiguity in prior `approximateDepth` values. `SUPPORT_MODEL_VERSION` is now **3**, so prior support/depth-v2 cache evidence is refined instead of silently trusted.
+`SUPPORT_MODEL_VERSION` remains **3**.
 
-Prepared Scene storage schema remains `prepared-scene-1.2`; no database migration was required.
+### Conservative destination-depth occlusion
 
-### 3. Conservative destination-depth occlusion
+After drag release, source pixels may occlude a moved cutout only when their normalized relative nearness is materially greater. Small depth differences are ignored; original Prepared Scene object masks are excluded from the source occluder field; ambiguous depth disables the effect; failures fall back to the complete cutout. This remains **Estimated augmentation**, not calibrated geometry.
 
-After depth enrichment and after object drag release, FormShift can derive an occlusion-rendered cutout for a moved prepared object.
+## Wave 3 continuation — clean-background integrity
 
-Rules:
-- the full cutout remains visible while dragging so interaction stays responsive;
-- occlusion settles after release;
-- source pixels must be materially nearer than the moved object before they hide it;
-- small depth differences are ignored to prevent noisy edge flicker;
-- original Prepared Scene object-mask regions are excluded from source occlusion so the old TV at its original photographed position cannot incorrectly hide the moved TV;
-- the effect is derived rendering only and never changes source photography or canonical coordinates;
-- failures are fail-soft: the ordinary cutout remains usable.
+Branch: `scene-foundation-v1`
 
-The diagnostics show how many prepared layers currently have destination-depth masking applied.
+### 1. Root cause of the visible TV ghost
 
-### 4. Existing Wave 3 safeguards remain
+The prior quick clean-background algorithm constructed fill imagery from shifted/blurred copies of the entire source photograph. For a large high-contrast object such as the TV, this could re-sample recognizable portions of the removed object into its own former location.
 
-Still active:
-- detector-guided connected-component MediaPipe masks;
-- conservative person/furniture deferral;
-- whole-room/oversized mask rejection;
-- x-dependent estimated support model;
-- detector/depth hybrid support only on bounded agreement;
-- Safari-safe WASM fallback;
-- 45-second model-init and 30-second inference recovery ceilings;
-- source-photo-specific persistence/restore;
-- mask-bounded explicit AI reconstruction;
-- no canonical measurement/spatial mutation;
-- no physics.
+That implementation has been replaced.
+
+### 2. Ghost-resistant deterministic quick clean plate
+
+The new local `quickInpaint` path:
+- never uses a masked/removed-object pixel as fill evidence;
+- finds nearest unmasked boundary evidence along the row and column for each masked pixel;
+- interpolates horizontal and vertical candidates and combines them deterministically;
+- applies bounded feathering at the removal edge;
+- leaves unmasked source pixels unchanged;
+- avoids per-pixel temporary allocations to reduce iPhone garbage-collection pressure;
+- remains local, fast, deterministic and provider-free.
+
+This is still an approximate clean plate, not photorealistic reconstruction. Its job is to prevent an obviously duplicated removed object while manipulation remains immediate.
+
+### 3. Stronger removal-mask coverage
+
+Quick and high-quality repair masks now use bounded image-scale-aware expansion around prepared-object masks. This is intended to include thin screen bezels, edge halos, small shadows and segmentation edge uncertainty without allowing broad scene rewriting.
+
+High-quality repair acceptance remains feathered and mask-bounded: pixels outside the derived repair region remain the immutable source photograph.
+
+### 4. High-quality AI repair anti-ghost contract
+
+Prepared Scene background repair prompt version is now **`prepared-scene-repair-v1.1.0`**.
+
+The provider is explicitly instructed to:
+- completely remove masked screen/image content, text, logos, reflected colors, edge halos, mounting shadow and attached details;
+- never copy, redraw, ghost, echo or reconstruct recognizable removed-object content inside the repair region;
+- treat masked source pixels as evidence of what must disappear rather than content to preserve;
+- infer replacement primarily from surrounding unmasked boundary context;
+- preserve people and every unmasked object;
+- avoid redesign, restyling, replacement objects, text/logos and camera changes.
+
+Generated pixels are still accepted only inside the bounded/feathered removal region.
+
+### 5. Prepared Scene cache generation advanced
+
+Prepared Scene schema is now **`prepared-scene-1.3`** and new background assets use:
+- `prepared_scene_background_quick_v2`;
+- `prepared_scene_background_ai_v2`.
+
+This is an intentional derived-cache generation change, not a database migration. Old `prepared-scene-1.2` packages remain historical records but are not silently restored as the current clean-background implementation. The next physical test therefore requires one fresh preparation.
+
+### 6. Regression coverage
+
+A synthetic high-contrast-object test now proves:
+- every masked pixel is reconstructed;
+- the bright removed object does not remain at the center of the removal region;
+- unmasked source RGBA pixels remain exact.
+
+Scene-boundary verification also requires:
+- ghost-resistant quick inpaint;
+- bounded/feathered repair masks;
+- Prepared Scene schema 1.3;
+- v2 background asset kinds;
+- anti-ghost AI repair prompt v1.1.0.
 
 ## Validation and correction evidence
 
-The fail-closed preview gate rejected the first integrated head. Root cause was a **test precision defect**, not a behavior failure: JavaScript computed `1 - 0.8` as `0.19999999999999996`, while the new regression required strict equality to `0.2`.
+The fail-closed preview gate correctly rejected the first integrated clean-background head because TypeScript 6's DOM typings would not accept a `Uint8ClampedArray<ArrayBufferLike>` directly as an `ImageData` buffer.
 
-The assertion was corrected to numerical tolerance without weakening the nearness or occlusion thresholds.
+The fix copies the inpaint result into an owned `Uint8ClampedArray` backed by a concrete `ArrayBuffer` before constructing `ImageData`. This was a compatibility/type-safety correction; no removal/repair thresholds were weakened.
 
 Functional exact head before this documentation update:
 
-`fc2e248e08e8eb5a912c6f46b1941d7555f33b78`
+`5e2da8450cd85ab35d4b0c946a4deefa00f69fec`
 
-Exact-head evidence:
-- web Vercel deployment `dpl_AgykauqTxYgryyQ3fT1DkXvW9LFp` — **READY**;
-- API Vercel deployment `dpl_23nDprLeg8JLxfUJ6eN4pFndDkb1` — **READY**;
-- combined GitHub commit status reports both Vercel checks **success**;
+Validation evidence:
+- web Vercel deployment `dpl_CmwKtaYBbvgKTgq5EmpkzEWWjbTD` — **READY**;
+- GitHub combined status on `5e2da8450cd85ab35d4b0c946a4deefa00f69fec` — **Vercel web success + Vercel API success**;
+- the API repair-prompt generation itself has READY deployment evidence at `dpl_3Y3t9F9Erw3S4ih1vwxCTTPCW4J7` on commit `44c582c221860e9d1f1d38b78105e9985b83344f`; later client-only API deployments may be canceled/deduplicated by Vercel;
 - repository structure verification — pass;
 - security/RLS source verification — pass;
 - domain tests — pass;
 - canonical Arrange/Safari regression suite — pass;
 - scene/provider/persistence boundary suite — pass;
-- depth diagnostics/support fusion/occlusion/mask safety/movement-depth regression suite — pass;
+- depth diagnostics/support/occlusion/mask-safety suite — pass;
+- ghost-resistant quick-clean regression — pass;
 - client TypeScript check — pass;
 - `/arrange-prepared` static export — pass.
-
-The stable branch route remains protected by Vercel preview authentication. A protected-route fetch correctly redirects to Vercel SSO rather than exposing the private preview anonymously.
 
 ## Integrity / privacy boundary
 
@@ -167,31 +180,36 @@ Prepared Scene remains derived-only:
 - immutable source photo is never overwritten;
 - restore remains exact-`source_asset_id` bound;
 - masks/cutouts/backgrounds remain private derived assets;
-- AI-repaired pixels remain mask-bounded;
+- deterministic quick fill uses only local source pixels;
+- generative repair remains explicit rather than automatic;
+- AI-repaired pixels remain bounded to the derived repair region;
 - depth/support/occlusion do not change verified dimensions or canonical spatial versions;
-- Support assist remains reversible;
+- Support Assist remains reversible;
 - destination occlusion is visual evidence, not geometry;
 - physics remains off.
 
 ## Immediate physical-device acceptance
 
-Hard-refresh the stable `/arrange-prepared` preview once because support-model version 3 invalidates/refines older ambiguous depth evidence.
+Hard-refresh the stable `/arrange-prepared` preview once. Schema 1.3 intentionally causes one fresh preparation so the ghost-prone previous clean plate cannot be silently restored.
 
-1. Wait for Depth Anything to complete.
-2. Capture the new **Depth support** diagnostic line. It now states exactly why the profile was accepted/rejected, sample counts, residual, near-direction confidence, merge decision, and disagreement.
-3. Select the automatic **TV** layer and inspect its detector-guided cutout around all edges.
-4. With Support assist on, drag the TV clearly below the estimated boundary and confirm the TV itself is constrained.
-5. Turn Support assist off and confirm free placement returns; leave it unsupported, re-enable, and confirm correction.
-6. Move the TV so it overlaps a visibly foreground part of the room. After release, verify the TV becomes partially hidden only where source depth is materially nearer.
-7. Move it over open wall/floor and verify it does not develop noisy holes.
-8. Move it over the TV's original photographed location and verify its old source depth does not incorrectly occlude the moved TV.
-9. Save changes and refresh. Detector preparation should remain reusable; depth may rerun non-blockingly to restore destination occlusion evidence.
-10. Confirm normal Safari page scrolling resumes immediately after drag release.
+1. Wait for the automatic TV layer to become moveable.
+2. Move the TV away **before pressing Improve background**.
+3. Inspect the original TV location. The quick clean plate must not contain a recognizable duplicate TV, HP advertisement, readable TV text/logo or recognizable screen image.
+4. Press **Inspect clean background** and verify the old TV location contains only an approximate background, not recognizable TV content.
+5. Press **Improve background** explicitly. Inspect again: the high-quality repair must not recreate a TV, HP logo, ad text or recognizable screen imagery.
+6. Capture the **Depth support** diagnostic line so the exact rejection/merge reason, sample counts, residual, direction confidence and disagreement are known.
+7. With Support Assist on, drag TV straight downward and confirm the TV itself stops before crossing the displayed wall/floor boundary.
+8. Turn Support Assist off and confirm free placement; leave the TV unsupported, re-enable assist, and confirm correction.
+9. Test destination occlusion over visibly foreground content, open wall/floor and the TV's original location.
+10. Save/refresh and confirm the schema-1.3 scene restores correctly.
+11. Confirm normal Safari page scrolling resumes immediately after drag release.
 
 ## Not yet claimed
 
+- physical-device acceptance of the new ghost-resistant quick clean plate;
+- physical-device acceptance of Prepared Scene repair prompt v1.1.0 output quality;
 - physical-device acceptance of destination occlusion;
-- physical-device acceptance of automatic TV mask quality;
+- full physical acceptance of automatic TV-mask edge quality beyond the latest screenshot bounds;
 - physical-device acceptance of support drag on/off/re-enable correction;
 - calibrated camera intrinsics / vanishing points;
 - calibrated floor/wall planes;
@@ -205,13 +223,13 @@ Hard-refresh the stable `/arrange-prepared` preview once because support-model v
 
 ## Next decision
 
-Do **not** add Rapier/RealityKit physics yet. The next physical test now has enough diagnostics to tell us whether the depth-profile algorithm itself is weak on this room or whether detector/depth disagreement is the limiting factor. Destination-depth occlusion should also be judged on the real iPhone before advancing to calibrated support/collision geometry.
+Do **not** add Rapier/RealityKit physics yet. The latest screenshot showed that realistic source removal is a more immediate commercial-quality blocker than adding physical simulation.
 
-If this slice passes device acceptance, the next Wave 3 engineering priority is broader commercially-cleared object discovery plus stronger source-scene semantics/calibration. Physics follows reliable support/collision geometry rather than screen-space estimates.
+If the schema-1.3 quick clean plate and explicit AI repair pass the real-room test, continue Wave 3 with the already-open support-drag/destination-occlusion acceptance and then broader commercially-cleared household object discovery plus stronger source-scene semantics/calibration. Physics follows reliable support/collision geometry rather than screen-space estimates.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision **0.9.22** records diagnosable support decisions, normalized nearness, conservative destination occlusion, validation failures/corrections, and exact-head evidence.
-- `ARCHITECTURE.md`: revision **0.5.6** records the durable normalized-depth and destination-occlusion contracts.
-- `DESIGN-SYSTEM.md`: unchanged; existing Estimated augmentation and diagnostic-confidence rules already govern the visible behavior.
-- `PROJECT-CONSTITUTION.md`: unchanged; immutable-source, privacy, provenance, reversibility and canonical-spatial-truth rules remain intact.
+- `CURRENT-STATE.md`: revision **0.9.23** records the latest iPhone screenshot, the clean-background ghosting defect, the ghost-resistant reconstruction generation, validation correction and physical acceptance boundary.
+- `ARCHITECTURE.md`: revision **0.5.7** records the durable clean-plate, repair-mask and cache-generation contracts.
+- `DESIGN-SYSTEM.md`: unchanged; existing Estimated augmentation, source-photo primacy and confidence-state rules already cover the visible behavior.
+- `PROJECT-CONSTITUTION.md`: unchanged; immutable-source, privacy, provenance, reversibility and canonical-spatial-truth invariants remain intact.
