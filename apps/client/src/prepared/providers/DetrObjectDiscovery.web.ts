@@ -4,6 +4,8 @@ import type { ObjectDiscoveryProvider, ObjectDiscoveryResult } from './ObjectDis
 const TRANSFORMERS_ESM = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
 const MODEL_ID = 'Xenova/detr-resnet-50';
 const MODEL_VERSION = 'detr-resnet-50-onnx@main';
+const MODEL_LOAD_TIMEOUT_MS = 45_000;
+const INFERENCE_TIMEOUT_MS = 30_000;
 
 type RawDetection = {
   score?: number;
@@ -99,8 +101,8 @@ export function createObjectDiscoveryProvider(): ObjectDiscoveryProvider {
     discover: async (imageUrl: string): Promise<ObjectDiscoveryResult> => {
       if (!imageUrl) throw new Error('A source room photo is required for object discovery.');
       const startedAt = performance.now();
-      const runtime = await getDetector();
-      const raw = await runtime.detector(imageUrl, { threshold: 0.52 });
+      const runtime = await withTimeout(getDetector(), MODEL_LOAD_TIMEOUT_MS, 'Object discovery model initialization timed out.');
+      const raw = await withTimeout(runtime.detector(imageUrl, { threshold: 0.52 }), INFERENCE_TIMEOUT_MS, 'Object discovery timed out.');
       const candidates = raw.map(normalize).filter((value): value is ObjectDetectionCandidate => !!value);
       return {
         candidates,
@@ -111,4 +113,14 @@ export function createObjectDiscoveryProvider(): ObjectDiscoveryProvider {
       };
     },
   };
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { window.clearTimeout(timeout); resolve(value); },
+      (error) => { window.clearTimeout(timeout); reject(error); },
+    );
+  });
 }
