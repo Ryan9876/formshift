@@ -1,9 +1,9 @@
 # FormShift Architecture
 
 **Status:** Authoritative architecture  
-**Revision:** 0.5.5  
+**Revision:** 0.5.6  
 **Established:** 2026-08-19  
-**Last material architecture decision:** 2026-08-22
+**Last material architecture decision:** 2026-08-23
 
 ## 1. Architecture decision
 
@@ -154,7 +154,7 @@ Prepared Scene contains:
 - independent image-space transform
 - mobility class: movable / conditional / fixed
 - expected support: floor / wall / surface / unknown
-- optional relative-depth evidence
+- optional normalized relative-nearness evidence
 - one shared derived clean-background plate
 - background quality/provenance
 - immutable parent/version lineage
@@ -175,6 +175,8 @@ Source-bound cache lookup
                    ↓ interaction available
              depth/support enrichment
                    ↓
+        destination-depth occlusion
+                   ↓
         optional explicit AI repair
                    ↓
          private Prepared Scene version
@@ -182,7 +184,7 @@ Source-bound cache lookup
 
 Preparation is progressive: source imagery appears immediately; slower discovery, persistence, depth or high-quality reconstruction must not unnecessarily block basic manipulation.
 
-Prepared Scene is **not canonical spatial truth**. Image-space transforms, inferred support and relative depth do not update verified dimensions or canonical coordinates unless later calibrated mapping explicitly validates that transition.
+Prepared Scene is **not canonical spatial truth**. Image-space transforms, inferred support, relative nearness and derived occlusion do not update verified dimensions or canonical coordinates unless later calibrated mapping explicitly validates that transition.
 
 ### Source lineage invariant
 
@@ -196,6 +198,8 @@ Prepared Scene persistence is append-oriented and private:
 - later versions may reuse immutable mask/cutout/background assets rather than duplicate unchanged bytes;
 - saving movement creates a new derived version rather than overwriting the source photograph;
 - Prepared Scene persistence never writes canonical measurement or spatial-version tables.
+
+Provider metadata may retain bounded perception diagnostics and normalized-nearness provenance. Destination-occluded cutouts are currently recomputable rendering artifacts rather than canonical spatial state.
 
 ## 7. Scene provider architecture
 
@@ -248,6 +252,21 @@ relative depth profile ───────┘
 
 Support provenance is explicit: `detector-anchors`, `object-anchors`, `depth-profile`, `hybrid`, or `fallback`. A `hybrid` result means two independent estimated evidence sources agreed closely enough to combine; it does **not** mean calibrated floor geometry. If sources materially disagree, the stronger bounded estimate wins rather than manufacturing precision.
 
+Depth-support analysis is diagnosable. A rejected profile records whether the cause was invalid depth, too few strong transitions, incoherent transitions, or excessive fit residual. A usable profile records sample counts/strength/residual and the merge decision records whether detector anchors, depth, or a hybrid ultimately controlled the estimated support model. Thresholds should be tuned from this evidence rather than by making a failed result appear more confident.
+
+### Relative-nearness normalization
+
+Provider grayscale direction is not assumed to be universal. FormShift estimates whether larger or smaller depth values represent nearer source pixels and normalizes usable object/source evidence into one derived convention:
+
+```text
+0 = relatively farther
+1 = relatively nearer
+```
+
+If direction confidence is insufficient, object nearness and depth-derived occlusion are withheld rather than fabricated. Prepared-object source nearness is sampled from the object's original photographed location, not from its later edited destination.
+
+This normalized nearness is still monocular/relative evidence. It is not metric depth and cannot become physical collision geometry without calibration.
+
 ### Browser inference fallback and stall recovery
 
 A browser exposing WebGPU does not prove the ONNX WebGPU path is usable. Current compatibility contract:
@@ -295,6 +314,22 @@ Used only where structured rendering cannot reconstruct source pixels safely:
 
 AI-generated pixels never update geometry implicitly.
 
+### 8.4 Destination-depth occlusion — estimated derived rendering
+
+Before calibrated scene geometry exists, Prepared Scene may use normalized relative nearness to make a moved photographed cutout appear behind source-scene foreground pixels.
+
+The current conservative contract is:
+- object dragging renders the full cutout to preserve interaction responsiveness;
+- occlusion is recomputed after drag release and after depth enrichment;
+- source depth must be materially nearer than the moved object before object alpha is reduced;
+- small depth differences are ignored to avoid unstable holes/flicker;
+- source pixels inside original Prepared Scene object masks are excluded from the occluder field so the object's old photographed location cannot self-occlude the moved layer;
+- ambiguous depth direction disables the effect;
+- failure falls back to the unoccluded cutout;
+- the effect changes pixels/alpha only and never mutates source imagery, object dimensions or canonical coordinates.
+
+This is an **Estimated augmentation** effect, not calibrated occlusion. Calibrated camera/depth/geometry should supersede it when available.
+
 ## 9. Background reconstruction integrity
 
 Prepared Scene maintains a fast local clean-background approximation so interaction can start without a remote generation round trip.
@@ -331,7 +366,7 @@ Prepared Scene object discovery + masks + clean plate
    ↓
 Camera / floor / wall calibration
    ↓
-Scene understanding + depth + support relationships
+Scene understanding + normalized relative depth + support relationships
    ↓
 Canonical spatial object placement where calibrated
    ↓
@@ -344,7 +379,7 @@ Optional AI reconstruction within bounded masks
 Labeled augmented scene
 ```
 
-Until camera calibration exists, estimated mapping may be used only as explicitly labeled visualization. Plan/canonical geometry remains fit authority.
+Until camera calibration exists, estimated mapping/occlusion may be used only as explicitly labeled visualization. Plan/canonical geometry remains fit authority.
 
 ## 11. Arrange architecture
 
@@ -400,7 +435,7 @@ The deterministic Build engine owns dimensions, components, placement envelope, 
 - photo compositing: shared scene-projection contract with platform-specific implementation allowed
 - blueprint: retained/vector geometry, never AI-drawn blueprint pixels
 
-Physics does not precede spatial evidence. Gravity/support behavior must operate on calibrated/confirmed scene geometry rather than a screen-space heuristic.
+Physics does not precede spatial evidence. Gravity/support behavior must operate on calibrated/confirmed scene geometry rather than a screen-space heuristic or monocular-nearness rendering effect.
 
 ## 15. Backend and derived-scene persistence
 
@@ -466,6 +501,8 @@ Preserve:
 
 Feature-flagged scene providers retain a clean fallback to the last validated photo-editing behavior.
 
+Support/depth behavior uses a generation/version marker when its semantic interpretation changes. Older ambiguous raw-depth evidence must be recomputed or explicitly migrated rather than silently reinterpreted.
+
 ## 19. Reliability and observability
 
 Record privacy-safe correlation IDs plus relevant task/provider/model versions, latency, geometry-validation failures, scene-analysis failures, Prepared Scene discovery/segmentation/cache failures, image-repair failures, export failures and auth denials.
@@ -484,6 +521,9 @@ Prepared Scene evaluation measures:
 - clean-background quality
 - remote repair latency/quality
 - support-evidence provenance/confidence and detector-vs-depth agreement
+- depth-profile rejection reason/sample counts/residual
+- inferred depth-direction confidence
+- destination-occlusion hidden fraction/stability
 - provider timeout/fallback behavior
 
 Do not infer device acceptance from a successful build.
@@ -497,14 +537,15 @@ Do not infer device acceptance from a successful build.
 5. source-bound Prepared Scene private persistence + explicit background reconstruction
 6. detector-backed object discovery/correction workflow based on device evidence
 7. detector-guided masks + relative-depth support-profile/hybrid enrichment
-8. stronger source-scene occlusion and calibrated camera/floor/wall mapping
-9. depth-aware occlusion/contact rendering
-10. physical constraint engine / Rapier or RealityKit integration where supported
-11. photo-first Organize visualization using Prepared Scene/shared scene engine
-12. calibrated Build visualization
-13. RoomPlan/RealityKit production capture/AR path
-14. local/cloud image-provider routing and quality/cost optimization
-15. private-beta hardening and broader Build archetypes
+8. diagnosable normalized-nearness + conservative destination-depth occlusion
+9. stronger source-scene semantics and calibrated camera/floor/wall mapping
+10. calibrated depth-aware occlusion/contact rendering
+11. physical constraint engine / Rapier or RealityKit integration where supported
+12. photo-first Organize visualization using Prepared Scene/shared scene engine
+13. calibrated Build visualization
+14. RoomPlan/RealityKit production capture/AR path
+15. local/cloud image-provider routing and quality/cost optimization
+16. private-beta hardening and broader Build archetypes
 
 ## 21. Reconsideration triggers
 
@@ -512,12 +553,13 @@ Revisit architecture if:
 - browser rendering cannot provide acceptable calibrated augmentation fidelity
 - local Prepared Scene model loading exceeds iPhone memory/latency budgets
 - automatic household-object coverage remains inadequate after a broader provider evaluation
+- relative-depth direction cannot be inferred robustly enough for stable destination occlusion
 - RealityKit/RoomPlan requires stronger iOS-native separation
 - segmentation/depth/inpainting workloads exceed browser/Vercel limits or cost
 - Prepared Scene derived storage materially exceeds private-group assumptions
 - public distribution becomes a goal
 - live retail/catalog integration becomes core
 
-## 22. Revision note — 0.5.5
+## 22. Revision note — 0.5.6
 
-Revision 0.5.5 adds two independent reliability layers to the Prepared Scene architecture without promoting estimates to spatial truth. Automatic MediaPipe masks are now detector-guided connected components with a second geometry-agreement gate, while Depth Anything may independently derive a bounded relative-depth support profile and conservatively fuse it with floor-object contact anchors. Detector and depth initialization/inference are time-bounded for stall recovery, and web preview export now fails closed on the repository/security/domain/Arrange/scene/Prepared-Support regression suite plus client TypeScript validation. Physics remains gated behind calibrated/confirmed support and collision geometry.
+Revision 0.5.6 makes relative depth semantically explicit and diagnosable before it is allowed to affect rendering. Depth-support rejection and detector/depth merge outcomes now retain evidence rather than silently falling back; raw provider depth is normalized to a single relative-nearness convention only when direction confidence is sufficient. Prepared Scene may use that derived nearness for conservative destination-depth occlusion after drag release, with a material depth margin, original prepared-mask exclusions, and fail-soft fallback to the unoccluded cutout. These effects remain Estimated augmentation and are not physical geometry. Support-model generation is advanced so older ambiguous depth evidence is recomputed. Physics remains gated behind calibrated/confirmed support and collision geometry.
