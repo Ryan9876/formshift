@@ -64,19 +64,32 @@ function syntheticDepth(width = 130, height = 100) {
   };
 }
 
-function syntheticDepthWithForegroundMaterialEdge(width = 130, height = 120) {
-  const depth = syntheticDepth(width, height);
+function syntheticDepthWithForegroundMaterialEdge(width = 156, height = 144) {
+  const normalized = new Uint8ClampedArray(width * height);
   for (let y = 0; y < height; y += 1) {
-    const ny = y / Math.max(1, height - 1);
-    if (ny < 0.765 || ny > 0.79) continue;
     for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
-      // A narrow false foreground band has a sharper local edge than the real
-      // wall/floor transition but no persistent nearward context below it.
-      depth.normalized[index] = 35;
+      const nx = x / Math.max(1, width - 1);
+      const ny = y / Math.max(1, height - 1);
+      const wallFloor = 0.54 + 0.055 * (nx - 0.5);
+      const rugEdge = 0.72 + 0.035 * (nx - 0.5);
+      // Both transitions persist across the whole image, but the later
+      // floor/material transition is deliberately much stronger. This mirrors
+      // the real-room failure where a coherent rug/hardwood band pulled the
+      // support cutoff too far toward the foreground.
+      const value = ny < wallFloor ? 66 : ny < rugEdge ? 122 : 246;
+      normalized[y * width + x] = Math.max(0, Math.min(255, value + Math.round((nx - 0.5) * 4)));
     }
   }
-  return depth;
+  return {
+    width,
+    height,
+    normalized,
+    dataUrl: 'data:image/png;base64,',
+    provider: 'test',
+    model: 'two-coherent-depth-bands',
+    modelVersion: 'test',
+    processingMs: 1,
+  };
 }
 
 const tv = classifyPreparedLabel('tv');
@@ -111,9 +124,10 @@ assert.ok(depthSupport.confidence >= 0.4 && depthSupport.confidence <= 0.84);
 assert.deepEqual(estimateSupportModelFromDepth(syntheticDepth()), depthSupport);
 
 const artifactAnalysis = analyzeSupportModelFromDepth(syntheticDepthWithForegroundMaterialEdge());
-assert.ok(artifactAnalysis.model, 'real wall/floor transition should remain recoverable when a sharper foreground material edge exists');
+assert.ok(artifactAnalysis.model, 'real wall/floor transition should remain recoverable when a stronger persistent foreground material edge exists');
 assert.equal(artifactAnalysis.diagnostics.reason, 'accepted');
-assert.ok((artifactAnalysis.model?.floorRegionStartY ?? 1) < 0.66, 'narrow rug/material artifact must not replace the room-wide wall/floor support transition');
+assert.ok((artifactAnalysis.model?.floorRegionStartY ?? 1) < 0.62, 'upper wall/floor band must win over the stronger later rug/floor band');
+assert.ok((artifactAnalysis.model?.floorRegionStartY ?? 0) > 0.48, 'selected band must remain near the synthetic wall/floor transition');
 
 const flatDepth = syntheticDepth(60, 60);
 flatDepth.normalized.fill(100);
@@ -232,4 +246,4 @@ for (let channel = 0; channel < 4; channel += 1) {
   assert.equal(quickResult.pixels[quickOutsideOffset + channel], quickSource[quickOutsideOffset + channel], 'unmasked quick-clean pixels must remain source-identical');
 }
 
-console.log('PASS Prepared Scene depth diagnostics, room-wide nearward support, foreground-material rejection, support fusion, conservative source occlusion, mask safety, movement-aware depth, and ghost-resistant quick-clean regression checks');
+console.log('PASS Prepared Scene depth diagnostics, earliest coherent support-band selection, stronger foreground-material rejection, support fusion, conservative source occlusion, mask safety, movement-aware depth, and ghost-resistant quick-clean regression checks');
