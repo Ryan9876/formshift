@@ -1,7 +1,7 @@
 # FormShift Architecture
 
 **Status:** Authoritative architecture  
-**Revision:** 0.5.4  
+**Revision:** 0.5.5  
 **Established:** 2026-08-19  
 **Last material architecture decision:** 2026-08-22
 
@@ -210,7 +210,7 @@ Scene / PreparedScene orchestration
    │
    ├── Segmentation provider
    │    ├── current object-centered MediaPipe path
-   │    ├── isolated Prepared Scene batch MediaPipe path
+   │    ├── detector-guided Prepared Scene MediaPipe path
    │    └── future SAM/native alternatives
    │
    ├── DepthProvider
@@ -224,22 +224,42 @@ Provider output must include provenance and confidence. Providers may be replace
 
 ### Object discovery v1
 
-The first Prepared Scene browser candidate uses a quantized ONNX DETR ResNet-50 model through Transformers.js. It is a feasibility provider rather than the final semantic vocabulary. Because DETR is COCO-trained, household classes outside that vocabulary will be missed. A bounded MediaPipe room sweep and explicit user-added-object path compensate during evaluation.
+The first Prepared Scene browser candidate uses a quantized ONNX DETR ResNet-50 model through Transformers.js. It is a feasibility provider rather than the final semantic vocabulary. Because DETR is COCO-trained, household classes outside that vocabulary will be missed.
 
-An open-vocabulary detector may supplement or replace DETR only behind `ObjectDiscoveryProvider` after device memory/latency is measured.
+Only detector-backed candidates may become automatic movable layers. Unknown or unsupported objects use the explicit **Add missed object** correction path rather than an unlabeled whole-room sweep. An open-vocabulary detector may supplement or replace DETR only behind `ObjectDiscoveryProvider` after commercial license, device memory and latency are validated.
 
-### Depth v1
+### Segmentation v1
+
+MediaPipe remains the current interactive segmentation engine. Automatic Prepared Scene segmentation is not accepted as a raw tap mask: the detector bounding box is supplied as a guide, connected mask components are scored against detector overlap/size/seed distance, and only the best bounded component is eligible for the automatic layer. A second detector/mask agreement gate rejects oversized or room-scale masks.
+
+Manual **Add missed object** retains the unguided object-centered path because no trustworthy detector box exists for that user-corrected object.
+
+### Depth and estimated support v1
 
 The initial browser candidate uses Depth Anything V2 Small. Its output is relative monocular depth, not metric distance, and remains **Estimated augmentation** until calibrated against known device/scene evidence.
 
-### Browser inference fallback
+Prepared Scene may derive an independent `depth-profile` support estimate by sampling bounded vertical transitions across the relative-depth field. That evidence is robustly fit, residual-checked and confidence-bounded. It may be conservatively fused with detector/object contact anchors:
+
+```text
+floor-object contact anchors ─┐
+                              ├─ conservative agreement/fallback merge → PreparedSupportModel
+relative depth profile ───────┘
+```
+
+Support provenance is explicit: `detector-anchors`, `object-anchors`, `depth-profile`, `hybrid`, or `fallback`. A `hybrid` result means two independent estimated evidence sources agreed closely enough to combine; it does **not** mean calibrated floor geometry. If sources materially disagree, the stronger bounded estimate wins rather than manufacturing precision.
+
+### Browser inference fallback and stall recovery
 
 A browser exposing WebGPU does not prove the ONNX WebGPU path is usable. Current compatibility contract:
 - Apple mobile/WebKit uses ONNX WASM with a conservative thread configuration;
 - other browsers may attempt WebGPU;
 - failed WebGPU initialization falls back to WASM;
-- DETR failure may not abort Prepared Scene; segmentation/manual correction remain available;
-- depth failure may not block object manipulation.
+- detector model initialization is bounded to 45 seconds and inference to 30 seconds;
+- depth model initialization is bounded to 45 seconds and inference to 30 seconds;
+- DETR failure/timeout may not abort Prepared Scene; manual correction remains available;
+- depth failure/timeout may not block object manipulation.
+
+The time bounds are recovery ceilings, not performance targets. Device telemetry should drive later optimization.
 
 ## 8. Visualization architecture
 
@@ -413,7 +433,7 @@ Prepared Scene high-quality background repair is a distinct image task with prov
 
 Provider/API keys remain server-only. Private images are not logged into ordinary observability streams.
 
-Local open-source perception models may run in browser/device when privacy, latency and memory budgets are acceptable. Their outputs remain derived evidence subject to the same provenance/confidence boundaries.
+Local open-source perception models may run in browser/device when privacy, latency and memory budgets are acceptable. Their outputs remain derived evidence subject to the same provenance/confidence boundaries. A new model is not admitted to the commercial product solely because code is available; model/license terms must be sufficiently clear for intended use.
 
 ## 17. Security and privacy
 
@@ -452,6 +472,8 @@ Record privacy-safe correlation IDs plus relevant task/provider/model versions, 
 
 Release gates include repository/security/domain checks, client/API typechecks, production web export, interaction regression coverage where available, preview deployment and physical-device acceptance for gesture-sensitive changes.
 
+Wave 3 preview gating adds a fail-closed build boundary for the web candidate: the Vercel web preview runs repository/security/domain/Arrange/scene/Prepared-Support verification plus the client TypeScript check **before** Expo export. A failed guard or client typecheck prevents the preview from becoming READY. The separate API Vercel project remains independently required to build READY; GitHub CI retains the full cross-workspace API typecheck where all workspace dependencies are installed.
+
 Prepared Scene evaluation measures:
 - object discovery coverage
 - per-object segmentation quality
@@ -461,6 +483,8 @@ Prepared Scene evaluation measures:
 - mobile memory pressure
 - clean-background quality
 - remote repair latency/quality
+- support-evidence provenance/confidence and detector-vs-depth agreement
+- provider timeout/fallback behavior
 
 Do not infer device acceptance from a successful build.
 
@@ -471,9 +495,9 @@ Do not infer device acceptance from a successful build.
 3. persistent SceneAnalysis/provider contract
 4. Prepared Scene progressive multi-object feasibility behind independent route/flag
 5. source-bound Prepared Scene private persistence + explicit background reconstruction
-6. broaden object discovery/correction workflow based on device evidence
-7. local depth/support evaluation and Prepared Scene enrichment
-8. calibrated camera/floor/wall mapping and depth ordering
+6. detector-backed object discovery/correction workflow based on device evidence
+7. detector-guided masks + relative-depth support-profile/hybrid enrichment
+8. stronger source-scene occlusion and calibrated camera/floor/wall mapping
 9. depth-aware occlusion/contact rendering
 10. physical constraint engine / Rapier or RealityKit integration where supported
 11. photo-first Organize visualization using Prepared Scene/shared scene engine
@@ -494,6 +518,6 @@ Revisit architecture if:
 - public distribution becomes a goal
 - live retail/catalog integration becomes core
 
-## 22. Revision note — 0.5.4
+## 22. Revision note — 0.5.5
 
-Revision 0.5.4 promotes Prepared Scene persistence from an ephemeral feasibility assumption to a durable, source-bound derived-scene architecture. It establishes private immutable Prepared Scene versions, reusable mask/cutout/background assets, cache-first restore, and the rule that high-quality generative background reconstruction is explicit and accepted only inside derived object-mask regions. Canonical measurements/spatial versions and immutable source photographs remain unaffected.
+Revision 0.5.5 adds two independent reliability layers to the Prepared Scene architecture without promoting estimates to spatial truth. Automatic MediaPipe masks are now detector-guided connected components with a second geometry-agreement gate, while Depth Anything may independently derive a bounded relative-depth support profile and conservatively fuse it with floor-object contact anchors. Detector and depth initialization/inference are time-bounded for stall recovery, and web preview export now fails closed on the repository/security/domain/Arrange/scene/Prepared-Support regression suite plus client TypeScript validation. Physics remains gated behind calibrated/confirmed support and collision geometry.
