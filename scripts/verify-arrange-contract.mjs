@@ -12,14 +12,22 @@ const required = [
   ['v2.2 renderer lineage', source, "rendererVersion: 'photo-arrange-2.2'"],
   ['explicit AI background repair', source, 'async function refineBackground()'],
   ['source photo not overwritten by reset', source, 'persistedSceneUrl ?? photoUrl ?? null'],
+  ['refinement maps browser client pixels into layout-stage pixels', source, 'clientToStagePoint'],
+  ['refinement maps layout-stage pixels into normalized source coordinates', source, 'stageToImagePoint'],
+  ['live stroke uses the same image-to-stage transform', source, 'imageToStagePoint'],
+  ['refinement exposes the actual brush footprint under the finger', source, 'BrushFootprint'],
   ['Safari object drag is tracked from the move handle', canonical, 'activeMovePointersRef.current.add(event.pointerId)'],
   ['Safari object drag forwards pointer movement after capture loss', canonical, 'window.addEventListener(\'pointermove\', forwardPointer, true)'],
   ['page scrolling is blocked only during an active object drag', canonical, "document.addEventListener('touchmove', blockPageScrollDuringObjectDrag, { capture: true, passive: false })"],
   ['failed CSS active-state drag expansion removed', canonical, "[aria-label='Move selected object']:active"],
+  ['legacy mixed-space localPoint conversion removed', source, 'function localPoint('],
+  ['legacy mixed-space stageToImage conversion removed', source, 'function stageToImage('],
 ];
 let failures = 0;
 for (const [name, fileSource, token] of required) {
-  const shouldBeAbsent = name === 'failed CSS active-state drag expansion removed';
+  const shouldBeAbsent = name === 'failed CSS active-state drag expansion removed'
+    || name === 'legacy mixed-space localPoint conversion removed'
+    || name === 'legacy mixed-space stageToImage conversion removed';
   const found = fileSource.includes(token);
   const passes = shouldBeAbsent ? !found : found;
   if (!passes) {
