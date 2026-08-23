@@ -16,7 +16,7 @@
     "verify:arrange": "node scripts/verify-arrange-contract.mjs",
     "verify:scene": "node scripts/verify-scene-boundaries.mjs",
     "verify:prepared-support": "node --experimental-strip-types scripts/verify-prepared-support.mjs",
-    "verify:spatial-import": "node --experimental-strip-types scripts/verify-spatial-import.mjs",
+    "verify:spatial-import": "node --experimental-strip-types scripts/verify-spatial-import.mjs && node scripts/verify-spatial-import-boundary.mjs",
     "verify": "node scripts/verify-repo.mjs && node scripts/verify-security.mjs && npm run domain:test && npm run verify:arrange && npm run verify:scene && npm run verify:prepared-support && npm run verify:spatial-import",
     "client:typecheck": "npm run typecheck -w @formshift/client",
     "api:typecheck": "npm run typecheck -w @formshift/api",
