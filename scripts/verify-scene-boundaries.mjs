@@ -107,18 +107,21 @@ const supportSource = fs.readFileSync(preparedSupport, 'utf8');
 for (const required of [
   'estimateSupportModel',
   'estimateSupportModelFromObjects',
+  'floorBoundarySlope',
+  'floorBoundaryAtX',
   'constrainPreparedPosition',
   'isPersonOccludedCandidate',
   'maskMatchesDetection',
+  'projectedPreparedDepth',
   'comparePreparedDepth',
 ]) {
   if (!supportSource.includes(required)) fail(`Prepared support layer missing ${required}`);
 }
 if (!supportSource.includes("source: 'detector-anchors' | 'object-anchors' | 'fallback'")) fail('Prepared support model does not preserve estimated provenance');
-else pass('Prepared Scene support constraints remain estimated, reversible, and provenance-aware');
+else pass('Prepared Scene support projection is x-dependent, estimated, reversible, and provenance-aware');
 
 const preparedPersistenceSource = fs.readFileSync(preparedPersistence, 'utf8');
-for (const required of [".from('prepared_scenes')", ".eq('source_asset_id', sourceAsset.id)", "PREPARED_SCENE_SCHEMA = 'prepared-scene-1.1'", ".eq('schema_version', PREPARED_SCENE_SCHEMA)", "kind: 'prepared_scene_object_mask_v1'", "kind: 'prepared_scene_object_cutout_v1'"]) {
+for (const required of [".from('prepared_scenes')", ".eq('source_asset_id', sourceAsset.id)", "PREPARED_SCENE_SCHEMA = 'prepared-scene-1.2'", ".eq('schema_version', PREPARED_SCENE_SCHEMA)", "kind: 'prepared_scene_object_mask_v1'", "kind: 'prepared_scene_object_cutout_v1'"]) {
   if (!preparedPersistenceSource.includes(required)) fail(`Prepared Scene persistence missing source-bound derived asset contract ${required}`);
 }
 if (preparedPersistenceSource.includes(".from('spatial_versions')") || preparedPersistenceSource.includes(".from('measurement_observations')")) {
