@@ -9,6 +9,7 @@ const preparedEditor = path.join(root, 'apps/client/src/components/PreparedScene
 const preparedPersistence = path.join(root, 'apps/client/src/prepared/persistence.ts');
 const preparedSupport = path.join(root, 'apps/client/src/prepared/support.ts');
 const preparedDepthSupport = path.join(root, 'apps/client/src/prepared/depthSupport.ts');
+const preparedOcclusion = path.join(root, 'apps/client/src/prepared/occlusion.web.ts');
 const preparedSegmenter = path.join(root, 'apps/client/src/prepared/providers/MediaPipePreparedSegmenter.web.ts');
 const preparedRepairClient = path.join(root, 'apps/client/src/prepared/backgroundRepair.web.ts');
 const repairApi = path.join(root, 'apps/api/api/ai/repair-background.ts');
@@ -82,8 +83,13 @@ for (const required of [
   'segmentPreparedObject',
   'createQuickCleanBackground',
   'createDepthProvider',
-  'estimateSupportModelFromDepth',
-  'mergePreparedSupportModels',
+  'analyzeSupportModelFromDepth',
+  'mergePreparedSupportModelsWithDiagnostics',
+  'depthValueToNearness',
+  'createDestinationOccludedCutout',
+  'refreshDestinationOcclusion',
+  'depthSupportDiagnostics',
+  'supportMergeDecision',
   'floorBoundaryAtX',
   'loadLatestPreparedScene',
   'persistPreparedScene',
@@ -91,7 +97,7 @@ for (const required of [
   'createPreparedSceneRepairMask',
   'compositeRepairedCleanBackground',
   "automaticAcceptance: 'detector-guided-component-v2'",
-  'supportModelVersion',
+  'const SUPPORT_MODEL_VERSION = 3',
   'supportAssistEnabled',
   'constrainPreparedPosition',
   'maskMatchesDetection',
@@ -127,10 +133,29 @@ if (!supportSource.includes("source: 'detector-anchors' | 'object-anchors' | 'de
 else pass('Prepared Scene support projection is x-dependent, estimated, reversible, and provenance-aware');
 
 const depthSupportSource = fs.readFileSync(preparedDepthSupport, 'utf8');
-for (const required of ['estimateSupportModelFromDepth', 'mergePreparedSupportModels', "source: 'depth-profile'", "source: 'hybrid'", 'MIN_SAMPLES', 'residual']) {
+for (const required of [
+  'analyzeSupportModelFromDepth',
+  'estimateSupportModelFromDepth',
+  'mergePreparedSupportModelsWithDiagnostics',
+  'depthValueToNearness',
+  'estimateDepthNearDirection',
+  'insufficient-strong-transitions',
+  'incoherent-transitions',
+  'high-residual',
+  "source: 'depth-profile'",
+  "source: 'hybrid'",
+  'MIN_SAMPLES',
+  'residual',
+]) {
   if (!depthSupportSource.includes(required)) fail(`Prepared depth-surface evidence missing ${required}`);
 }
-if (!failures) pass('Depth Anything can contribute independent bounded room-support evidence without being promoted to calibrated geometry');
+if (!failures) pass('Depth Anything support evidence is diagnosable, direction-normalized, bounded, and not promoted to calibrated geometry');
+
+const occlusionSource = fs.readFileSync(preparedOcclusion, 'utf8');
+for (const required of ['createDestinationOccludedCutout', 'shouldOccludeDepthSample', 'OCCLUSION_MARGIN', 'depthValueToNearness', 'isExcluded', 'hiddenFraction']) {
+  if (!occlusionSource.includes(required)) fail(`Prepared destination occlusion missing ${required}`);
+}
+if (!failures) pass('Destination occlusion is depth-thresholded, excludes original prepared masks, and remains a derived rendering effect');
 
 const preparedSegmenterSource = fs.readFileSync(preparedSegmenter, 'utf8');
 for (const required of ['guideBox?: PreparedBox', 'refineMaskWithGuide', 'COMPONENT_THRESHOLD', 'expandGuide', 'bestScore']) {
