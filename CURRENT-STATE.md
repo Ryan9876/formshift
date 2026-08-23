@@ -95,7 +95,7 @@ Still active:
 
 ## Validation evidence
 
-Functional exact head before this documentation update:
+Functional exact head before documentation-only updates:
 
 `66ef37da8ea474903322e2ae8593fd6c206ad18c`
 
@@ -170,7 +170,7 @@ Do **not** add Rapier/RealityKit physics yet.
 
 The latest screenshot closed the local source-removal ghosting blocker but demonstrated that even a high-confidence coherent monocular-depth band can represent the wrong physical transition. The current cycle therefore keeps support evidence fail-safe and improves band selection rather than increasing confidence or weakening disagreement thresholds.
 
-If the next device run still places the wall-support cutoff on a foreground floor/material band, stop further heuristic tuning and move to the next stronger architecture: explicit image-space support calibration for non-LiDAR photos, with RoomPlan/native structural evidence preferred on supported iPhones. That correction remains derived image-space evidence and does not become canonical metric geometry.
+If the next device run still places the wall-support cutoff on a foreground floor/material band, stop further heuristic tuning and implement the next stronger architecture: **explicit image-space support calibration for non-LiDAR photos**, with the automatic line used only as the initial guess and RoomPlan/native structural evidence preferred on supported iPhones. The corrected image-space boundary remains derived scene evidence and does not become canonical metric geometry.
 
 ## Authoritative record impact
 
