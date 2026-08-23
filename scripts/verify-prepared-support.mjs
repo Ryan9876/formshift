@@ -112,7 +112,7 @@ assert.equal(disagreeMerge.decision, 'anchor-wins-disagreement');
 assert.ok((disagreeMerge.disagreement ?? 0) > 0.16);
 
 assert.equal(depthValueToNearness(0.8, 'higher-is-nearer'), 0.8);
-assert.equal(depthValueToNearness(0.8, 'lower-is-nearer'), 0.2);
+assert.ok(Math.abs(depthValueToNearness(0.8, 'lower-is-nearer') - 0.2) < 1e-12);
 assert.equal(shouldOccludeDepthSample(0.8, 0.55), true, 'materially nearer source pixels should occlude a moved prepared object');
 assert.equal(shouldOccludeDepthSample(0.61, 0.55), false, 'small depth differences must not create unstable occlusion');
 assert.equal(shouldOccludeDepthSample(0.4, 0.55), false, 'farther source pixels remain behind the prepared object');
