@@ -33,7 +33,9 @@ export function createQuickCleanBackground(source: HTMLCanvasElement, masks: Uin
   output.height = height;
   const outputContext = output.getContext('2d');
   if (!outputContext) throw new Error('Prepared Scene clean background is unavailable.');
-  outputContext.putImageData(new ImageData(inpainted.pixels, width, height), 0, 0);
+  const ownedPixels = new Uint8ClampedArray(inpainted.pixels.length);
+  ownedPixels.set(inpainted.pixels);
+  outputContext.putImageData(new ImageData(ownedPixels, width, height), 0, 0);
   return output.toDataURL('image/jpeg', 0.92);
 }
 
