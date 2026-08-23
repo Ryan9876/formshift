@@ -153,9 +153,9 @@ export function maskMatchesDetection(maskBox: PreparedBox, candidate: ObjectDete
   const maskCenter = { x: maskBox.x + maskBox.width / 2, y: maskBox.y + maskBox.height / 2 };
   return overlapOfSmaller >= 0.3
     && detectorCoverage >= 0.18
-    && maskOutsideFraction <= 0.68
+    && maskOutsideFraction <= 0.55
     && ratio >= 0.2
-    && ratio <= 2.6
+    && ratio <= 2.0
     && pointInNormalizedBox(maskCenter, detectorExpanded);
 }
 
