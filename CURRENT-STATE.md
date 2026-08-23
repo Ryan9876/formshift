@@ -1,8 +1,8 @@
 # FormShift Current State
 
-**Revision:** 0.9.27  
+**Revision:** 0.9.28  
 **Date:** 2026-08-23  
-**Milestone:** Wave 3 fixes the iPhone manual-selection refinement coordinate drift with a source-stable client→layout→image transform and permanent scroll/render-scale/zoom regression coverage; Spatial Import remains build-validated and Prepared Scene structural calibration remains open.
+**Milestone:** A second physical iPhone test disproved the first manual-refinement coordinate correction. Wave 3 now compensates iOS WebKit's independently panned visual viewport before mapping PointerEvent client coordinates into the immutable source image, with an exact regression for large visual-viewport displacement.
 
 FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
 
@@ -12,75 +12,87 @@ Production web remains on the validated Photo Arrange v2.2 baseline. Prepared Sc
 
 No production merge, web promotion, database migration, credential change, Polycam API provisioning, or physics integration occurred in this Wave 3 continuation.
 
-## Latest physical interaction evidence — manual refinement drift
+## Latest physical interaction evidence — 0.9.27 failed
 
-The latest supplied iPhone screenshot showed the canonical Photo Arrange refinement surface in **Add** mode with teal painted-selection strokes visibly displaced across the wall and around the TV instead of remaining under the user's intended finger path.
+The latest supplied iPhone screenshot showed the canonical Photo Arrange refinement surface still painting long teal vertical columns through the wall, console, floor and rug instead of keeping the live Add stroke under the user's finger.
 
-This is treated as a real interaction regression, not user error and not a segmentation-quality issue. The defect was traced to mixed coordinate spaces:
-- pointer coordinates came from `getBoundingClientRect()` in rendered browser CSS pixels;
-- the editor's `stageSize` came from React Native `onLayout` in layout-stage pixels;
-- the old code subtracted the DOM rect origin but then normalized directly by `stageSize`;
-- on iOS Safari, page/visual scaling can make rendered DOM dimensions differ from the layout-stage dimensions, causing the painted source-image coordinates and preview overlay to drift.
+This **fails physical acceptance of revision 0.9.27**.
 
-### Implemented fix
+The new pattern is more diagnostic than the previous screenshot:
+- horizontal placement was comparatively stable;
+- vertical coordinates were displaced/stretched dramatically;
+- the failure occurred inside iOS browser chrome with the visual viewport visibly offset from the layout viewport;
+- segmentation was only consuming the incorrect coordinates, so MediaPipe is not the root cause.
 
-A pure `apps/client/src/arrange/refinementCoordinates.ts` transform now owns the refinement mapping:
+The 0.9.27 correction handled rendered DOM scaling versus React Native layout size, but still assumed `PointerEvent.clientX/clientY` and `getBoundingClientRect()` shared the same viewport origin. On iOS WebKit that assumption is false when browser chrome, pinch zoom or visual-viewport panning moves the visual viewport independently of the layout viewport.
+
+## 0.9.28 coordinate correction
+
+`apps/client/src/arrange/refinementCoordinates.ts` now treats the mapping as:
 
 ```text
-browser client coordinate
-→ rendered DOM rect
-→ layout-stage coordinate
-→ app zoom/pan inverse
+PointerEvent client coordinate (visual viewport on iOS WebKit)
+→ add iOS visualViewport offset
+→ layout-viewport client coordinate
+→ rendered DOM rect → layout-stage scaling
+→ FormShift zoom/pan inverse
 → normalized immutable source-image coordinate
 ```
 
-The editor now:
-- converts `clientX/clientY` through the rendered DOM rectangle into layout-stage pixels before applying FormShift zoom/pan;
-- stores refinement strokes only as normalized source-image coordinates;
-- renders the live stroke through the exact inverse image→stage transform;
-- uses the same transform for initial short-tap selection and subsequent Add/Remove strokes;
-- removes the old mixed-space `localPoint` / `stageToImage` helpers;
-- shows a visible Add/Remove brush-footprint ring under the finger so alignment can be checked during the stroke rather than only after recomputation;
-- preserves the existing short-tap, pinch, pan, Safari drag-capture, save, repair and source-immutability contracts.
+Runtime behavior:
+- iPhone/iPad WebKit reads `window.visualViewport.offsetLeft/offsetTop` at pointer-mapping time;
+- the compensation is intentionally limited to the iOS/iPadOS WebKit family so engines that already align client coordinates and client rects are not changed;
+- the existing rendered-rect/layout-stage scale correction remains active;
+- Add/Remove strokes continue to be stored only as normalized source-image coordinates;
+- the live stroke and brush-footprint ring continue to render from the exact inverse image→stage transform;
+- short-tap selection, pinch zoom, Pan mode, object drag, persistence, AI repair and source-photo immutability contracts are unchanged.
 
-### Permanent regression
+## Permanent regression
 
-`scripts/verify-refinement-coordinates.mjs` is now part of `verify:arrange` and proves normalized source coordinates remain invariant across:
-- normal browser layout;
-- substantial vertical page scrolling;
-- rendered DOM scaling relative to React Native layout dimensions;
-- FormShift photo zoom and pan composed with browser scaling;
-- image→stage→image inverse mapping;
-- brush-preview transform behavior;
-- invalid/zero-size DOM geometry failing closed.
+`scripts/verify-refinement-coordinates.mjs` now proves source-coordinate invariance across:
+- normal layout;
+- substantial page scrolling;
+- rendered DOM scaling versus React Native layout size;
+- FormShift photo zoom and pan;
+- image→stage→image round trips;
+- brush-preview transforms;
+- zero-size geometry failing closed;
+- **148 px iOS visual-viewport vertical displacement**;
+- **combined rendered scaling + 126 px visual-viewport displacement + FormShift zoom/pan**;
+- a direct A/B case where raw browser `clientY` changes by **154 px** while resolved layout-stage/source coordinates are required to remain exactly unchanged.
 
-The Arrange contract gate also requires the new transform and brush footprint and fails if the legacy mixed-space helpers return.
+The Arrange contract gate additionally requires:
+- runtime `currentClientViewportOffset()` integration;
+- direct `window.visualViewport.offsetTop` use;
+- iOS-WebKit scoping;
+- the existing source-coordinate and brush-preview contracts.
 
-### Validation evidence
+## Validation evidence
 
 Functional exact head:
 
-`3325ebfb86cbd0c14e0ae47e282dc6bafe65b2d0`
+`1e9834cc8b2b8ce2b0f9e3a47bca4986ef48f555`
 
 Evidence:
-- web Vercel preview `dpl_9XXeRmXFfFbQZRHGLE5k7rZBVJNA` — **READY**;
+- web Vercel preview `dpl_HHMT3v78sBFQSX83sAHDkJpSMaMS` — **READY**;
 - exact-head GitHub combined status — **Vercel web success + Vercel API success**;
 - repository structure verification — pass;
 - security/RLS source verification — pass;
 - domain tests — pass;
 - canonical Arrange/Safari regression suite — pass;
-- **refinement coordinate invariance regression — pass**;
+- iOS visual-viewport runtime-contract checks — pass;
+- **visual-viewport refinement invariance regression — pass**;
 - scene/provider/persistence boundary suite — pass;
 - Prepared Scene support/occlusion/quick-clean regressions — pass;
 - Spatial Import regression/privacy/authority suite — pass;
 - client TypeScript check — pass;
 - static web export — pass.
 
-This fix is **build-validated, not yet physically accepted on iPhone**. Physical acceptance requires painting Add/Remove strokes while the page is vertically scrolled and after photo zoom/pan and confirming the brush ring, live stroke and resulting mask remain directly aligned with the intended image location.
+This correction is **build-validated, not yet physically accepted on iPhone**.
 
 ## Physically validated Prepared Scene baseline
 
-Current iPhone evidence proves:
+Current iPhone evidence still proves:
 - Prepared Scene survives preview authentication;
 - the latest source photo remains authoritative;
 - Safari uses the safe WASM perception path;
@@ -102,7 +114,7 @@ The latest physical support run reported:
 - support model center 66%, slope 4.7 points, confidence 79%, source `hybrid`;
 - depth support strong 10/13, coherent 10, residual approximately 0.027.
 
-The visible 66% line nevertheless tracked a foreground hardwood/rug/material transition rather than the far wall/floor/baseboard transition, so that high-confidence hybrid is **not physically accepted**.
+The visible 66% line nevertheless tracked a foreground hardwood/rug/material transition rather than the far wall/floor/baseboard transition, so that high-confidence hybrid remains **not physically accepted**.
 
 Depth support now retains multiple distinct nearward transitions per sampled column, clusters them into room-wide bands and chooses the earliest/uppermost coherent nearward band that passes bounded sample-count, horizontal-coverage and residual checks. The deterministic suite includes a weaker structural wall/floor band followed by a stronger full-width foreground-material band and requires the earlier structural band to win. This refinement remains build-validated and needs another physical run.
 
@@ -118,7 +130,7 @@ FormShift has a provider-neutral `SpatialImportEvidence` contract and browser-lo
 
 Imported files are read locally with `File.arrayBuffer()`. The lab has no Supabase/persistence authority and every report carries `canonicalMutationAllowed: false`. It can compare external metric bounds/semantic counts with the current `SpatialSnapshot`, but import is evidence rather than a measurement-adoption event.
 
-Polycam remains a **reference capture/reconstruction benchmark and optional import source**, not a runtime dependency. The structural-evidence hierarchy is:
+Polycam remains a **reference capture/reconstruction benchmark and optional import source**, not a runtime dependency. The structural-evidence hierarchy remains:
 
 ```text
 LiDAR-capable iPhone
@@ -131,8 +143,6 @@ Non-LiDAR device
 → reviewed external mesh/floorplan evidence when supplied
 → monocular estimates remain labeled estimated
 ```
-
-A real Polycam/RoomPlan export from the reference room is still the decisive evidence for how aggressively to accelerate the native RoomPlan adapter and demote monocular structural heuristics.
 
 ## Existing Wave 3 safeguards retained
 
@@ -157,13 +167,16 @@ Still active:
 
 ### A. Canonical Arrange refinement regression
 
-1. Open the branch preview's normal `/arrange` route and hard refresh.
-2. Enter manual object selection/refinement on the TV or another distinct object.
-3. Vertically scroll the page so the photo is not at its original viewport position.
-4. Paint a short **Add** stroke along a distinctive object edge. The visible brush ring and teal live stroke must stay directly under the finger and the recomputed mask must change at the same source-image location.
-5. Switch to **Remove** and repeat.
-6. Zoom/pan the photo, repeat Add/Remove, then press **Fit photo** and repeat once more.
-7. Confirm two-finger zoom remains available, Pan mode still pans, and normal Safari page scrolling returns when not actively editing/manipulating.
+1. Open the new branch preview's normal `/arrange` route and hard refresh.
+2. Enter manual selection/refinement on the TV or another distinctive object.
+3. Keep the iOS browser chrome in the same expanded/offset state shown in the failed screenshot if possible.
+4. Paint one **very short Add stroke** across a recognizable TV edge. The brush ring and teal live stroke must remain directly under the finger; no long vertical column is acceptable.
+5. Switch to **Remove** and make one short stroke on the same edge.
+6. Vertically scroll the page, repeat once.
+7. Zoom/pan the photo, repeat once, then Fit photo and repeat once.
+8. Confirm two-finger zoom, Pan mode and ordinary Safari page scrolling still behave normally outside active manipulation.
+
+A single short stroke is sufficient to pass/fail this gate. Do not spend time tracing the object until coordinate alignment is physically proven.
 
 ### B. External structural evidence
 
@@ -172,11 +185,9 @@ For the same room, obtain a Polycam/RoomPlan export if available, prioritized as
 2. GLB or `original.gltf` plus companion assets;
 3. Developer Mode/session ZIP if available.
 
-Inspect the JSON first in `/spatial-import` or provide the export for deeper comparison.
-
 ## Not yet claimed
 
-- physical-device acceptance of the refinement-coordinate fix;
+- physical-device acceptance of the 0.9.28 visual-viewport refinement correction;
 - real Polycam export compatibility beyond deterministic fixtures;
 - raw Developer Mode decoding beyond ZIP inventory;
 - automatic import-to-canonical adoption;
@@ -197,11 +208,13 @@ Inspect the JSON first in `/spatial-import` or provide the export for deeper com
 
 ## Next decision
 
-First physically validate the repaired canonical refinement coordinate path. In parallel, the stronger structural direction remains RoomPlan/Polycam evidence rather than indefinite monocular heuristic tuning. Do **not** add Rapier/RealityKit physics until reliable support/collision geometry exists.
+First physically validate the 0.9.28 refinement coordinate path. If the visual-viewport compensation still fails on the physical browser, stop relying on viewport-origin coordinates entirely and switch the refinement surface to target-local PointerEvent `offsetX/offsetY` with physical instrumentation before further segmentation work.
+
+In parallel, the stronger structural direction remains RoomPlan/Polycam evidence rather than indefinite monocular heuristic tuning. Do **not** add Rapier/RealityKit physics until reliable support/collision geometry exists.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision **0.9.27** records the physical refinement-drift defect, source-stable coordinate fix, permanent regression and exact-head validation boundary.
-- `ARCHITECTURE.md`: unchanged at **0.5.8**; the fix implements the existing gesture/source-coordinate and validation architecture rather than changing it.
-- `DESIGN-SYSTEM.md`: unchanged; the brush preview/selection-refinement contract already requires an in-place stroke preview and precise mobile refinement.
-- `PROJECT-CONSTITUTION.md`: unchanged; source primacy, reversibility and canonical-spatial-truth invariants are unaffected.
+- `CURRENT-STATE.md`: revision **0.9.28** records the failed 0.9.27 physical gate, iOS visual-viewport root cause, 0.9.28 compensation, exact regressions and build validation.
+- `ARCHITECTURE.md`: unchanged at **0.5.8**; this is an implementation correction within the existing source-coordinate/gesture architecture.
+- `DESIGN-SYSTEM.md`: unchanged; no durable interaction contract changed.
+- `PROJECT-CONSTITUTION.md`: unchanged; product invariants are unaffected.
