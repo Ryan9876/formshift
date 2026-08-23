@@ -71,6 +71,7 @@ export function inpaintPreparedMask(
 
   // Vertical interpolation is combined with the horizontal candidate. Averaging
   // the two axes suppresses directional streaks while remaining deterministic.
+  // Keep the vertical candidate in scalar locals to avoid per-pixel allocations.
   const bottomKnown = new Int32Array(height);
   for (let x = 0; x < width; x += 1) {
     let nextKnown = -1;
@@ -90,29 +91,41 @@ export function inpaintPreparedMask(
       }
       const bottom = bottomKnown[y] ?? -1;
       const offset = index * 4;
-      const vertical = new Uint8ClampedArray(4);
+      let verticalRed = 0;
+      let verticalGreen = 0;
+      let verticalBlue = 0;
       let verticalValid = false;
+
       if (previousKnown >= 0 && bottom >= 0 && bottom !== previousKnown) {
-        const t = (y - previousKnown) / (bottom - previousKnown);
-        interpolatePixel(source, (previousKnown * width + x) * 4, (bottom * width + x) * 4, t, vertical, 0);
+        const t = clamp((y - previousKnown) / (bottom - previousKnown), 0, 1);
+        const fromOffset = (previousKnown * width + x) * 4;
+        const toOffset = (bottom * width + x) * 4;
+        verticalRed = interpolateChannel(source[fromOffset] ?? 0, source[toOffset] ?? 0, t);
+        verticalGreen = interpolateChannel(source[fromOffset + 1] ?? 0, source[toOffset + 1] ?? 0, t);
+        verticalBlue = interpolateChannel(source[fromOffset + 2] ?? 0, source[toOffset + 2] ?? 0, t);
         verticalValid = true;
       } else if (previousKnown >= 0 || bottom >= 0) {
         const sampleY = previousKnown >= 0 ? previousKnown : bottom;
-        copyPixel(source, (sampleY * width + x) * 4, vertical, 0);
+        const sampleOffset = (sampleY * width + x) * 4;
+        verticalRed = source[sampleOffset] ?? 0;
+        verticalGreen = source[sampleOffset + 1] ?? 0;
+        verticalBlue = source[sampleOffset + 2] ?? 0;
         verticalValid = true;
       }
 
       const hasHorizontal = horizontalValid[index] === 1;
       if (!hasHorizontal && !verticalValid) continue;
       const alpha = clamp((rawMask - 24) / 112, 0.18, 1);
-      for (let channel = 0; channel < 3; channel += 1) {
-        const candidate = hasHorizontal && verticalValid
-          ? Math.round(((horizontal[offset + channel] ?? 0) + (vertical[channel] ?? 0)) / 2)
-          : hasHorizontal
-            ? (horizontal[offset + channel] ?? 0)
-            : (vertical[channel] ?? 0);
-        output[offset + channel] = blend(source[offset + channel] ?? 0, candidate, alpha);
-      }
+      const horizontalRed = horizontal[offset] ?? 0;
+      const horizontalGreen = horizontal[offset + 1] ?? 0;
+      const horizontalBlue = horizontal[offset + 2] ?? 0;
+      const candidateRed = hasHorizontal && verticalValid ? Math.round((horizontalRed + verticalRed) / 2) : hasHorizontal ? horizontalRed : verticalRed;
+      const candidateGreen = hasHorizontal && verticalValid ? Math.round((horizontalGreen + verticalGreen) / 2) : hasHorizontal ? horizontalGreen : verticalGreen;
+      const candidateBlue = hasHorizontal && verticalValid ? Math.round((horizontalBlue + verticalBlue) / 2) : hasHorizontal ? horizontalBlue : verticalBlue;
+
+      output[offset] = blend(source[offset] ?? 0, candidateRed, alpha);
+      output[offset + 1] = blend(source[offset + 1] ?? 0, candidateGreen, alpha);
+      output[offset + 2] = blend(source[offset + 2] ?? 0, candidateBlue, alpha);
       output[offset + 3] = 255;
       filledPixels += 1;
     }
@@ -129,12 +142,15 @@ function interpolatePixel(
   target: Uint8ClampedArray,
   targetOffset: number,
 ) {
+  const ratio = clamp(t, 0, 1);
   for (let channel = 0; channel < 3; channel += 1) {
-    const from = source[fromOffset + channel] ?? 0;
-    const to = source[toOffset + channel] ?? 0;
-    target[targetOffset + channel] = Math.round(from + (to - from) * clamp(t, 0, 1));
+    target[targetOffset + channel] = interpolateChannel(source[fromOffset + channel] ?? 0, source[toOffset + channel] ?? 0, ratio);
   }
   target[targetOffset + 3] = 255;
+}
+
+function interpolateChannel(from: number, to: number, t: number) {
+  return Math.round(from + (to - from) * t);
 }
 
 function copyPixel(source: Uint8ClampedArray, sourceOffset: number, target: Uint8ClampedArray, targetOffset: number) {
