@@ -2,7 +2,7 @@ import { supabase } from '../auth/AuthProvider';
 import type { PreparedBox, PreparedObjectMobility, PreparedSceneObject, PreparedSupportKind } from './types';
 
 const BUCKET = 'formshift-private';
-const PREPARED_SCENE_SCHEMA = 'prepared-scene-1.1';
+const PREPARED_SCENE_SCHEMA = 'prepared-scene-1.2';
 
 export type PreparedBackgroundQuality = 'quick' | 'ai_repaired';
 
