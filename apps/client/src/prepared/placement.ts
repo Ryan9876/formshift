@@ -1,5 +1,5 @@
-import { constrainPreparedPosition, floorBoundaryAtX, type PreparedSupportModel } from './support';
-import type { PreparedSceneObject } from './types';
+import { constrainPreparedPosition, floorBoundaryAtX, type PreparedSupportModel } from './support.ts';
+import type { PreparedSceneObject } from './types.ts';
 
 export type PreparedPlacementStatus = 'plausible' | 'questionable' | 'unsupported' | 'unknown';
 
