@@ -7,6 +7,7 @@ import {
   mergePreparedSupportModelsWithDiagnostics,
 } from '../apps/client/src/prepared/depthSupport.ts';
 import { shouldOccludeDepthSample } from '../apps/client/src/prepared/occlusion.web.ts';
+import { assessPreparedPlacement, placementAssessmentLabel } from '../apps/client/src/prepared/placement.ts';
 import { inpaintPreparedMask } from '../apps/client/src/prepared/quickInpaint.ts';
 import {
   classifyPreparedLabel,
@@ -208,6 +209,30 @@ assert.ok(wallBottom <= floorBoundaryAtX(perspectiveModel, 0.8) + 0.03 + 1e-9, '
 const freeWall = constrainPreparedPosition(wallObject, { x: 0.8, y: 0.85 }, perspectiveModel, false);
 assert.ok(freeWall.y > constrainedWall.y, 'disabling support assist must restore freer placement');
 
+const plausibleWallAssessment = assessPreparedPlacement({ ...wallObject, position: { x: 0.7, y: 0.38 } }, perspectiveModel);
+assert.equal(plausibleWallAssessment.status, 'plausible');
+assert.equal(placementAssessmentLabel(plausibleWallAssessment), 'Estimated support looks plausible');
+
+const unsupportedWallAssessment = assessPreparedPlacement({ ...wallObject, position: { x: 0.7, y: 0.84 } }, perspectiveModel);
+assert.equal(unsupportedWallAssessment.status, 'unsupported');
+assert.ok((unsupportedWallAssessment.violation ?? 0) > 0.06, 'wall-on-floor placement must register a material support conflict');
+assert.ok(unsupportedWallAssessment.correctedPosition.y < 0.84, 'wall support assessment must provide a reversible correction above the estimated floor region');
+assert.equal(placementAssessmentLabel(unsupportedWallAssessment), 'Placement conflicts with estimated support');
+
+const floatingFloorAssessment = assessPreparedPlacement({ ...floorObject, position: { x: 0.35, y: 0.32 } }, perspectiveModel);
+assert.equal(floatingFloorAssessment.status, 'unsupported');
+assert.ok(floatingFloorAssessment.correctedPosition.y > 0.32, 'floating floor object must provide a downward support correction');
+
+const weakAssessment = assessPreparedPlacement(
+  { ...wallObject, position: { x: 0.7, y: 0.84 } },
+  { ...perspectiveModel, confidence: 0.25, source: 'fallback' },
+);
+assert.equal(weakAssessment.status, 'unknown', 'fallback support evidence may not issue a confident physical verdict');
+assert.equal(weakAssessment.boundaryY, null);
+
+const surfaceAssessment = assessPreparedPlacement({ ...floorObject, label: 'lamp', expectedSupport: 'surface' }, perspectiveModel);
+assert.equal(surfaceAssessment.status, 'unknown', 'surface support is not represented by the current floor/wall model');
+
 const movedTowardViewer = preparedObject({ id: 'nearer', approximateDepth: 0.5, position: { x: 0.4, y: 0.82 } });
 const unmoved = preparedObject({ id: 'farther', approximateDepth: 0.5, position: { x: 0.4, y: 0.58 } });
 assert.ok(projectedPreparedDepth(movedTowardViewer) > projectedPreparedDepth(unmoved), 'moving lower in image should increase estimated projected depth');
@@ -246,4 +271,4 @@ for (let channel = 0; channel < 4; channel += 1) {
   assert.equal(quickResult.pixels[quickOutsideOffset + channel], quickSource[quickOutsideOffset + channel], 'unmasked quick-clean pixels must remain source-identical');
 }
 
-console.log('PASS Prepared Scene depth diagnostics, earliest coherent support-band selection, stronger foreground-material rejection, support fusion, conservative source occlusion, mask safety, movement-aware depth, and ghost-resistant quick-clean regression checks');
+console.log('PASS Prepared Scene depth diagnostics, support-band selection, support fusion, placement assessment, conservative source occlusion, mask safety, movement-aware depth, and ghost-resistant quick-clean regression checks');
