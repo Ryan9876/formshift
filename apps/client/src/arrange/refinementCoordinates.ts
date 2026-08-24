@@ -11,6 +11,9 @@ const ZERO_OFFSET: ArrangeViewportOffset = { x: 0, y: 0 };
  * relative while getBoundingClientRect() remains layout-viewport relative when
  * the browser chrome or pinch-zoom pans the visual viewport. We compensate that
  * visual offset before applying rendered-rect/layout-stage scaling.
+ *
+ * This is now a fallback path. The canonical Safari adapter prefers target-local
+ * pointer offsets, which avoid viewport-origin ambiguity entirely.
  */
 export function clientToStagePoint(
   client: ArrangePoint,
@@ -25,6 +28,30 @@ export function clientToStagePoint(
   return {
     x: (layoutClientX - rect.left) * (stage.width / rect.width),
     y: (layoutClientY - rect.top) * (stage.height / rect.height),
+  };
+}
+
+/**
+ * Convert a PointerEvent target-local offset into a synthetic client point that
+ * the existing frozen editor can consume. The target-local offset is the source
+ * of truth; client/page/visual-viewport origins are intentionally discarded.
+ *
+ * Passing this result through clientToStagePoint with the same viewport offset
+ * is algebraically equivalent to mapping target-local pixels directly into the
+ * rendered surface. This lets the canonical Safari adapter normalize events
+ * without changing the validated editor state machine.
+ */
+export function targetLocalToClientPoint(
+  local: ArrangePoint,
+  rect: ArrangeRect,
+  viewportOffset: ArrangeViewportOffset = currentClientViewportOffset(),
+): ArrangePoint | null {
+  if (!isPositive(rect.width) || !isPositive(rect.height)) return null;
+  if (!Number.isFinite(local.x) || !Number.isFinite(local.y)) return null;
+  const offset = finiteOffset(viewportOffset);
+  return {
+    x: rect.left + local.x - offset.x,
+    y: rect.top + local.y - offset.y,
   };
 }
 
