@@ -1,12 +1,14 @@
 import type { SpatialSnapshot } from '@formshift/domain';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
+import { currentClientViewportOffset, targetLocalToClientPoint } from '../arrange/refinementCoordinates';
 import { prepareObjectCenteredSelectionEngine } from '../vision/MediaPipeObjectSegmenter.web';
 import { tokens } from '../theme/tokens';
 import { PhotoArrangeEditorV17 } from './PhotoArrangeEditorV17';
 
 const STYLE_ID = 'formshift-photo-arrange-canonical';
 const MOVE_HANDLE_SELECTOR = "[aria-label='Move selected object']";
+const REFINEMENT_SURFACE_SELECTOR = "[aria-label='Selection refinement surface']";
 
 type Props = {
   photoUrl?: string | null;
@@ -21,8 +23,9 @@ type Props = {
  * Canonical Photo Arrange web boundary.
  *
  * The v2.2 gesture/editing implementation remains frozen behind this component
- * while provider preparation and visual treatment are composed explicitly.
- * There is no MutationObserver, UI-text scraping, or programmatic button click.
+ * while provider preparation and platform pointer normalization are composed
+ * explicitly. There is no MutationObserver, UI-text scraping, or programmatic
+ * button click.
  */
 export function PhotoArrangeEditor(props: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -86,6 +89,59 @@ export function PhotoArrangeEditor(props: Props) {
       return target.closest(MOVE_HANDLE_SELECTOR) as HTMLElement | null;
     };
 
+    const refinementSurfaceFor = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return null;
+      return target.closest(REFINEMENT_SURFACE_SELECTOR) as HTMLElement | null;
+    };
+
+    /**
+     * iOS Safari can report PointerEvent client coordinates in a visual-viewport
+     * coordinate space that diverges from layout rects as browser chrome moves.
+     * The refinement surface has no interactive children, so offsetX/offsetY are
+     * a stronger source: they are already local to the actual event target.
+     *
+     * Real refinement events are normalized here, before they reach the frozen
+     * editor. Synthetic normalized events are intentionally ignored by this
+     * capture adapter and continue to the editor normally.
+     */
+    const forwardTargetLocalRefinementPointer = (event: PointerEvent) => {
+      if (!event.isTrusted) return;
+      const surface = refinementSurfaceFor(event.target);
+      if (!surface || !root.contains(surface)) return;
+      if (!Number.isFinite(event.offsetX) || !Number.isFinite(event.offsetY)) return;
+
+      const client = targetLocalToClientPoint(
+        { x: event.offsetX, y: event.offsetY },
+        surface.getBoundingClientRect(),
+        currentClientViewportOffset(),
+      );
+      if (!client) return;
+
+      if (event.cancelable) event.preventDefault();
+      event.stopImmediatePropagation();
+
+      surface.dispatchEvent(new PointerEvent(event.type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        isPrimary: event.isPrimary,
+        clientX: client.x,
+        clientY: client.y,
+        screenX: event.screenX,
+        screenY: event.screenY,
+        button: event.button,
+        buttons: event.buttons,
+        pressure: event.pressure,
+        width: event.width,
+        height: event.height,
+        tiltX: event.tiltX,
+        tiltY: event.tiltY,
+        twist: event.twist,
+      }));
+    };
+
     const beginObjectDrag = (event: PointerEvent) => {
       if (!event.isTrusted) return;
       const handle = moveHandleFor(event.target);
@@ -135,6 +191,10 @@ export function PhotoArrangeEditor(props: Props) {
       if (event.cancelable) event.preventDefault();
     };
 
+    root.addEventListener('pointerdown', forwardTargetLocalRefinementPointer, true);
+    root.addEventListener('pointermove', forwardTargetLocalRefinementPointer, true);
+    root.addEventListener('pointerup', forwardTargetLocalRefinementPointer, true);
+    root.addEventListener('pointercancel', forwardTargetLocalRefinementPointer, true);
     root.addEventListener('pointerdown', beginObjectDrag, true);
     window.addEventListener('pointermove', forwardPointer, true);
     window.addEventListener('pointerup', finishObjectDrag, true);
@@ -142,6 +202,10 @@ export function PhotoArrangeEditor(props: Props) {
     document.addEventListener('touchmove', blockPageScrollDuringObjectDrag, { capture: true, passive: false });
 
     return () => {
+      root.removeEventListener('pointerdown', forwardTargetLocalRefinementPointer, true);
+      root.removeEventListener('pointermove', forwardTargetLocalRefinementPointer, true);
+      root.removeEventListener('pointerup', forwardTargetLocalRefinementPointer, true);
+      root.removeEventListener('pointercancel', forwardTargetLocalRefinementPointer, true);
       root.removeEventListener('pointerdown', beginObjectDrag, true);
       window.removeEventListener('pointermove', forwardPointer, true);
       window.removeEventListener('pointerup', finishObjectDrag, true);
