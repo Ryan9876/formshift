@@ -5,6 +5,7 @@ import {
   imageToStagePoint,
   refinementBrushRadius,
   stageToImagePoint,
+  targetLocalToClientPoint,
 } from '../apps/client/src/arrange/refinementCoordinates.ts';
 
 const EPSILON = 1e-9;
@@ -41,9 +42,6 @@ roundTrip({ left: 14, top: 182, width: 327.6, height: 546 }, 1, { x: 0, y: 0 });
 roundTrip({ left: 8, top: 96, width: 351, height: 585 }, 2.4, { x: -188, y: -214 });
 
 // iOS WebKit visual viewport can pan independently from the layout viewport.
-// getBoundingClientRect remains layout-relative while clientY/clientX can be
-// visual-viewport-relative. The same source point must survive a large browser-
-// chrome/visual-viewport displacement.
 roundTrip(
   { left: 14, top: 182, width: 327.6, height: 546 },
   1,
@@ -51,8 +49,8 @@ roundTrip(
   { x: 0, y: 148 },
 );
 
-// The hardest composition: page/render scaling + independent visual viewport +
-// FormShift zoom/pan. This models the physical-iPhone screenshot failure.
+// The hardest fallback composition: page/render scaling + independent visual
+// viewport + FormShift zoom/pan.
 roundTrip(
   { left: 8, top: 96, width: 351, height: 585 },
   2.4,
@@ -61,7 +59,7 @@ roundTrip(
 );
 
 // Changing only the visual viewport origin must change browser clientY while
-// resolving to the exact same source coordinate.
+// resolving to the exact same source coordinate on the fallback client path.
 const rect = { left: 12, top: 164, width: 343.2, height: 572 };
 const clientA = imageToClientPoint(imagePoint, rect, stage, 1.7, { x: -96, y: -132 }, { x: 0, y: 0 });
 const clientB = imageToClientPoint(imagePoint, rect, stage, 1.7, { x: -96, y: -132 }, { x: 0, y: 154 });
@@ -73,6 +71,35 @@ assert.ok(stageA && stageB);
 close(stageA.x, stageB.x, 'visual viewport pan must not change layout-stage x');
 close(stageA.y, stageB.y, 'visual viewport pan must not change layout-stage y');
 
+// PRIMARY SAFARI PATH: target-local offsets are authoritative. The raw client
+// coordinate can be arbitrarily wrong and it must have no effect on the point
+// forwarded into the frozen editor.
+const targetRect = { left: 18, top: 211, width: 327.6, height: 546 };
+const targetLocal = { x: 241.7, y: 193.4 };
+const viewportOffset = { x: 7, y: 154 };
+const normalizedClient = targetLocalToClientPoint(targetLocal, targetRect, viewportOffset);
+assert.ok(normalizedClient, 'target-local pointer must normalize into a client point');
+const targetStage = clientToStagePoint(normalizedClient, targetRect, stage, viewportOffset);
+assert.ok(targetStage, 'normalized target-local pointer must reach layout stage');
+close(targetStage.x, targetLocal.x * (stage.width / targetRect.width), 'target-local x must map directly to rendered surface');
+close(targetStage.y, targetLocal.y * (stage.height / targetRect.height), 'target-local y must map directly to rendered surface');
+
+const corruptRawClient = { x: normalizedClient.x - 283, y: normalizedClient.y + 611 };
+assert.ok(Math.abs(corruptRawClient.y - normalizedClient.y) > 600, 'fixture must materially corrupt raw clientY');
+const normalizedAgain = targetLocalToClientPoint(targetLocal, targetRect, viewportOffset);
+assert.deepEqual(normalizedAgain, normalizedClient, 'target-local normalization must be independent of corrupt raw client coordinates');
+
+// Browser chrome/layout position can change between pointer samples; the same
+// target-local offset must still land on the same stage coordinate.
+const shiftedRect = { ...targetRect, top: -93, left: 4 };
+const shiftedViewport = { x: 21, y: 228 };
+const shiftedClient = targetLocalToClientPoint(targetLocal, shiftedRect, shiftedViewport);
+assert.ok(shiftedClient);
+const shiftedStage = clientToStagePoint(shiftedClient, shiftedRect, stage, shiftedViewport);
+assert.ok(shiftedStage);
+close(shiftedStage.x, targetStage.x, 'target-local x must survive browser chrome/layout motion');
+close(shiftedStage.y, targetStage.y, 'target-local y must survive browser chrome/layout motion');
+
 const stagePoint = imageToStagePoint(imagePoint, 2.4, { x: -188, y: -214 }, stage);
 const restored = stageToImagePoint(stagePoint, 2.4, { x: -188, y: -214 }, stage);
 assert.ok(restored);
@@ -81,5 +108,6 @@ close(restored.y, imagePoint.y, 'image/stage y transform must be inverse');
 
 assert.ok(refinementBrushRadius(stage, 2) > refinementBrushRadius(stage, 1), 'brush footprint should visually grow with image zoom');
 assert.equal(clientToStagePoint({ x: 0, y: 0 }, { left: 0, top: 0, width: 0, height: 100 }, stage), null, 'zero-size DOM rect must fail closed');
+assert.equal(targetLocalToClientPoint({ x: Number.NaN, y: 4 }, targetRect, viewportOffset), null, 'invalid target-local pointer must fail closed');
 
-console.log('PASS Arrange refinement coordinates remain source-stable across page scroll, rendered scaling, iOS visual-viewport panning, zoom/pan, and brush preview transforms');
+console.log('PASS Arrange refinement coordinates prefer target-local pointer offsets and remain source-stable across corrupted client coordinates, browser chrome motion, visual-viewport panning, rendered scaling, and app zoom/pan');
