@@ -1,126 +1,126 @@
 # FormShift Current State
 
-**Revision:** 0.9.29  
+**Revision:** 0.9.30  
 **Date:** 2026-08-23  
-**Milestone:** Wave 3 replaces viewport-origin-dependent iPhone refinement input with a target-local Safari pointer adapter. Real refinement events now use PointerEvent `offsetX/offsetY` as the primary coordinate source before entering the frozen Photo Arrange v2.2 editor; the client/visual-viewport conversion remains fallback only.
+**Milestone:** Wave 3 target-local Safari refinement remains build-validated and awaiting direct brush-alignment proof. A new iPhone screenshot physically confirms lower-half object manipulation, resize/rotation and Safari drag stability. FormShift now also has a confidence-bounded derived placement-assessment engine for support-aware scene reasoning.
 
-FormShift is a **photo-first spatial augmentation product**. The real captured room image is the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
+FormShift is a **photo-first spatial augmentation product**. The real captured room image remains the primary canvas; structured geometry remains the hidden authority. Plan/rectangle views remain secondary technical verification surfaces.
 
 ## Production boundary
 
-Production web remains on the validated Photo Arrange v2.2 baseline. Prepared Scene, the Spatial Import Lab, and the target-local refinement candidate have **not** been promoted to production.
+Production web remains on the validated Photo Arrange v2.2 baseline. Prepared Scene, Spatial Import, target-local refinement candidate work and Wave 3 placement assessment have **not** been promoted to production.
 
-No production merge, web promotion, database migration, credential change, Polycam API provisioning, or physics integration occurred in this Wave 3 continuation.
+No production merge, web promotion, database migration, credential change, Polycam API provisioning or physics integration occurred in this cycle.
 
-## Why 0.9.29 supersedes 0.9.28 before device acceptance
+## Latest physical iPhone evidence
 
-Physical revision 0.9.27 failed with long teal vertical refinement columns. Revision 0.9.28 corrected the most likely iOS WebKit visual-viewport/client-rect mismatch and passed deterministic build gates, but it still depended on reconstructing a viewport-relative client coordinate.
+The latest supplied screenshot shows the selected TV:
+- successfully lifted into editable-object mode;
+- moved well into the lower half of the room photograph;
+- resized and rotated;
+- still directly manipulable after substantial page movement;
+- not causing Safari to take over the gesture or scroll the page during the active object drag.
 
-Rather than spend another physical cycle validating a fragile viewport-origin assumption, Wave 3 now removes that dependency from the primary Safari path.
+This is a **physical pass for the current object-manipulation path** and confirms that the 0.9.29 target-local refinement adapter did not regress the previously validated lower-half drag/Safari behavior.
 
-The canonical Photo Arrange web boundary already owns explicit platform pointer adaptation for Safari object drag. Revision 0.9.29 extends that same narrow boundary to the refinement surface without modifying the validated Photo Arrange v2.2 editing state machine.
+The screenshot does **not** contain an active Add/Remove refinement stroke, so it does not close the 0.9.29 brush-coordinate gate. Physical acceptance still requires one short visible refinement stroke remaining directly under the user's finger.
 
-## 0.9.29 target-local refinement input
+The screenshot also demonstrates an important product boundary: the canonical single-object fallback editor is still a free 2D photo-placement tool. A TV can be rotated and moved onto the rug, where it reads visually like a flat pasted card. This is not accepted as physically plausible scene placement. Support/perspective semantics belong in Prepared Scene / calibrated scene rendering rather than being hard-coded into the generic fallback editor.
 
-The canonical adapter recognizes only the explicit `Selection refinement surface` and intercepts trusted pointer events before the frozen editor receives them.
+## 0.9.29 target-local refinement candidate
+
+The canonical web adapter uses the refinement surface's target-local PointerEvent `offsetX/offsetY` as the primary Safari refinement coordinate source before forwarding into the frozen Photo Arrange v2.2 editor.
 
 Primary path:
 
 ```text
-trusted iPhone PointerEvent
+trusted iPhone pointer
 → target-local offsetX / offsetY
-→ actual refinement-surface rendered rect
-→ normalized synthetic pointer event
+→ refinement-surface rendered coordinates
+→ normalized forwarded pointer
 → frozen Photo Arrange editor
 → rendered-rect/layout-stage scaling
 → FormShift zoom/pan inverse
 → normalized immutable source-image coordinate
 ```
 
-Important properties:
-- the original `clientX/clientY` are deliberately ignored for refinement placement;
-- page scroll, browser chrome movement and visual-viewport origin therefore cannot move the primary pointer source;
-- the target-local offset remains in rendered surface CSS pixels and composes with the existing rendered-rect → layout-stage scaling;
-- only trusted real events are normalized; synthetic normalized events are ignored by the capture adapter so they cannot recurse;
-- the real event is stopped before the frozen editor can process it a second time;
-- pointer identity/type/pressure/buttons/tilt/twist are preserved when the normalized event is forwarded;
-- the existing `currentClientViewportOffset()` path remains available as a fallback and as the algebraic bridge used by the frozen editor, but is no longer the primary source of refinement placement;
-- Add/Remove strokes remain stored only as normalized source-image coordinates;
-- the live stroke, brush ring and selection mask continue to use the same source↔stage transform;
-- short-tap selection, pinch zoom, Pan mode, object drag, persistence, AI repair and source-photo immutability contracts are unchanged.
+Raw `clientX/clientY`, browser chrome motion and `visualViewport` origin are no longer the primary placement source. The legacy client/visual-viewport conversion remains fallback support only.
 
-Files:
-- `apps/client/src/components/PhotoArrangeEditor.web.tsx` — canonical target-local Safari adapter;
-- `apps/client/src/arrange/refinementCoordinates.ts` — target-local normalization helper plus fallback client/visual-viewport transforms;
-- frozen editor remains `apps/client/src/components/PhotoArrangeEditorV17.web.tsx`.
+Permanent regression coverage intentionally corrupts raw browser `clientY` by more than 600 px, changes browser rect and visual-viewport origins, and requires the target-local source coordinate to remain unchanged.
 
-## Permanent regression
+## Wave 3 placement assessment
 
-`verify:arrange` now requires both implementation structure and coordinate behavior.
+The latest screenshot made the next realism problem explicit: image manipulation can succeed while the resulting placement is physically implausible.
 
-The Arrange contract gate requires:
-- an explicit refinement-surface adapter boundary;
-- target-local `event.offsetX/event.offsetY` input;
-- forwarding before frozen-editor handling;
-- normalized forwarded client coordinates;
-- real-event duplicate handling stopped;
-- synthetic-event recursion blocked;
-- legacy client/visual-viewport mapping retained only as fallback support;
-- existing Safari object-drag and page-scroll protections retained.
+New module:
 
-`scripts/verify-refinement-coordinates.mjs` proves:
-- normal browser layout;
-- substantial page scrolling;
-- rendered DOM scaling relative to React Native layout dimensions;
-- FormShift zoom/pan;
-- iOS visual-viewport displacement;
-- image↔stage inverse transforms;
-- **target-local coordinates remain identical when the raw browser client coordinate is intentionally corrupted by more than 600 px**;
-- the same target-local point remains source-stable while browser rect position and visual-viewport offsets both change materially;
-- invalid target-local geometry fails closed.
+`apps/client/src/prepared/placement.ts`
 
-This is the regression that the failed physical screenshot was missing: the primary path is now mathematically independent of the raw client coordinate rather than attempting to correct it.
+It classifies a Prepared Scene placement as:
+- `plausible`
+- `questionable`
+- `unsupported`
+- `unknown`
+
+The assessment uses only **derived support evidence** and never mutates canonical room geometry. It returns:
+- expected support class;
+- estimated boundary used for the decision;
+- normalized support violation when measurable;
+- support confidence;
+- an explanatory reason;
+- a reversible `correctedPosition` generated through the existing support constraint.
+
+Conservative admission rules:
+- low-confidence or fallback support evidence returns `unknown` rather than a false physical verdict;
+- `surface`/`unknown` objects return `unknown` because the current floor/wall model cannot validate a tabletop/shelf/support surface;
+- a wall-supported object materially inside the estimated floor region is `unsupported`;
+- a floor-supported object materially separated above the estimated floor region is `unsupported`;
+- small support errors are `questionable` rather than hard-invalid;
+- no assessment changes measurements, spatial versions, source photography or provider evidence.
+
+The placement assessment is intentionally **not yet surfaced as a calibrated red/green product verdict**. The current monocular support boundary itself has not passed physical acceptance in this room, so a stronger UI claim would manufacture certainty. The next UI integration may expose the result only as clearly labeled Estimated placement evidence until RoomPlan/calibration supplies stronger geometry.
 
 ## Validation evidence
 
 Functional exact head:
 
-`1ab32329a4672c4e988eafc9fa98fbb6f7bc7829`
+`2363cce69879f05eb2d07cebaccb19baef91e32a`
 
 Evidence:
-- web Vercel preview `dpl_6MXtUmxvXFRKtLPMr4ZDG5eXA286` — **READY**;
+- web Vercel preview `dpl_3wXpTh6fyP7X315VQGyTSdW4Rh7p` — **READY**;
 - exact-head combined status — **Vercel web success + Vercel API success**;
 - repository structure verification — pass;
 - security/RLS source verification — pass;
 - domain tests — pass;
 - canonical Arrange/Safari contract suite — pass;
-- **target-local refinement input contract — pass**;
-- **corrupt-client-coordinate target-local invariance regression — pass**;
+- target-local refinement/corrupt-client-coordinate regression — pass;
 - scene/provider/persistence boundary suite — pass;
-- Prepared Scene support/occlusion/quick-clean regressions — pass;
+- Prepared Scene depth/support/occlusion/quick-clean suite — pass;
+- **placement assessment regression — pass**;
 - Spatial Import regression/privacy/authority suite — pass;
 - client TypeScript check — pass;
 - static web export — pass.
 
-Revision 0.9.29 is **build-validated, not yet physically accepted on iPhone**.
+The first integrated placement-assessment regression head failed closed because Node's strip-types verifier could not resolve an extensionless TypeScript import. The module was corrected to explicit `.ts` imports; no behavioral threshold or assertion was weakened.
 
 ## Physically validated Prepared Scene baseline
 
-Current iPhone evidence still proves:
+Current iPhone evidence proves:
 - Prepared Scene survives preview authentication;
-- the latest source photo remains authoritative;
+- latest source photo remains authoritative;
 - Safari uses the safe WASM perception path;
 - DETR-backed discovery and detector-guided MediaPipe segmentation reach an interactive state;
-- the automatic TV is a tight independent photographed-pixel layer and moves without Safari scroll takeover;
+- the automatic TV is a tight independent photographed-pixel layer;
 - broad unlabeled room-region masks are not auto-promoted;
 - Depth Anything V2 Small executes locally on the physical iPhone;
 - source-bound Prepared Scene persistence/restore works;
 - immutable source photography and canonical measurements/spatial versions remain unchanged;
-- the ghost-resistant local quick clean plate physically removes the TV without leaving recognizable duplicate TV/HP/screen content.
+- ghost-resistant local quick-clean removes the TV without leaving recognizable duplicate TV/HP/screen content;
+- normal object manipulation can reach the lower half of the image without Safari scroll takeover.
 
-Mild reconstruction banding remains in the former TV region. That is a visual-quality issue; the prior blocking duplicate/ghost failure is physically closed for the local quick-clean path.
+Mild local-reconstruction banding remains a visual-quality issue, not a source-integrity failure.
 
-## Current structural-support status
+## Current support/depth status
 
 Latest physical support evidence remains:
 - selected `tv`, expected support `wall`;
@@ -130,106 +130,106 @@ Latest physical support evidence remains:
 
 The visible 66% line tracked a foreground hardwood/rug/material transition rather than the far wall/floor/baseboard transition, so that high-confidence hybrid remains **not physically accepted**.
 
-Depth support now retains multiple distinct nearward transitions per sampled column, clusters them into room-wide bands and selects the earliest/uppermost coherent nearward band that passes bounded sample-count, horizontal-coverage and residual checks. This refinement remains build-validated and requires another physical run.
+Depth support now retains multiple distinct nearward transitions per sampled column, clusters them into room-wide bands and selects the earliest/uppermost coherent nearward band that passes bounded coverage/residual checks. That correction remains build-validated and still needs another physical run.
 
-## Spatial Import Lab / Polycam benchmark
+## Spatial Import / Polycam benchmark
 
-Protected preview route: `/spatial-import`.
+Protected route: `/spatial-import`.
 
-FormShift has a provider-neutral `SpatialImportEvidence` contract and browser-local inspector for:
-- Polycam/RoomPlan-style `.json` floorplan exports;
-- `.gltf` scene metadata;
-- `.glb` embedded glTF metadata;
-- `.zip` Developer Mode/session archives at central-directory inventory level.
+FormShift can locally inspect:
+- Polycam/RoomPlan-style floorplan JSON;
+- glTF;
+- GLB;
+- Polycam Developer Mode/session ZIP inventory.
 
-Imported files are read locally with `File.arrayBuffer()`. The lab has no Supabase/persistence authority and every report carries `canonicalMutationAllowed: false`. Polycam remains an optional benchmark/import source, not a runtime dependency.
+Imported evidence remains local and carries `canonicalMutationAllowed: false`. There is no Supabase write or automatic measurement adoption.
 
 Structural-evidence hierarchy remains:
 
 ```text
 LiDAR-capable iPhone
-→ validated native RoomPlan/LiDAR structural capture preferred
+→ validated native RoomPlan/LiDAR structural evidence preferred
 → reviewed external RoomPlan/mesh evidence may supplement/compare
 → single-photo monocular depth remains fallback/augmentation
 
 Non-LiDAR device
 → photo/multi-view evidence + explicit calibration
 → reviewed external mesh/floorplan evidence when supplied
-→ monocular estimates remain labeled estimated
+→ monocular results remain Estimated
 ```
 
-## Existing Wave 3 safeguards retained
+Polycam remains a benchmark/import source rather than a runtime dependency.
 
-Still active:
-- source-photo immutability and canonical spatial/measurement authority;
-- detector-guided connected-component automatic MediaPipe masks;
-- whole-room/oversized automatic-mask rejection;
-- normalized relative-nearness convention (`0` farther → `1` nearer);
-- explicit detector/depth acceptance and merge diagnostics;
-- conservative destination-depth occlusion after drag release;
-- original Prepared Scene object masks excluded from the source occluder field;
-- deterministic ghost-resistant quick clean plate using unmasked source pixels;
-- bounded/feathered explicit AI background repair;
-- anti-ghost Prepared Scene repair prompt v1.1.0;
-- Prepared Scene cache schema `prepared-scene-1.3`;
-- source-photo-specific private persistence;
+## Existing safeguards retained
+
+- source-photo immutability;
+- canonical spatial/measurement authority;
+- detector-guided connected-component automatic masks;
+- person-overlap deferral;
+- normalized relative nearness (`0` farther → `1` nearer);
+- diagnosable detector/depth support fusion;
+- conservative destination occlusion after release;
+- ghost-resistant local clean plate;
+- mask-bounded explicit AI background repair;
+- source-photo-bound Prepared Scene persistence;
 - fail-closed preview validation;
 - Spatial Import no-upload/no-canonical-mutation boundary;
 - no physics.
 
-## Immediate physical acceptance
+## Immediate acceptance gates
 
-### A. Canonical Arrange target-local refinement
+### A. Canonical Arrange refinement
 
-1. Open the branch preview's normal `/arrange` route and hard refresh.
-2. Enter manual selection/refinement on the TV or another distinctive object.
-3. Keep Safari browser chrome expanded/offset if possible.
-4. Draw one **very short Add stroke** across a distinctive object edge.
-5. The brush ring and teal live stroke must remain directly beneath the finger. **Any long vertical column fails the gate.**
-6. Draw one short **Remove** stroke beside it.
-7. Vertically scroll the page and repeat once.
-8. Zoom/pan the photo and repeat once; then Fit photo and repeat once.
-9. Confirm two-finger zoom, Pan mode and normal Safari page scrolling still work outside active manipulation.
+1. Open the current branch `/arrange` preview and hard refresh.
+2. Enter manual selection/refinement.
+3. Draw one **short Add stroke** across a distinctive TV edge.
+4. The brush ring and teal stroke must remain directly under the finger; any long vertical column fails.
+5. Repeat with Remove.
+6. Repeat once after vertical page scroll and once after photo zoom/pan.
 
-A short stroke is sufficient. Do not trace the whole object until source alignment is physically accepted.
+The latest screenshot already passes lower-half object drag/resize/rotate behavior, so there is no need to repeat a long drag test unless a regression appears.
 
-### B. External structural evidence
+### B. Prepared Scene support
 
-For the same room, obtain a Polycam/RoomPlan export if available, prioritized as:
-1. `original_floorplan.json` or equivalent structured floorplan JSON;
-2. GLB or `original.gltf` plus companion assets;
-3. Developer Mode/session ZIP if available.
+1. Open `/arrange-prepared`.
+2. Wait for the current support/depth analysis.
+3. Confirm where the revised Estimated floor boundary lands.
+4. With Support assist on, try to move the automatic wall-supported TV materially into the floor region.
+5. Turn Support assist off and confirm free placement returns.
+6. Re-enable it and confirm reversible correction.
+
+A support verdict is still Estimated until calibrated/RoomPlan evidence exists.
+
+### C. External structural benchmark
+
+For the same room, obtain when available:
+1. `original_floorplan.json` or equivalent;
+2. GLB or `original.gltf` plus assets;
+3. Developer Mode/session ZIP.
 
 ## Not yet claimed
 
-- physical-device acceptance of the 0.9.29 target-local refinement adapter;
-- real Polycam export compatibility beyond deterministic fixtures;
-- raw Developer Mode decoding beyond ZIP inventory;
-- automatic import-to-canonical adoption;
-- Polycam API integration;
-- production RoomPlan capture/normalization;
-- physical acceptance of the latest support-band selector;
-- physical acceptance of Support Assist on/off/re-enable correction;
-- physical acceptance of destination occlusion;
-- physical acceptance of current AI-repair quality;
-- calibrated camera intrinsics/vanishing points;
+- physical brush-alignment acceptance of 0.9.29;
+- physical acceptance of the revised support-band selector;
 - calibrated wall/floor planes;
 - metric depth from the single-photo pipeline;
-- production-quality household-object coverage;
-- automatic person/furniture pixel separation rather than safe deferral;
+- physically correct perspective projection onto floor/wall planes;
 - physically correct contact shadows/relighting;
+- production RoomPlan capture/normalization;
+- real Polycam export compatibility beyond deterministic fixtures;
+- automatic external-evidence adoption into canonical geometry;
+- production-quality household-object coverage;
+- automatic person/furniture pixel separation;
 - gravity/rigid-body physics;
 - Prepared Scene scale/rotate controls.
 
 ## Next decision
 
-Physically validate revision 0.9.29. If target-local `offsetX/offsetY` still produces vertical drift on the real device, stop adapting the frozen editor through synthesized PointerEvents and move the coordinate ownership directly into a new typed refinement-surface component before any further segmentation work.
-
-In parallel, structural work remains directed toward RoomPlan/Polycam evidence rather than indefinite monocular heuristic tuning. Do **not** add Rapier/RealityKit physics until reliable support/collision geometry exists.
+Close the target-local brush-alignment gate first. In parallel, continue the support path as **derived placement evidence** rather than adding physics. Once RoomPlan/Polycam or explicit calibration supplies trustworthy support/collision geometry, the same placement-assessment contract can graduate from Estimated guidance into the input boundary for Rapier/RealityKit physical constraints.
 
 ## Authoritative record impact
 
-- `CURRENT-STATE.md`: revision **0.9.29** records the target-local Safari adapter, supersession of the viewport-origin primary path, exact validation evidence and remaining physical gate.
-- `ARCHITECTURE.md`: unchanged at **0.5.8**; the canonical web boundary already owns explicit Safari gesture adaptation, so this is an implementation hardening within the existing architecture.
-- `DESIGN-SYSTEM.md`: unchanged; the existing refinement contract already requires precise in-place stroke feedback.
-- `PROJECT-CONSTITUTION.md`: unchanged; source primacy, reversibility and canonical-spatial-truth invariants are unaffected.
+- `CURRENT-STATE.md`: revision **0.9.30** records the physical lower-half manipulation pass, still-open brush gate and build-validated derived placement assessment.
+- `ARCHITECTURE.md`: unchanged at **0.5.8**; placement assessment implements the existing derived-evidence/support-constraint architecture.
+- `DESIGN-SYSTEM.md`: unchanged; no durable interaction contract changed.
+- `PROJECT-CONSTITUTION.md`: unchanged; source primacy, reversibility and canonical-spatial-truth invariants remain intact.
